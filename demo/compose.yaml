@@ -1,0 +1,19 @@
+services:
+  demo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: bokhylle-demo:local
+    environment:
+      BOKHYLLE_DEMO_MODE: "true"
+      BOKHYLLE_SECURE_COOKIES: "${BOKHYLLE_SECURE_COOKIES:-false}"
+      BOKHYLLE_SCAN_ON_STARTUP: "true"
+      BOKHYLLE_TRUSTED_PROXY: "${BOKHYLLE_TRUSTED_PROXY:-false}"
+    user: "${BOKHYLLE_UID:-1000}:${BOKHYLLE_GID:-1000}"
+    ports:
+      - "${BOKHYLLE_DEMO_BIND:-127.0.0.1}:${BOKHYLLE_DEMO_PORT:-8081}:8080"
+    volumes:
+      - ./data/config:/config
+      - ./data/library:/library:ro
+      - ./data/downloads:/downloads
+    restart: unless-stopped

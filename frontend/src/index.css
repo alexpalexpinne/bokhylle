@@ -1,0 +1,301 @@
+@import "tailwindcss";
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "./styles/shelves.css";
+
+@theme {
+  /* Themeable tokens (values live on :root and [data-theme="ink"]) */
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-surface-3: var(--c-surface-3);
+
+  --color-ink: var(--c-ink);
+  --color-ink-soft: var(--c-ink-soft);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-faint: var(--c-ink-faint);
+
+  --color-accent: var(--c-accent);
+  --color-accent-strong: var(--c-accent-strong);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+
+  --color-line: var(--c-line);
+  --color-overlay: var(--c-overlay);
+  --color-focus: var(--c-focus);
+
+  --color-oxide: var(--c-oxide);
+  --color-moss: var(--c-moss);
+  --color-wine: var(--c-wine);
+
+  /* Motion */
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Typography: Newsreader for editorial voice, Plex for catalogue/UI */
+  --font-display: "Newsreader Variable", ui-serif, Georgia, serif;
+  --font-sans:
+    "IBM Plex Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --text-display: 3.25rem;
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.022em;
+  --text-hero: 2.5rem;
+  --text-hero--line-height: 1.08;
+  --text-hero--letter-spacing: -0.018em;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.012em;
+
+  /* Shape: rectangular by default; pills are for real filters/tags only */
+  --radius-card: 0.875rem;
+  --radius-panel: 1.25rem;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.2), 0 10px 30px -16px rgb(0 0 0 / 0.35);
+  --shadow-lift: 0 2px 6px rgb(0 0 0 / 0.25), 0 24px 50px -20px rgb(0 0 0 / 0.45);
+  --shadow-modal: 0 30px 80px -24px rgb(0 0 0 / 0.5);
+
+  /* Layout */
+  --container-content: 82rem;
+}
+
+/*
+ * Paper is the canonical Bokhylle identity; Ink is its expression after dark.
+ * No attribute = follow the system. "paper"/"ink" force one expression.
+ */
+:root {
+  --c-canvas: #f7f4ee;
+  --c-surface: #f0ebe2;
+  --c-surface-2: #e8e1d6;
+  --c-surface-3: #ded5c7;
+
+  --c-ink: #16120e;
+  --c-ink-soft: #3b322a;
+  --c-ink-muted: #5f5548;
+  --c-ink-faint: #6f6354;
+
+  --c-accent: #a3461f;
+  --c-accent-strong: #8f3c1c;
+  --c-accent-ink: #fdf7ef;
+  --c-success: #3f6b4a;
+  --c-warning: #8a5a17;
+  --c-danger: #a33a2c;
+
+  --c-line: #ddd5c8;
+  --c-overlay: rgb(22 18 14 / 0.55);
+  --c-focus: #a3461f;
+
+  --c-oxide: #a3461f;
+  --c-moss: #56624a;
+  --c-wine: #692f38;
+
+  color-scheme: light;
+}
+
+:root[data-theme="ink"] {
+  --c-canvas: #1a1511;
+  --c-surface: #221b15;
+  --c-surface-2: #2c231a;
+  --c-surface-3: #382c20;
+
+  --c-ink: #f1e9da;
+  --c-ink-soft: #cdc2b4;
+  --c-ink-muted: #9a8d7d;
+  --c-ink-faint: #a89a88;
+
+  --c-accent: #d5794a;
+  --c-accent-strong: #e39a72;
+  --c-accent-ink: #2a1408;
+  --c-success: #7fc39a;
+  --c-warning: #e0a45e;
+  --c-danger: #e08c7f;
+
+  --c-line: #322619;
+  --c-overlay: rgb(16 12 9 / 0.78);
+  --c-focus: #d5794a;
+
+  --c-oxide: #d5794a;
+  --c-moss: #8a9a76;
+  --c-wine: #b06a75;
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="paper"]) {
+    --c-canvas: #1a1511;
+    --c-surface: #221b15;
+    --c-surface-2: #2c231a;
+    --c-surface-3: #382c20;
+
+    --c-ink: #f1e9da;
+    --c-ink-soft: #cdc2b4;
+    --c-ink-muted: #9a8d7d;
+    --c-ink-faint: #a89a88;
+
+    --c-accent: #d5794a;
+    --c-accent-strong: #e39a72;
+    --c-accent-ink: #2a1408;
+    --c-success: #7fc39a;
+    --c-warning: #e0a45e;
+    --c-danger: #e08c7f;
+
+    --c-line: #322619;
+    --c-overlay: rgb(16 12 9 / 0.78);
+    --c-focus: #d5794a;
+
+    --c-oxide: #d5794a;
+    --c-moss: #8a9a76;
+    --c-wine: #b06a75;
+
+    color-scheme: dark;
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+.bokhylle-reader[data-reader-theme="paper"] {
+  --c-canvas: #f7f4ee;
+  --c-surface: #f0ebe2;
+  --c-surface-2: #e8e1d6;
+  --c-surface-3: #ded5c7;
+  --c-ink: #16120e;
+  --c-ink-soft: #3b322a;
+  --c-ink-muted: #5f5548;
+  --c-ink-faint: #6f6354;
+  --c-accent: #a3461f;
+  --c-accent-strong: #8f3c1c;
+  --c-accent-ink: #fdf7ef;
+  --c-line: #ddd5c8;
+  --c-focus: #a3461f;
+  --c-danger: #a33a2c;
+  color-scheme: light;
+}
+
+.bokhylle-reader[data-reader-theme="warm"] {
+  --c-canvas: #efe2c8;
+  --c-surface: #e8d8b9;
+  --c-surface-2: #dfcca9;
+  --c-surface-3: #d4bd95;
+  --c-ink: #271d13;
+  --c-ink-soft: #443524;
+  --c-ink-muted: #66533b;
+  --c-ink-faint: #725e43;
+  --c-accent: #8c371b;
+  --c-accent-strong: #742b14;
+  --c-accent-ink: #fff4e4;
+  --c-line: #cfb991;
+  --c-focus: #8c371b;
+  --c-danger: #922a20;
+  color-scheme: light;
+}
+
+.bokhylle-reader[data-reader-theme="ink"] {
+  --c-canvas: #1a1511;
+  --c-surface: #221b15;
+  --c-surface-2: #2c231a;
+  --c-surface-3: #382c20;
+  --c-ink: #f1e9da;
+  --c-ink-soft: #cdc2b4;
+  --c-ink-muted: #9a8d7d;
+  --c-ink-faint: #a89a88;
+  --c-accent: #d5794a;
+  --c-accent-strong: #e39a72;
+  --c-accent-ink: #2a1408;
+  --c-line: #322619;
+  --c-focus: #d5794a;
+  --c-danger: #e08c7f;
+  color-scheme: dark;
+}
+
+.bokhylle-reader[data-reader-theme] {
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-surface-3: var(--c-surface-3);
+  --color-ink: var(--c-ink);
+  --color-ink-soft: var(--c-ink-soft);
+  --color-ink-muted: var(--c-ink-muted);
+  --color-ink-faint: var(--c-ink-faint);
+  --color-accent: var(--c-accent);
+  --color-accent-strong: var(--c-accent-strong);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-line: var(--c-line);
+  --color-focus: var(--c-focus);
+  --color-danger: var(--c-danger);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+@layer base {
+  *:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+.rail-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+}
+
+::view-transition-group(book-cover) {
+  animation-duration: 320ms;
+  animation-timing-function: var(--ease-smooth);
+}
+
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop {
+  animation: pop 180ms var(--ease-smooth);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

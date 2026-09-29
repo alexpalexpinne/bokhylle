@@ -1,0 +1,6 @@
+# Overlay for a published image. Set BOKHYLLE_IMAGE to a release tag or digest.
+# Pull first, then start with --no-build; the base Compose file supports source
+# builds and supplies the same volumes, port, and environment configuration.
+services:
+  bokhylle:
+    image: "${BOKHYLLE_IMAGE:?Set BOKHYLLE_IMAGE to a published Bokhylle image}"

@@ -1,0 +1,28 @@
+# Optional examples; add this overlay and select only the profile you need.
+services:
+  jackett:
+    image: "${JACKETT_IMAGE:-lscr.io/linuxserver/jackett:latest}"
+    profiles: [torznab]
+    environment:
+      PUID: "${BOKHYLLE_UID:-10001}"
+      PGID: "${BOKHYLLE_GID:-10001}"
+      TZ: "${TZ:-UTC}"
+    ports:
+      - "${INTEGRATION_WEB_BIND:-127.0.0.1}:9117:9117"
+    volumes:
+      - "./data/jackett:/config"
+    restart: unless-stopped
+
+  sabnzbd:
+    image: "${SABNZBD_IMAGE:-lscr.io/linuxserver/sabnzbd:latest}"
+    profiles: [usenet]
+    environment:
+      PUID: "${BOKHYLLE_UID:-10001}"
+      PGID: "${BOKHYLLE_GID:-10001}"
+      TZ: "${TZ:-UTC}"
+    ports:
+      - "${INTEGRATION_WEB_BIND:-127.0.0.1}:8082:8080"
+    volumes:
+      - "./data/sabnzbd:/config"
+      - "${DOWNLOADS_DIR:-./data/downloads}:/downloads"
+    restart: unless-stopped

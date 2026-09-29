@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a user-facing improvement
+title: "Feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task and where the current flow stops short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe what you would expect to happen.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include device or reader details when relevant, without private data.

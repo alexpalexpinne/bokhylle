@@ -1,0 +1,70 @@
+# Spotlight and shelves
+
+This document records the current Home and browsing behavior. See
+[design principles](design-principles.md) for the visual rules and
+[frontend standards](frontend-standards.md) for interaction and accessibility.
+
+## Shelves and appearance
+
+Home uses continuous shelf rails and a matching featured shelf. The shelf
+surface and vase are small inline SVGs with no external assets or new packages.
+Profile → Appearance saves Light oak, Faded black or Muted metal, decorations,
+and automatic Spotlight rotation per profile. Paper/Ink remains the device's
+theme choice.
+
+Discover and Library use responsive shelf grids with one continuous surface
+per row, including partial rows. They share Home's cover sizing, materials and
+profile finish while retaining filters, pagination, child shelf scope and the
+existing book, author and actions. Author portraits keep their layout.
+Shelf bands are 6px on mobile and 8px on larger screens, with shared top, front
+and side faces and restrained CSS shadows.
+
+Library keeps All and relevant publication types as quiet scope tabs. Comics &
+Manga appears only when the current shelf scope has classified volumes. Its
+cards represent local series identities, with ungrouped comics shown
+individually. A series opens an
+ordered volume shelf; each volume still opens its own book detail page. Search
+returns individual volumes. Magazine and catalogue kinds remain in All until
+their own publication and issue model is ready.
+
+The series page shows the current volume and finished volumes for the signed-in
+profile. **Mark finished** is an explicit choice; merely opening a file does
+not count. The next-volume link requires a single, consecutive numbered volume
+after the highest finished regular volume. A gap is shown as missing, while
+duplicate numbers and specials do not produce a guess. Progress remains tied
+to the book when its file is replaced.
+
+## Spotlight layout and rotation
+
+Spotlight advances every ten seconds while visible; hover, keyboard focus,
+touch and open dialogs suspend it temporarily. Rotation starts a fresh interval
+after interaction ends or an arrow is used. Previous and next controls remain
+centered beneath both Spotlight columns at every screen size. Reduced motion,
+child and shared demo profiles use manual navigation.
+
+At 375px and above, mobile Spotlight puts the text and action on the left and
+the featured cover on the right, with carousel controls below. Narrower phones
+keep the description and action below both columns and omit the vase. Mobile
+excerpts use two to five complete lines according to the space beside the
+title. Actions occupy a fixed row with at least 12–16px clearance after the
+excerpt and metadata, keeping the button stationary between slides. Shorter
+copy leaves extra whitespace above that row. Unowned books have no ownership
+label. The outer frame, shelf and controls also stay stable, with the mobile
+shelf centered vertically. Covers keep their proportions and space beside the
+upright; landscape artwork also omits the vase.
+
+## Book information
+
+Provider staff-picks collection tags are hidden in Spotlight; genuine subjects,
+ratings and language metadata remain available. Spotlight applies each
+profile's preferred languages to saved catalogue works and to the actual
+editions of downloaded files. Catalogue availability is stored separately from
+a file's edition language; an Open Library work with English and Russian
+editions is eligible for an English reader, while a Russian-only downloaded
+file is not. Unknown-language books remain eligible. The library detail
+distinguishes "Available in EN" from an edition's language and publication year;
+it does not label a catalogue work with an arbitrary sampled edition's date or
+language.
+
+Continue reading appears for unfinished books reported by browser or KOReader progress
+sync.

@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible Bokhylle problem
+title: "Bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For a security issue, use the private reporting route in SECURITY.md.
+        Remove tokens, passwords, private book metadata, and local paths from public reports.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Docker Compose from source
+        - Published container image
+        - Local binary
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the expected and actual result.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant diagnostics
+      description: Redacted logs, browser and device, and integration health results if relevant.

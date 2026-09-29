@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="920" viewBox="0 0 980 920" role="img" aria-label="BOKHYLLE stacked logo dark">
+<rect width="100%" height="100%" fill="#1F1F1F"/>
+
+<g transform="translate(172.480 70.000) scale(0.84)">
+<!-- B/H bookshelf icon -->
+
+  <!-- B outer left vertical -->
+  <rect x="0" y="0" width="84" height="628" fill="#FFFFFF"/>
+
+  <!-- B top horizontal -->
+  <rect x="0" y="0" width="380" height="84" fill="#FFFFFF"/>
+
+  <!-- Middle shelf / H crossbar -->
+  <rect x="0" y="272" width="756" height="84" fill="#FFFFFF"/>
+
+  <!-- B bottom horizontal -->
+  <rect x="0" y="544" width="380" height="84" fill="#FFFFFF"/>
+
+  <!-- B right vertical with 45-degree cuts -->
+  <path d="M336,0 L380,0 L420,40 L420,588 L380,628 L336,628 Z" fill="#FFFFFF"/>
+
+  <!-- H right vertical -->
+  <rect x="672" y="0" width="84" height="628" fill="#FFFFFF"/>
+
+  <!-- Books on upper H shelf, with visible gap above the shelf -->
+  <rect x="450" y="92" width="68" height="168" rx="6" fill="#D46E3D"
+        transform="rotate(-10 484.0 260)"/>
+  <rect x="544" y="128" width="54" height="132" rx="4" fill="#FFFFFF"/>
+  <rect x="610" y="156" width="56" height="104" rx="4" fill="#FFFFFF"/>
+</g>
+<g transform="translate(87.332 825.000) scale(1.000000)">
+<path d="M124 0H726C1071 0 1252 168 1252 419C1252 631 1114 754 936 775V777C1096 821 1195 931 1195 1103C1195 1336 1014 1490 700 1490H124ZM384 215V652H704C880 652 981 566 981 428C981 291 878 215 698 215ZM384 859V1275H688C839 1275 931 1195 931 1067C931 940 839 859 688 859Z" fill="#FFFFFF" transform="translate(0.000 0) scale(0.064453 -0.064453)"/>
+<path d="M766 -24C1165 -24 1460 279 1460 744C1460 1211 1165 1514 766 1514C367 1514 72 1211 72 744C72 280 367 -24 766 -24ZM766 213C522 213 338 404 338 744C338 1085 522 1277 766 1277C1009 1277 1193 1085 1193 744C1193 404 1009 213 766 213Z" fill="#FFFFFF" transform="translate(102.820 0) scale(0.064453 -0.064453)"/>
+<path d="M124 0H388V436L592 667L1045 0H1353L770 845L1343 1490H1017L621 1041C543 951 466 861 388 771V1490H124Z" fill="#FFFFFF" transform="translate(219.562 0) scale(0.064453 -0.064453)"/>
+<path d="M124 0H388V646H1075V0H1340V1490H1075V875H388V1490H124Z" fill="#FFFFFF" transform="translate(325.799 0) scale(0.064453 -0.064453)"/>
+<path d="M563 0H823V576L1368 1490H1065L802 1031C765 967 730 902 695 837C660 902 624 967 586 1031L317 1490H13L563 576Z" fill="#FFFFFF" transform="translate(438.158 0) scale(0.064453 -0.064453)"/>
+<path d="M124 0H1079V229H388V1490H124Z" fill="#FFFFFF" transform="translate(545.168 0) scale(0.064453 -0.064453)"/>
+<path d="M124 0H1079V229H388V1490H124Z" fill="#FFFFFF" transform="translate(635.742 0) scale(0.064453 -0.064453)"/>
+<path d="M124 0H1159V229H388V644H1101V869H388V1261H1159V1490H124Z" fill="#FFFFFF" transform="translate(726.316 0) scale(0.064453 -0.064453)"/>
+</g>
+
+</svg>

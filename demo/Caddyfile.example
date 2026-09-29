@@ -1,0 +1,16 @@
+# Example for Caddy on the host, directly receiving public traffic.
+# Replace both domains, point DNS at the server, and merge into your existing
+# Caddyfile. The website directory must contain only the built static files.
+example.com {
+	root * /srv/bokhylle-website
+	encode zstd gzip
+	file_server
+}
+
+demo.example.com {
+	reverse_proxy 127.0.0.1:8081 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+		header_up -Forwarded
+	}
+}

@@ -1,0 +1,51 @@
+[package]
+name = "bokhylle-server"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+argon2 = "0.6.0"
+async-trait = "0.1.92"
+axum.workspace = true
+bokhylle-acquisition = { version = "0.1.0", path = "../bokhylle-acquisition" }
+bokhylle-core = { version = "0.1.0", path = "../bokhylle-core" }
+bokhylle-importer = { version = "0.1.0", path = "../bokhylle-importer" }
+bokhylle-library = { version = "0.1.0", path = "../bokhylle-library" }
+bokhylle-metadata = { version = "0.1.0", path = "../bokhylle-metadata" }
+base64 = "0.23.1"
+getrandom = "0.4.3"
+futures-core = "0.3"
+hex = "0.4.3"
+md-5 = "0.11.0"
+lettre = { version = "0.11.23", features = ["tokio1-rustls-tls", "builder", "smtp-transport", "hostname", "pool"], default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate"] }
+thiserror = "2.0.20"
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { version = "1.26.1", features = ["v4", "v7"] }
+libc = "0.2"
+rmcp = { version = "3.4.0", features = ["server", "transport-streamable-http-server", "transport-streamable-http-server-session", "tower"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+roxmltree = "0.21.1"
+url = "2.5.8"
+aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "http"] }
+schemars = "0.9"
+
+[dev-dependencies]
+rmcp = { version = "3.4.0", features = ["client", "transport-streamable-http-client-reqwest"] }
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "sqlite", "migrate"] }
+tempfile = "3.27.0"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-util", "net"] }
+tower = { version = "0.5.3", features = ["util"] }
+wiremock = "0.6.5"
+zip = "8.6.0"

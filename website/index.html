@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f4ee" />
+    <meta name="bokhylle-demo-url" content="" />
+    <meta name="description" content="Bokhylle is a self-hosted bookshelf for your household. Discover books, keep your library together, and read on your terms." />
+    <title>Bokhylle — a home for your books</title>
+    <link rel="icon" href="./assets/bokhylle-icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./site.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Bokhylle home">
+        <img src="./assets/bokhylle-icon.svg" alt="" width="32" height="32" />
+        <img class="wordmark" src="./assets/bokhylle-wordmark.svg" alt="Bokhylle" />
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="https://github.com/alexpalexpinne/bokhylle">Source code</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="intro-title">
+        <p class="eyebrow">A SELF-HOSTED BOOKSHELF <span>№ 01</span></p>
+        <h1 id="intro-title">Your books, in one place.</h1>
+        <p class="lede">Discover a good book. Keep it in your household library. Read EPUB, PDF, and CBZ here, or send a file to your reader.</p>
+        <div class="actions">
+          <a class="button primary demo-link" href="http://localhost:8081">Explore the demo <span aria-hidden="true">↗</span></a>
+          <a class="button text" href="https://github.com/alexpalexpinne/bokhylle#start-with-docker-compose">Self-host Bokhylle <span aria-hidden="true">→</span></a>
+        </div>
+        <p class="demo-note">Public beta. One click to enter. Sample classic books. No account required.</p>
+      </section>
+
+      <div class="shelf-rule" aria-hidden="true"><span></span><span></span><span></span></div>
+
+      <section class="preview" aria-labelledby="preview-title">
+        <div class="section-heading"><span>01</span><h2 id="preview-title">A shelf that feels like yours</h2></div>
+        <p>Find books across your collection, make personal shelves, and follow the authors you care about. The shared library stays useful for everyone at home.</p>
+        <div class="app-frame">
+          <picture>
+            <source media="(max-width: 700px)" srcset="./assets/demo-library-mobile.png" />
+            <img src="./assets/demo-library.png" alt="Bokhylle showing a sample household library of public-domain books" loading="lazy" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="preview" aria-labelledby="reader-preview-title">
+        <div class="section-heading"><span>02</span><h2 id="reader-preview-title">Stay with the story</h2></div>
+        <p>Open an EPUB in your browser, adjust the text, search the book, and pick up where you left off on another device.</p>
+        <div class="app-frame">
+          <picture>
+            <source media="(max-width: 700px)" srcset="./assets/demo-reader-mobile.png" />
+            <img src="./assets/demo-reader.png" alt="Bokhylle's browser reader showing the fictional Where Maps End with warm reading colors and display settings" loading="lazy" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="preview" aria-labelledby="catalogue-preview-title">
+        <div class="section-heading"><span>03</span><h2 id="catalogue-preview-title">A catalogue opens another shelf</h2></div>
+        <p>Browse an OPDS catalogue and bring a downloadable edition into your library. This preview uses fictional books; your household chooses its own sources.</p>
+        <div class="app-frame">
+          <picture>
+            <source media="(max-width: 700px)" srcset="./assets/catalogues-mobile.png" />
+            <img src="./assets/catalogues-desktop.png" alt="Bokhylle browsing a fictional OPDS catalogue with EPUB download choices" loading="lazy" />
+          </picture>
+        </div>
+      </section>
+
+      <section class="features" id="how-it-works" aria-labelledby="features-title">
+        <div class="section-heading"><span>04</span><h2 id="features-title">From finding to reading</h2></div>
+        <div class="feature-grid">
+          <article><span class="feature-number">1 / DISCOVER</span><h3>Find the next book</h3><p>Search titles and authors, browse configured OPDS catalogues, follow your interests, and see what fits your shelf.</p></article>
+          <article><span class="feature-number">2 / COLLECT</span><h3>Keep it together</h3><p>Bring EPUB, PDF, and CBZ books into a shared library from files or direct links while each reader keeps a personal shelf.</p></article>
+          <article><span class="feature-number">3 / READ</span><h3>Read your way</h3><p>Read EPUB, PDF, or CBZ in Bokhylle, download a file, send a book to your Kindle, or connect a compatible reader with OPDS and KOReader sync.</p></article>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="section-heading"><span>05</span><h2 id="closing-title">See how it feels</h2></div>
+        <p>Explore 26 sample classics through separate adult and child views. Try Get and Send with prepared samples; nothing is downloaded from outside or emailed. Changes are temporary.</p>
+        <a class="button primary demo-link" href="http://localhost:8081">Open the demo <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer><span>BOKHYLLE</span><span>Self-hosted · Open source</span><a href="https://github.com/alexpalexpinne/bokhylle">GitHub ↗</a></footer>
+  </body>
+</html>

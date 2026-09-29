@@ -1,0 +1,56 @@
+services:
+  bokhylle:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: bokhylle:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - BOKHYLLE_ADMIN_USERNAME
+      - BOKHYLLE_ADMIN_PASSWORD
+      - BOKHYLLE_LOG
+      - BOKHYLLE_LOG_FORMAT
+      - BOKHYLLE_SECURE_COOKIES
+      - BOKHYLLE_SCAN_ON_STARTUP
+      - BOKHYLLE_PREFERRED_FORMAT
+      - BOKHYLLE_PREFERRED_LANGUAGE
+    user: "${BOKHYLLE_UID:-10001}:${BOKHYLLE_GID:-10001}"
+    ports:
+      - "${BOKHYLLE_PORT:-8080}:8080"
+    volumes:
+      - "${CONFIG_DIR:-./data/config}:/config"
+      - "${LIBRARY_DIR:-./data/library}:/library"
+      - "${DOWNLOADS_DIR:-./data/downloads}:/downloads"
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    profiles: [integrations]
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: "${TZ:-UTC}"
+    ports:
+      - "${INTEGRATION_WEB_BIND:-127.0.0.1}:9696:9696"
+    volumes:
+      - "./data/prowlarr:/config"
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    profiles: [integrations]
+    environment:
+      PUID: "${BOKHYLLE_UID:-10001}"
+      PGID: "${BOKHYLLE_GID:-10001}"
+      TZ: "${TZ:-UTC}"
+      WEBUI_PORT: 8081
+    ports:
+      - "${INTEGRATION_WEB_BIND:-127.0.0.1}:8081:8081"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - "./data/qbittorrent:/config"
+      - "${DOWNLOADS_DIR:-./data/downloads}:/downloads"
+    restart: unless-stopped

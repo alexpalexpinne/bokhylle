@@ -1,0 +1,30 @@
+# Compatible EPUBs from Standard Ebooks. SHA-256 values pin the exact editions reviewed for the demo.
+# name<TAB>URL<TAB>SHA-256
+emma	https://standardebooks.org/ebooks/jane-austen/emma/downloads/jane-austen_emma.epub?source=download	97c1233f43d21ef98d2791b40df3eaa1cf799bfa4b11c23b38e22d8646ed51ef
+persuasion	https://standardebooks.org/ebooks/jane-austen/persuasion/downloads/jane-austen_persuasion.epub?source=download	c31a1802502b59821ba0250ecd6635a4efeab33c91406823d7e3fc6cb6ffdfc9
+a-christmas-carol	https://standardebooks.org/ebooks/charles-dickens/a-christmas-carol/downloads/charles-dickens_a-christmas-carol.epub?source=download	5362a33b41bc353b415e28c339303dae02dcc016fb4f706e3078df6425369cf9
+great-expectations	https://standardebooks.org/ebooks/charles-dickens/great-expectations/downloads/charles-dickens_great-expectations.epub?source=download	a57c951c024cb11b383c0fcfe796119b6884785f15fa7b011074c8cc45fbd607
+frankenstein	https://standardebooks.org/ebooks/mary-shelley/frankenstein/downloads/mary-shelley_frankenstein.epub?source=download	0b5c070e2cde4d8bb36ef707f9d024465b00d0c49c078f0a148270f55b8c8780
+jane-eyre	https://standardebooks.org/ebooks/charlotte-bronte/jane-eyre/downloads/charlotte-bronte_jane-eyre.epub?source=download	278f21286176a26993ad5b545480650a71c4b32d2aee56ff671d226b8363f8f4
+a-study-in-scarlet	https://standardebooks.org/ebooks/arthur-conan-doyle/a-study-in-scarlet/downloads/arthur-conan-doyle_a-study-in-scarlet.epub?source=download	b96f53ef7bff219c2309950c8f69c42a4869921c267e1b821ddf2535196f0e59
+the-hound-of-the-baskervilles	https://standardebooks.org/ebooks/arthur-conan-doyle/the-hound-of-the-baskervilles/downloads/arthur-conan-doyle_the-hound-of-the-baskervilles.epub?source=download	af7cae8cd2596627c2658c41566afe06201e13572540c0761f9c348b86cbd15d
+the-time-machine	https://standardebooks.org/ebooks/h-g-wells/the-time-machine/downloads/h-g-wells_the-time-machine.epub?source=download	3931b56fecfb0b0d00737f5fabcd00a46a96c26a6b1c9b8a60751d154057d9a6
+the-war-of-the-worlds	https://standardebooks.org/ebooks/h-g-wells/the-war-of-the-worlds/downloads/h-g-wells_the-war-of-the-worlds.epub?source=download	d1456a82234399d0e004ed5d9fe9a9c6d411f63cbc5413e048bc27e24c3ff210
+treasure-island	https://standardebooks.org/ebooks/robert-louis-stevenson/treasure-island/downloads/robert-louis-stevenson_treasure-island.epub?source=download	5b72b8b7d6adb3681786613fca321b8ba3334b6ad134ea3b5608ca8f132b5fbf
+dracula	https://standardebooks.org/ebooks/bram-stoker/dracula/downloads/bram-stoker_dracula.epub?source=download	568ee9d37b2cc12dfd5e24ebf7b16ae71a805e269af159dc836647751739340a
+the-wonderful-wizard-of-oz	https://standardebooks.org/ebooks/l-frank-baum/the-wonderful-wizard-of-oz/downloads/l-frank-baum_the-wonderful-wizard-of-oz.epub?source=download	be8f7802b737cf2f402960d4c691238ccd51b67de0cd69b909e35a2108da47a3
+little-women	https://standardebooks.org/ebooks/louisa-may-alcott/little-women/downloads/louisa-may-alcott_little-women.epub?source=download	095392183d24a7cf84a7333f55a861f79642df2fb52114462c4d35cf73873d3e
+black-beauty	https://standardebooks.org/ebooks/anna-sewell/black-beauty/downloads/anna-sewell_black-beauty.epub?source=download	6966a8c6669e36854d50d9d6a489c6e9a9d13d90e633c5765d4e67a0bef47b5a
+sense-and-sensibility	https://standardebooks.org/ebooks/jane-austen/sense-and-sensibility/downloads/jane-austen_sense-and-sensibility.epub?source=download	758065cebe961a67ef86ea3f444c32b70ac2d30fa3de2c2db5099a8709d3c4e8
+the-invisible-man	https://standardebooks.org/ebooks/h-g-wells/the-invisible-man/downloads/h-g-wells_the-invisible-man.epub?source=download	571acb8fdf3fd46e0b37ab406f4e02fb3f6d602837dd53639d52e26d73801ef7
+# Additional adult reading
+wuthering-heights	https://standardebooks.org/ebooks/emily-bronte/wuthering-heights/downloads/emily-bronte_wuthering-heights.epub?source=download	708797eb1a8bb63aeb91dd3dfbef52cfe2b7aae521ccc5943692c2a40d6c71be
+the-picture-of-dorian-gray	https://standardebooks.org/ebooks/oscar-wilde/the-picture-of-dorian-gray/downloads/oscar-wilde_the-picture-of-dorian-gray.epub?source=download	8613aa7fd5874c4b9fce62245220545711bff0cc128cc914648ff0e20241ec78
+moby-dick	https://standardebooks.org/ebooks/herman-melville/moby-dick/downloads/herman-melville_moby-dick.epub?source=download	5d9c3ddb9d4cda136605ebfd1415f22fa30fd312872346bd8dda6be4c4c47d82
+the-scarlet-letter	https://standardebooks.org/ebooks/nathaniel-hawthorne/the-scarlet-letter/downloads/nathaniel-hawthorne_the-scarlet-letter.epub?source=download	a3cd1a021b676428a6943f4dd886a0f7bacb36a176f8c3501f63b6132b9eb82b
+# Additional younger-reader choices
+alices-adventures-in-wonderland	https://standardebooks.org/ebooks/lewis-carroll/alices-adventures-in-wonderland/john-tenniel/downloads/lewis-carroll_alices-adventures-in-wonderland_john-tenniel.epub?source=download	8f957fd0c7fabc290f8a423ea2f9a2d2215291514f5f9959d23cbb91f4bc0c7f
+the-secret-garden	https://standardebooks.org/ebooks/frances-hodgson-burnett/the-secret-garden/downloads/frances-hodgson-burnett_the-secret-garden.epub?source=download	7ec06b87caff764e298733a0c38821d3838666082bddbfffe1a3cdacd1f36c12
+pollyanna	https://standardebooks.org/ebooks/eleanor-h-porter/pollyanna/downloads/eleanor-h-porter_pollyanna.epub?source=download	5e5920524426d37c9915fb4b099c4e33222b48cda54736d36f386db85effd120
+the-railway-children	https://standardebooks.org/ebooks/e-nesbit/the-railway-children/downloads/e-nesbit_the-railway-children.epub?source=download	151d808676a7a2957245513f83431b50987d4900386324d3b11490d4aeadc6d8
+five-children-and-it	https://standardebooks.org/ebooks/e-nesbit/five-children-and-it/downloads/e-nesbit_five-children-and-it.epub?source=download	0eda7f57d868a8612a3b0e393f58c231b0a6ca53bbad842042f476013ad125ee

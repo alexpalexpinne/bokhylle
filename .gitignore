@@ -1,0 +1,14 @@
+/target
+/frontend/node_modules
+/frontend/dist
+.env
+.env.*
+!.env.example
+/config
+/library
+/downloads
+*.log
+.DS_Store
+/data
+/demo/data
+__pycache__/

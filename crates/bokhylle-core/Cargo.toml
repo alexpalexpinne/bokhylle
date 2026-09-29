@@ -1,0 +1,11 @@
+[package]
+name = "bokhylle-core"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+unicode-normalization = "0.1.25"

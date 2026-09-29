@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="756" height="628" viewBox="0 0 756 628" role="img" aria-label="BOKHYLLE icon monochrome">
+<!-- B/H bookshelf icon -->
+
+  <!-- B outer left vertical -->
+  <rect x="0" y="0" width="84" height="628" fill="#1F1F1F"/>
+
+  <!-- B top horizontal -->
+  <rect x="0" y="0" width="380" height="84" fill="#1F1F1F"/>
+
+  <!-- Middle shelf / H crossbar -->
+  <rect x="0" y="272" width="756" height="84" fill="#1F1F1F"/>
+
+  <!-- B bottom horizontal -->
+  <rect x="0" y="544" width="380" height="84" fill="#1F1F1F"/>
+
+  <!-- B right vertical with 45-degree cuts -->
+  <path d="M336,0 L380,0 L420,40 L420,588 L380,628 L336,628 Z" fill="#1F1F1F"/>
+
+  <!-- H right vertical -->
+  <rect x="672" y="0" width="84" height="628" fill="#1F1F1F"/>
+
+  <!-- Books on upper H shelf, with visible gap above the shelf -->
+  <rect x="450" y="92" width="68" height="168" rx="6" fill="#1F1F1F"
+        transform="rotate(-10 484.0 260)"/>
+  <rect x="544" y="128" width="54" height="132" rx="4" fill="#1F1F1F"/>
+  <rect x="610" y="156" width="56" height="104" rx="4" fill="#1F1F1F"/>
+</svg>

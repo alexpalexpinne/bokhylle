@@ -1,0 +1,92 @@
+import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type Size = 'sm' | 'md' | 'lg'
+
+const base =
+  'inline-flex items-center justify-center gap-2 font-medium transition duration-200 ease-smooth disabled:cursor-not-allowed disabled:opacity-50'
+
+const variants: Record<Variant, string> = {
+  primary: 'rounded-[3px] bg-accent text-accent-ink hover:bg-accent-strong active:scale-[0.99]',
+  secondary: 'rounded-[3px] bg-surface-2 text-ink hover:bg-surface-3',
+  ghost: 'rounded-[3px] bg-transparent text-ink-soft hover:bg-surface-2 hover:text-ink',
+  danger: 'rounded-[3px] bg-transparent text-danger hover:bg-surface-2',
+}
+
+const sizes: Record<Size, string> = {
+  sm: 'h-8 px-3.5 text-sm',
+  md: 'h-10 px-5 text-sm',
+  lg: 'h-12 px-6 text-base',
+}
+
+type CommonProps = {
+  variant?: Variant
+  size?: Size
+  className?: string
+  children: ReactNode
+}
+
+type ButtonProps = CommonProps & ButtonHTMLAttributes<HTMLButtonElement>
+
+export function Button({
+  variant = 'secondary',
+  size = 'md',
+  className = '',
+  children,
+  ...rest
+}: ButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
+}
+
+type ButtonLinkProps = CommonProps & {
+  to: string
+  state?: unknown
+}
+
+export function ButtonLink({
+  to,
+  state,
+  variant = 'secondary',
+  size = 'md',
+  className = '',
+  children,
+}: ButtonLinkProps) {
+  return (
+    <Link to={to} state={state} className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}>
+      {children}
+    </Link>
+  )
+}
+
+type ExternalButtonLinkProps = CommonProps & {
+  href: string
+  download?: boolean
+}
+
+export function ButtonAnchor({
+  href,
+  download,
+  variant = 'secondary',
+  size = 'md',
+  className = '',
+  children,
+}: ExternalButtonLinkProps) {
+  return (
+    <a
+      href={href}
+      download={download}
+      className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
+    >
+      {children}
+    </a>
+  )
+}

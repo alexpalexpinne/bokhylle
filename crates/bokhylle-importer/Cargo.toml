@@ -1,0 +1,19 @@
+[package]
+name = "bokhylle-importer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bokhylle-core = { version = "0.1.0", path = "../bokhylle-core" }
+bokhylle-library = { version = "0.1.0", path = "../bokhylle-library" }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+rars = "0.9.4"
+walkdir = "2.5.0"
+zip = "8.6.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"

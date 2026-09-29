@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bokhylle-library = { version = "0.1.0", path = "../crates/bokhylle-library" }

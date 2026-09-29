@@ -1,0 +1,202 @@
+name: Publish image
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  # Publishing is deliberate: tagged releases or manual dispatch only.
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    with:
+      skip_docker: true # The candidate image is built and smoke tested below.
+    permissions:
+      contents: read
+
+  build:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The build uses labels; the publish job decides which tags to apply.
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{raw}}
+            type=sha,format=short
+
+      - name: Build candidate image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: bokhylle:candidate
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=bokhylle-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=bokhylle-${{ matrix.arch }}
+
+      - name: Smoke test candidate
+        env:
+          IMAGE: bokhylle:candidate
+        run: python3 scripts/check_image.py "$IMAGE"
+
+      - name: Push the tested platform and record its digest
+        env:
+          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect bokhylle:candidate --format '{{.Os}}/{{.Architecture}}')" = "$PLATFORM"
+          candidate_id="$(docker image inspect bokhylle:candidate --format '{{.Id}}')"
+          staging_tag="${REGISTRY}/${IMAGE_NAME}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCH}"
+          docker tag bokhylle:candidate "$staging_tag"
+          test "$(docker image inspect "$staging_tag" --format '{{.Id}}')" = "$candidate_id"
+          docker push "$staging_tag"
+          digest="$(docker buildx imagetools inspect "$staging_tag" --format '{{json .Manifest}}' | python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    # Serialize tag updates across releases while keeping platform builds parallel.
+    concurrency:
+      group: publish-image-tags
+      queue: max
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Decide latest after the build, using the current remote stable tags.
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{raw}}
+            type=sha,format=short
+
+      - name: Publish multi-platform tags
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          first_tag=""
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              tag_args+=(--tag "$tag")
+              if [ -z "$first_tag" ]; then
+                first_tag="$tag"
+              fi
+            fi
+          done <<< "$TAGS"
+          [ "${#tag_args[@]}" -gt 0 ]
+
+          # Read the remote tags now, after waiting for the publish queue. An
+          # older stable backport must not replace a newer release's latest tag.
+          highest_stable_tag="$(
+            git ls-remote --tags --refs origin |
+              python3 -c '
+          import re
+          import sys
+
+          stable = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+          versions = {}
+          for line in sys.stdin:
+              ref = line.rstrip("\n").split("\t", 1)[1]
+              tag = ref.removeprefix("refs/tags/")
+              match = stable.fullmatch(tag)
+              if match:
+                  versions[tuple(map(int, match.groups()))] = tag
+          print(versions[max(versions)] if versions else "")
+          '
+          )"
+          if [ "$RELEASE_EVENT" = "push" ] && [ "$RELEASE_TAG" = "$highest_stable_tag" ]; then
+            tag_args+=(--tag "${REGISTRY}/${IMAGE_NAME}:latest")
+            echo "Publishing latest for $RELEASE_TAG"
+          else
+            echo "Leaving latest unchanged (current: $RELEASE_TAG; highest stable: $highest_stable_tag)"
+          fi
+
+          shopt -s nullglob
+          digest_files=("$RUNNER_TEMP"/digests/*)
+          [ "${#digest_files[@]}" -eq 2 ]
+          sources=()
+          for digest_file in "${digest_files[@]}"; do
+            digest="${digest_file##*/}"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            sources+=("${REGISTRY}/${IMAGE_NAME}@sha256:${digest}")
+          done
+
+          verify_platforms() {
+            python3 -c 'import json, sys; m = json.load(sys.stdin); p = sorted(x["platform"]["os"] + "/" + x["platform"]["architecture"] for x in m["manifests"] if x.get("platform", {}).get("os") == "linux"); print(p); sys.exit(p != ["linux/amd64", "linux/arm64"])'
+          }
+          docker buildx imagetools create --dry-run "${tag_args[@]}" "${sources[@]}" | verify_platforms
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect --raw "$first_tag" | verify_platforms

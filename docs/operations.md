@@ -1,0 +1,94 @@
+# Operations
+
+## Database compatibility
+
+Bokhylle 0.1.0 starts with one initial migration, `migrations/0001_initial.sql`.
+Use a fresh config directory for the first release. Development databases and
+backups are incompatible with this baseline; keep them with their development
+version. Existing library EPUB, PDF, and CBZ files can be copied into the new
+installation and scanned again. Backups created by this release can be restored
+with the same release.
+
+Schema changes use new forward-only migrations. Published migration files stay
+immutable so existing public installations can upgrade with their accounts,
+shelves, and settings intact.
+
+## What to back up
+
+Back up both the library directory and the config directory. The library holds the EPUB, PDF, and CBZ files. The config directory holds `bokhylle.db`, saved artwork, image cache, and `backups/`. The database records users, shelves, requests, integrations, and credentials. Scheduled database backups are stored in `config/backups/` by default, every 24 hours, retaining seven copies; they **contain secrets** and need the same protection as the live database. A library backup is separate: database backups do not contain book files.
+
+Keep `config/artwork/covers` with the config backup: database rows can reference those saved covers. The disposable provider image caches under `config/cache/provider-covers` and `config/cache/authors` can be rebuilt. Provider search and artwork cache behavior is described in [Discovery search and artwork](search-quality.md).
+
+The administrator's backup download at `GET /api/admin/backup` removes secret settings. That copy is suitable for a restore only if you re-enter the missing integration and SMTP credentials afterward. The scheduled backup retains those settings. Do not copy a live SQLite database file without using a SQLite-aware backup method or stopping the server; the database runs in WAL mode.
+
+Every newly created database backup is checked with SQLite's integrity and foreign-key checks before Bokhylle gives it a final backup name or serves it. An interrupted `.partial` file is not a completed backup. This checks the database only; it does not verify that book files or saved covers were copied. The admin download still contains personal data, password hashes, session hashes, and reader/agent token hashes. Treat both backup types as sensitive. Redacting secret settings does not make a downloaded backup safe to publish.
+
+If a crash leaves a `.partial` file in `config/backups` or `config/cache`, treat it as sensitive and remove it after stopping Bokhylle. The scheduler does not count partial files as completed backups.
+
+## Make a full, portable backup
+
+For a recoverable copy, keep the config and library directories together at the same point in time. The simplest method is to stop Bokhylle briefly and archive both mounted directories. Put the archive outside the repository so it cannot be added to a commit by mistake. Replace the paths below if `CONFIG_DIR` or `LIBRARY_DIR` is customized:
+
+```sh
+bokhylle_backup_dir="$HOME/bokhylle-backups"
+mkdir -p "$bokhylle_backup_dir"
+chmod 700 "$bokhylle_backup_dir"
+docker compose stop bokhylle
+tar -czf "$bokhylle_backup_dir/bokhylle-data.tar.gz" data/config data/library
+(cd "$bokhylle_backup_dir" && sha256sum bokhylle-data.tar.gz > bokhylle-data.tar.gz.sha256)
+docker compose up -d bokhylle
+```
+
+Copy the archive and checksum to storage outside this machine, protect them like the live database, and run `sha256sum -c bokhylle-data.tar.gz.sha256` from the destination directory after copying. A checksum detects accidental damage to that copy; it does not replace a test restore. Keep the app version or image tag alongside the backup so you can restore with a compatible version. Large libraries may be better served by a filesystem snapshot or backup tool that preserves the same two directories together.
+
+## Restore a database
+
+These steps are covered by an automated test with a synthetic account, book, file, cover, and scheduled backup. Test them against a copy of your own deployment before relying on them.
+
+1. Stop the Bokhylle container: `docker compose stop bokhylle`.
+2. Keep a separate copy of the existing `data/config` and `data/library` directories.
+3. Move the old `bokhylle.db` and any `bokhylle.db-wal` and `bokhylle.db-shm` sidecars out of `data/config` into that recovery copy. Do not leave old WAL sidecars beside the restored file.
+4. Copy a scheduled backup from `data/config/backups/bokhylle-<timestamp>.db`, or a downloaded backup, to `data/config/bokhylle.db`. Ensure the restored file is writable by the container user.
+5. Start the app: `docker compose up -d bokhylle`.
+6. Sign in, check a known book and shelf, and run a library scan if the library files came from a different point in time. Re-enter redacted credentials if the source was an admin download.
+
+The restore should use the same compatible Bokhylle version or be tested on a copy before upgrading. Database migrations are forward-only. Keep the prior backup until you have verified the result.
+
+## Update
+
+### Published image
+
+Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.1.0`. That tag is
+an example; use a tag actually listed on the package. Back up config and library,
+then pull and start through the image overlay:
+
+```sh
+docker compose -f compose.yaml -f compose.image.yaml pull bokhylle
+docker compose -f compose.yaml -f compose.image.yaml up -d --no-build bokhylle
+docker compose -f compose.yaml -f compose.image.yaml logs --tail=100 bokhylle
+```
+
+Use the same overlay when stopping, inspecting, or updating this installation.
+The volume paths and port stay the same as the source-based configuration.
+
+### Source build
+
+For source-based Compose installs, pull the version you intend to run, review changes, back up config and library, then rebuild and restart:
+
+```sh
+docker compose up -d --build bokhylle
+docker compose logs --tail=100 bokhylle
+```
+
+`GET /healthz` checks that the process is alive; `GET /api/health` also checks the database. A Docker build is only the first gate; confirm the running app and sign in after an update. The source-based Compose file builds locally by default. Maintainers can find image release rules in the [publishing guide](publishing.md#publish-docker-images).
+
+## Common checks
+
+- **Book missing from the catalogue:** check file format and permissions, then run Scan library in Settings → Library. Review Library health for missing files or metadata.
+- **Acquisition stalled:** inspect Activity and Admin Needs Attention. Use **Check now** in Settings → Getting books for the configured Prowlarr, Torznab, or Newznab source and its qBittorrent or SABnzbd client. Confirm **Active source** points to the intended indexer. A SABnzbd completed path must resolve inside Bokhylle's downloads directory; changing a mount without matching the client's reported path prevents import.
+- **SABnzbd submission uncertain:** Bokhylle records each attempt before sending it and looks for its unique name in SABnzbd's queue and history after a timeout or restart. It waits up to ten minutes before reporting an unrecovered submission. Check SABnzbd before using **Try again**; an explicit retry starts a fresh attempt. Cancellation is retried after restart, including jobs already in postprocessing, and leaves completed files under SABnzbd's control.
+- **Watch folder file remains:** enable the watcher in Settings → Getting books → Imports, wait 30 seconds after the final write, and check that the server can read the folder. Only top-level EPUB, PDF, and CBZ files are considered. Invalid files move to `review`; the Import folder panel shows pending imports, cleanup, review counts, and the latest placement error. Stale unjournaled watcher staging files are reconciled after one hour. Do not point the folder into the library or downloads tree.
+- **Direct link failed:** inspect Activity for the download or import error. The URL must return a supported book file within 512 MiB; a web page, blocked destination, wrong format, or expired link needs a fresh URL. OPDS catalogues are managed from Discover → Browse catalogues.
+- **Download not imported:** verify the download client reports a path under the container's `/downloads` mount. Paths outside it are rejected.
+- **Integration secret lost after restore:** confirm which backup type was used. Admin downloads intentionally omit secret settings and private NZB submission URLs; scheduled backups preserve them. Reconfigure the integrations after restoring an admin download. Existing SABnzbd jobs can still be recovered by their saved id or name; an unsubmitted NZB needs **Try again** to select a fresh release.
