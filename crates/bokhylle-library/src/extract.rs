@@ -13,6 +13,8 @@ use crate::error::LibraryError;
 pub struct ExtractedMetadata {
     pub title: Option<String>,
     pub authors: Vec<String>,
+    pub title_from_filename: bool,
+    pub authors_from_filename: bool,
     pub language: Option<String>,
     pub isbn: Option<String>,
     pub series: Option<String>,

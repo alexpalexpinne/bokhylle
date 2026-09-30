@@ -8,6 +8,7 @@ use crate::AppState;
 use crate::auth::AuthUser;
 use crate::discovery::{self, SearchKind};
 use crate::error::AppError;
+use crate::library::relevance;
 
 pub const SOURCES_KEY: &str = "home.spotlight_sources";
 
@@ -141,7 +142,7 @@ struct Taste {
 fn fallback_reason(source: &str) -> &'static str {
     match source {
         "shelf" => "From your shelf",
-        _ => "From your household library",
+        _ => "From your household library · matches your interests",
     }
 }
 
@@ -268,7 +269,7 @@ async fn taste_profile(state: &AppState, user_id: i64) -> Result<Taste, AppError
         "SELECT COALESCE(s.id, 0), i.normalized_name
          FROM user_subject_interests i
          LEFT JOIN subjects s ON s.normalized_name = i.normalized_name
-         WHERE i.user_id = ? ORDER BY i.created_at LIMIT 3",
+         WHERE i.user_id = ? ORDER BY i.created_at, i.rowid LIMIT 3",
     )
     .bind(user_id)
     .fetch_all(&state.db)
@@ -513,9 +514,11 @@ pub async fn spotlight(
     let subject_id = taste.subjects.first().map(|seed| seed.id).unwrap_or(0);
     let author_id = taste.authors.first().map(|seed| seed.id).unwrap_or(0);
 
+    let exclusions = relevance::EXCLUSIONS;
+    let personal = relevance::personal();
     let shelf_rows: Vec<SpotlightRow> = if shelf_enabled {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "WITH preferred(language) AS (SELECT lower(value) FROM json_each(?))
+            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?))
              SELECT b.id, b.title,
                     COALESCE((SELECT group_concat(a.name, ', ')
                               FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -546,10 +549,12 @@ pub async fn spotlight(
              WHERE ub.user_id = ? AND ub.on_shelf = 1
                AND (ub.preference IS NULL OR ub.preference = 'liked')
                AND b.description IS NOT NULL AND length(trim(b.description)) > 120
+               {exclusions}
                {LOCAL_LANGUAGE_FILTER}
              ORDER BY 11 DESC, 12 DESC, ub.added_at DESC
              LIMIT 5"
         )))
+        .bind(user.id)
         .bind(&preferred_json)
         .bind(subject_id)
         .bind(author_id)
@@ -562,7 +567,7 @@ pub async fn spotlight(
 
     let household_rows: Vec<SpotlightRow> = if household_enabled {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "WITH preferred(language) AS (SELECT lower(value) FROM json_each(?))
+            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?))
              SELECT b.id, b.title,
                     COALESCE((SELECT group_concat(a.name, ', ')
                               FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -595,10 +600,13 @@ pub async fn spotlight(
                            WHERE e.book_id = b.id)
                AND NOT EXISTS (SELECT 1 FROM user_books ub
                                WHERE ub.user_id = ? AND ub.book_id = b.id AND ub.on_shelf = 1)
+               {personal}
+               {exclusions}
                {LOCAL_LANGUAGE_FILTER}
              ORDER BY 11 DESC, 12 DESC, b.created_at DESC
              LIMIT 5"
         )))
+        .bind(user.id)
         .bind(&preferred_json)
         .bind(subject_id)
         .bind(author_id)

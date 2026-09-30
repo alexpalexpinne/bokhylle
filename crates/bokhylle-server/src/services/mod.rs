@@ -6,3 +6,4 @@ pub mod books;
 pub mod delivery;
 pub mod reader;
 pub mod requests;
+pub mod users;

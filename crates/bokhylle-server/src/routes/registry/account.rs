@@ -29,6 +29,10 @@ pub(super) fn router() -> ApiRouter<AppState> {
             aide::axum::routing::get(routes::auth::login_users),
         )
         .api_route(
+            "/api/auth/users/{id}/avatar",
+            aide::axum::routing::get(routes::auth::login_avatar),
+        )
+        .api_route(
             "/api/auth/logout-all",
             aide::axum::routing::post(routes::auth::logout_all),
         )
@@ -59,6 +63,10 @@ pub(super) fn router() -> ApiRouter<AppState> {
             aide::axum::routing::get(routes::auth::avatar)
                 .put(routes::auth::upload_avatar)
                 .delete(routes::auth::delete_avatar),
+        )
+        .api_route(
+            "/api/profile/avatar/preset",
+            aide::axum::routing::put(routes::auth::set_avatar_preset),
         )
         .api_route(
             "/api/profile",

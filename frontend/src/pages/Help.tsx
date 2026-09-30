@@ -10,7 +10,7 @@ export function Help() {
     ? [
         { title: 'Find your books', body: 'Your Library shows books an administrator has approved for you. Approved requests are sent to your reader when a copy is ready.', to: '/library', action: 'Open my library' },
         { title: 'Read a book', body: 'Open an assigned EPUB, PDF, or CBZ and choose Read in Bokhylle. Your place is saved to your profile so you can continue on another browser.', to: '/library', action: 'Open my library' },
-        { title: 'Ask for another book', body: 'If your household allows requests, ask an administrator for a book from Requests. If Discover is enabled, you can explore books there too. Both use the same approval process.', to: '/requests', action: 'Open requests' },
+        ...(user?.canRequest ? [{ title: 'Ask for another book', body: user.canDiscover ? 'Explore Discover or search Requests by title, author or ISBN, then tap Ask an adult. An administrator must approve a book before it appears on your shelf.' : 'Heard about a book? Search Requests by title, author or ISBN, then tap Ask an adult. An administrator must approve it before it appears on your shelf.', to: user.canDiscover ? '/discover' : '/requests', action: user.canDiscover ? 'Explore books' : 'Search and ask' }] : user?.canDiscover ? [{ title: 'Explore books', body: 'Explore Discover and suggestions. If you find a book you want, ask an adult to add it to your shelf.', to: '/discover', action: 'Explore books' }] : []),
         { title: 'Make it yours', body: 'Open My settings from the account menu to choose Paper or Ink, change EPUB text size, and set a profile picture.', to: '/profile', action: 'Open my settings' },
       ]
     : [

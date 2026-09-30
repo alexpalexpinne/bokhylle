@@ -108,6 +108,25 @@ fn is_noise(normalized: &str) -> bool {
             .any(|prefix| normalized.starts_with(prefix))
 }
 
+/// The same noise rules for recommendation joins. `column` is supplied only
+/// by our static SQL templates, never by a request.
+pub(crate) fn informative_sql(column: &str) -> String {
+    let names = NOISE_EXACT
+        .iter()
+        .map(|name| format!("'{}'", name.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut sql = format!("{column} NOT IN ({names})");
+    for prefix in NOISE_PREFIXES {
+        sql.push_str(&format!(
+            " AND substr({column}, 1, {}) != '{}'",
+            prefix.len(),
+            prefix.replace('\'', "''")
+        ));
+    }
+    sql
+}
+
 /// Similarity weight for a shared subject: `None` for catalog noise,
 /// 1 for broad genres, 3 for plain subjects and 5 for specific ones.
 pub fn similarity_weight(normalized: &str) -> Option<u8> {

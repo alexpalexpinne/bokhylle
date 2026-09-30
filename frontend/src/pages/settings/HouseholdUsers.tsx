@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Pencil, Plus } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useBeforeUnload, useBlocker } from 'react-router-dom'
 import { ApiError } from '../../api/client'
+import { type BookSummary } from '../../api/library'
 import {
   type AdminUser,
   createUser,
@@ -14,6 +15,11 @@ import {
 import { LANGUAGES, languageLabel } from '../../lib/languages'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
+import { ChildBookAccessField } from './ChildBookAccessField'
+import { ChildStartingBooks } from './ChildStartingBooks'
+import { ProfileAvatar } from '../../components/ProfileAvatar'
+import { ProfileMarkPicker } from '../../components/ProfileMarkPicker'
+import { profileMarkId, type ProfileMarkId } from '../../lib/profileMarks'
 
 type UserEditor = {
   mode: 'create' | 'edit'
@@ -29,6 +35,8 @@ type UserEditor = {
   canRequest: boolean
   canDiscover: boolean
   canAcquire: boolean
+  avatarPreset: ProfileMarkId | null
+  avatarUrl?: string | null
 }
 
 export function HouseholdUsers() {
@@ -37,13 +45,22 @@ export function HouseholdUsers() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editor, setEditor] = useState<UserEditor | null>(null)
+  const [initialEditor, setInitialEditor] = useState<UserEditor | null>(null)
+  const [confirmClose, setConfirmClose] = useState(false)
   const [saving, setSaving] = useState(false)
   const [convertArmed, setConvertArmed] = useState(false)
+  const [creationStep, setCreationStep] = useState<'profile' | 'books'>('profile')
+  const [startingBooks, setStartingBooks] = useState<BookSummary[]>([])
+  const [booksLater, setBooksLater] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
 
   function load() {
-    fetchUsers()
-      .then((items) => {
+    // Load accounts and profile types together so an early edit cannot mistake
+    // a child for an adult while the second response is still arriving.
+    Promise.all([fetchUsers(), fetchUserProfiles()])
+      .then(([items, data]) => {
         setUsers(items)
+        setProfiles(Object.fromEntries(data.users.map((entry) => [entry.userId, entry.profileType])))
         setError(null)
       })
       .catch((caught: unknown) => {
@@ -51,19 +68,8 @@ export function HouseholdUsers() {
       })
   }
 
-  function loadProfiles() {
-    return fetchUserProfiles()
-      .then((data) =>
-        setProfiles(
-          Object.fromEntries(data.users.map((entry) => [entry.userId, entry.profileType])),
-        ),
-      )
-      .catch((caught: unknown) => console.warn('settings.user_profiles.load_failed', caught))
-  }
-
   useEffect(() => {
     load()
-    void loadProfiles()
   }, [])
 
   async function restartSetup(userId: number) {
@@ -80,6 +86,47 @@ export function HouseholdUsers() {
       ? (profiles[editor.id] ?? 'adult')
       : null
   const converting = currentProfileType !== null && editor?.profileType !== currentProfileType
+  const choosingBooks = editor?.mode === 'create' && editor.profileType === 'child' && creationStep === 'books'
+  const changed = editor !== null && (JSON.stringify(editor) !== JSON.stringify(initialEditor) || startingBooks.length > 0 || booksLater)
+  const blocker = useBlocker(changed && !saving)
+  const discarding = confirmClose || blocker.state === 'blocked'
+  useBeforeUnload(useCallback((event) => {
+    if (changed) { event.preventDefault(); event.returnValue = '' }
+  }, [changed]))
+
+  function resetEditor() {
+    setCreationStep('profile')
+    setStartingBooks([])
+    setBooksLater(false)
+    setEditorError(null)
+    setConvertArmed(false)
+    setInitialEditor(null)
+    setConfirmClose(false)
+  }
+
+  function openEditor(value: UserEditor) {
+    resetEditor()
+    setInitialEditor(value)
+    setEditor(value)
+  }
+
+  function keepEditing() {
+    setConfirmClose(false)
+    if (blocker.state === 'blocked') blocker.reset()
+  }
+
+  function requestCloseEditor() {
+    if (saving) return
+    if (discarding) { keepEditing(); return }
+    if (changed) setConfirmClose(true)
+    else closeEditor()
+  }
+
+  function closeEditor() {
+    if (saving) return
+    setEditor(null)
+    resetEditor()
+  }
 
   async function save() {
     if (!editor) {
@@ -87,6 +134,7 @@ export function HouseholdUsers() {
     }
     setSaving(true)
     setError(null)
+    setEditorError(null)
 
     try {
       if (editor.mode === 'create') {
@@ -101,10 +149,14 @@ export function HouseholdUsers() {
           canRequest: editor.canRequest,
           canDiscover: editor.canDiscover,
           canAcquire: editor.canAcquire,
+          startingBookIds: editor.profileType === 'child' ? startingBooks.map((book) => book.id) : undefined,
+          avatarPreset: editor.avatarPreset,
         })
         setNotice(
           editor.profileType === 'child'
-            ? `${editor.username.trim()} added as a child profile. Assign books from their shelf.`
+            ? startingBooks.length > 0
+              ? `${editor.displayName.trim() || editor.username.trim()} added with ${startingBooks.length} starting ${startingBooks.length === 1 ? 'book' : 'books'}.`
+              : `${editor.displayName.trim() || editor.username.trim()} added with an empty shelf. Add books before they start reading.`
             : `${editor.username.trim()} added.`,
         )
       } else if (editor.id !== undefined) {
@@ -118,6 +170,7 @@ export function HouseholdUsers() {
           canRequest: editor.canRequest,
           canDiscover: editor.canDiscover,
           canAcquire: editor.canAcquire,
+          avatarPreset: editor.avatarPreset,
         })
         if (converting) {
           await setUserProfileType(editor.id, editor.profileType)
@@ -132,18 +185,16 @@ export function HouseholdUsers() {
         }
       }
       setEditor(null)
-      setConvertArmed(false)
+      resetEditor()
       load()
     } catch (caught) {
       // User updates and profile-type changes are separate writes; reload so
       // the list and the editor reflect whatever actually persisted.
       load()
-      void loadProfiles()
-      setError(
-        `${
-          caught instanceof ApiError ? caught.message : 'Could not save the user'
-        }. Some changes may already have been saved; the current values have been reloaded.`,
-      )
+      const message = caught instanceof ApiError ? caught.message : 'Could not save the user'
+      setEditorError(editor.mode === 'edit'
+          ? `${message}. Some changes may already have been saved; the current values have been reloaded.`
+          : message)
     } finally {
       setSaving(false)
     }
@@ -165,8 +216,7 @@ export function HouseholdUsers() {
           variant="secondary"
           size="sm"
           onClick={() => {
-            setConvertArmed(false)
-            setEditor({
+            openEditor({
               mode: 'create',
               username: '',
               displayName: '',
@@ -179,6 +229,7 @@ export function HouseholdUsers() {
               canDiscover: false,
               canAcquire: true,
               preferredLanguages: [],
+              avatarPreset: null,
             })
           }}
         >
@@ -202,9 +253,7 @@ export function HouseholdUsers() {
             key={user.id}
             className="flex flex-wrap items-center gap-3 rounded-card px-3 py-3 transition-colors hover:bg-surface-2"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-3 font-display text-sm text-ink">
-              {(user.displayName ?? user.username).slice(0, 1).toUpperCase()}
-            </span>
+            <ProfileAvatar user={user} src={user.avatarUrl} className="h-9 w-9 text-sm" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium text-ink">
@@ -236,13 +285,15 @@ export function HouseholdUsers() {
             <Button variant="ghost" size="sm" onClick={() => void restartSetup(user.id)}>
               Restart setup
             </Button>
-            {profiles[user.id] === 'child' && <Link to={`/settings/children/${user.id}/readers`} className="inline-flex h-8 items-center rounded-[3px] px-3.5 text-sm font-medium text-ink-soft hover:bg-surface-2 hover:text-ink">Readers</Link>}
+            {profiles[user.id] === 'child' && <>
+              <Link to={`/library?scope=user-${user.id}`} className="inline-flex h-8 items-center rounded-[3px] px-3.5 text-sm font-medium text-ink-soft hover:bg-surface-2 hover:text-ink">Shelf</Link>
+              <Link to={`/settings/children/${user.id}/readers`} className="inline-flex h-8 items-center rounded-[3px] px-3.5 text-sm font-medium text-ink-soft hover:bg-surface-2 hover:text-ink">Readers</Link>
+            </>}
             <Button
               variant="ghost"
               size="sm"
               onClick={() => {
-                setConvertArmed(false)
-                setEditor({
+                openEditor({
                   mode: 'edit',
                   id: user.id,
                   username: user.username,
@@ -256,6 +307,8 @@ export function HouseholdUsers() {
                   canDiscover: user.canDiscover === true,
                   canAcquire: user.canAcquire !== false,
                   preferredLanguages: user.preferredLanguages ?? [],
+                  avatarPreset: profileMarkId(user.avatarPreset),
+                  avatarUrl: user.avatarUrl,
                 })
               }}
             >
@@ -271,21 +324,31 @@ export function HouseholdUsers() {
 
       {editor && (
         <Modal
-          title={editor.mode === 'create' ? 'Add user' : `Edit ${editor.username}`}
-          onClose={() => setEditor(null)}
+          title={discarding ? 'Discard unsaved changes?' : choosingBooks ? 'Choose starting books' : editor.mode === 'create' ? 'Add user' : `Edit ${editor.username}`}
+          onClose={requestCloseEditor}
           footer={
-            <>
-              <Button variant="ghost" onClick={() => setEditor(null)}>
+            discarding ? <>
+              <Button variant="secondary" onClick={keepEditing}>Keep editing</Button>
+              <Button variant="danger" onClick={() => { closeEditor(); if (blocker.state === 'blocked') blocker.proceed() }}>Discard changes</Button>
+            </> : <>
+              <Button variant="ghost" disabled={saving} onClick={requestCloseEditor}>
                 Cancel
               </Button>
+              {choosingBooks && <Button variant="ghost" disabled={saving} onClick={() => setCreationStep('profile')}>Back</Button>}
               <Button
                 variant="primary"
                 disabled={
                   saving ||
+                  (choosingBooks && startingBooks.length === 0 && !booksLater) ||
                   (editor.mode === 'create' &&
                     (!editor.username.trim() || !editor.credential.trim()))
                 }
                 onClick={() => {
+                  if (editor.mode === 'create' && editor.profileType === 'child' && creationStep === 'profile') {
+                    setCreationStep('books')
+                    setEditorError(null)
+                    return
+                  }
                   if (converting && !convertArmed) {
                     setConvertArmed(true)
                     return
@@ -296,7 +359,9 @@ export function HouseholdUsers() {
                 {saving
                   ? 'Saving…'
                   : editor.mode === 'create'
-                    ? 'Add user'
+                    ? choosingBooks
+                      ? 'Create child profile'
+                      : editor.profileType === 'child' ? 'Choose starting books' : 'Add user'
                     : converting
                       ? convertArmed
                         ? 'Convert profile'
@@ -306,7 +371,26 @@ export function HouseholdUsers() {
             </>
           }
         >
-          <div className="space-y-4">
+          {discarding ? <p className="text-sm text-ink-muted">Your profile changes and starting-book selection have not been saved.</p> : <>
+          {editorError && <p role="alert" className="mb-4 text-sm text-danger">{editorError}</p>}
+          {choosingBooks ? (
+            <div className="space-y-5">
+              <p className="text-sm text-ink-muted">
+                Choose books {editor.displayName.trim() || editor.username} can read on their first sign-in.
+                Only selected books will be visible on their shelf. Catalogue access does not add books automatically.
+              </p>
+              <ChildStartingBooks selected={startingBooks} onChange={setStartingBooks} disabled={saving} />
+              {startingBooks.length === 0 && (
+                <label className="flex items-start gap-3 border-t border-line pt-4">
+                  <input type="checkbox" checked={booksLater} disabled={saving} onChange={(event) => setBooksLater(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-accent" />
+                  <span>
+                    <span className="block text-sm text-ink">Set up books later</span>
+                    <span className="mt-1 block text-xs text-ink-muted">This child will start with an empty shelf. An administrator can assign books from Manage access on a book page.</span>
+                  </span>
+                </label>
+              )}
+            </div>
+          ) : <fieldset disabled={saving} className="space-y-4">
             {converting && (
               <p
                 className={`rounded-card px-3.5 py-2.5 text-sm ${
@@ -315,8 +399,8 @@ export function HouseholdUsers() {
               >
                 {editor.profileType === 'child' ? (
                   <>
-                    {editor.username} becomes a child profile: no discovery, downloads or
-                    acquisitions, and their shelf is cleared until you assign books. Likes and
+                    {editor.username} becomes a child profile with the catalogue access selected below.
+                    Downloads and acquisitions stay with adults, and their shelf is cleared until you assign books. Likes and
                     interests are kept, and setup runs again the next time they sign in.
                   </>
                 ) : (
@@ -406,6 +490,10 @@ export function HouseholdUsers() {
                 </span>
               )}
             </label>
+            <div>
+              <ProfileMarkPicker value={editor.avatarPreset} onChange={(avatarPreset) => setEditor((current) => current ? { ...current, avatarPreset } : current)} username={editor.username} displayName={editor.displayName || null} optional />
+              {editor.avatarUrl && <p className="mt-2 text-xs text-ink-muted">Their personal photo is shown until they remove it in profile settings.</p>}
+            </div>
             <label className="block">
               <span className="mb-1.5 block text-xs text-ink-muted">Profile type</span>
               <select
@@ -475,6 +563,7 @@ export function HouseholdUsers() {
                   <p className="mb-2 text-xs text-ink-faint">No languages chosen yet.</p>
                 )}
                 <select
+                  aria-label="Add a reading language"
                   value=""
                   onChange={(event) => {
                     const value = event.target.value
@@ -506,48 +595,7 @@ export function HouseholdUsers() {
                 </span>
               </div>
             )}
-            {editor.profileType === 'child' && (
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={editor.canDiscover}
-                  onChange={(event) =>
-                    setEditor((current) =>
-                      current ? { ...current, canDiscover: event.target.checked } : current,
-                    )
-                  }
-                  className="mt-0.5 h-4 w-4 accent-accent"
-                />
-                <span>
-                  <span className="block text-xs text-ink-muted">Allow Discover</span>
-                  <span className="mt-1 block text-xs text-ink-faint">
-                    Show public catalogue books and suggestions based on this child&apos;s shelf and interests.
-                    Catalogue descriptions are not age filtered. The household library stays private.
-                  </span>
-                </span>
-              </label>
-            )}
-            {editor.profileType === 'child' && (
-              <label className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={editor.canRequest}
-                  onChange={(event) =>
-                    setEditor((current) =>
-                      current ? { ...current, canRequest: event.target.checked } : current,
-                    )
-                  }
-                  className="mt-0.5 h-4 w-4 accent-accent"
-                />
-                <span>
-                  <span className="block text-xs text-ink-muted">Can ask for books</span>
-                  <span className="mt-1 block text-xs text-ink-faint">
-                    Lets {editor.username || 'this child'} submit titles for administrator approval and search
-                    the basic request catalogue. When off, Discover can still be browsed if allowed above.
-                  </span>
-                </span>
-              </label>
-            )}
+            {editor.profileType === 'child' && <ChildBookAccessField value={editor} onChange={(permissions) => setEditor((current) => current ? { ...current, ...permissions } : current)} />}
             {editor.profileType === 'adult' && editor.role !== 'admin' && (
               <label className="flex items-start gap-3">
                 <input
@@ -608,7 +656,8 @@ export function HouseholdUsers() {
                 </span>
               </label>
             )}
-          </div>
+          </fieldset>}
+          </>}
         </Modal>
       )}
     </section>

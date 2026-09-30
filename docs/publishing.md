@@ -42,8 +42,9 @@ first. The EPUBs remain local and are not part of the source repository.
 Require green CI on the exact commit to be released. CI verifies fresh
 installation, import, restart, and database/library restore in the
 Docker image, runs strict Chromium tests, checks dependency policy, and verifies
-the pinned demo catalogue. Also check a fresh install, update and restore on a
-disposable deployment. Before claiming device support has been validated,
+the pinned demo catalogue. The image check compares every applied migration's
+version, successful status, and checksum with the source migrations. Also check
+a fresh install, update and restore on a disposable deployment. Before claiming device support has been validated,
 perform an actual Kindle delivery and a Safari/iPhone check. The demo simulates
 delivery and does not establish real-device success.
 

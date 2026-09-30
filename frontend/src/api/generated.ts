@@ -836,6 +836,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/users/{id}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_auth_users__id__avatar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/authors": {
         parameters: {
             query?: never;
@@ -2148,6 +2164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/avatar/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_profile_avatar_preset"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profile/credential": {
         parameters: {
             query?: never;
@@ -2494,6 +2526,8 @@ export interface components {
             bookId: number;
         };
         AdminUserView: {
+            avatarPreset: string | null;
+            avatarUrl: string | null;
             /** @description Adults only: permission to add new files to the shared collection. */
             canAcquire: boolean;
             /** @description Children only: access to public catalogue browsing and suggestions. */
@@ -2644,6 +2678,7 @@ export interface components {
             id: number;
             language: string | null;
             legacySeriesText: string | null;
+            metadataSources: components["schemas"]["MetadataSource"][];
             onShelf: boolean;
             preference: string | null;
             publicationKind: string;
@@ -2746,21 +2781,15 @@ export interface components {
             publicationKind?: string | null;
             /** Format: int64 */
             publicationYear?: number | null;
-            /** @default null */
-            readingDirection: components["schemas"]["ReadingDirection"] | null;
+            readingDirection?: components["schemas"]["ReadingDirection"] | null;
             series?: string | null;
-            /**
-             * Format: int64
-             * @default null
-             */
-            seriesId: number | null;
+            /** Format: int64 */
+            seriesId?: number | null;
             seriesNumber?: string | null;
-            /**
-             * Format: double
-             * @default null
-             */
-            seriesSortOrder: number | null;
+            /** Format: double */
+            seriesSortOrder?: number | null;
             title?: string | null;
+            useAutomaticMetadata?: components["schemas"]["MetadataField"][];
         };
         BooksQuery: {
             /** Format: int64 */
@@ -3050,6 +3079,8 @@ export interface components {
             url: string;
         };
         CreateUserInput: {
+            /** @description Optional bundled profile mark. Null or omitted uses initials. */
+            avatarPreset?: components["schemas"]["ProfileMark"] | null;
             /** @description Adults only: allow adding new books to the shared library. */
             canAcquire?: boolean | null;
             /** @description Children only: allow public catalogue browsing and suggestions. */
@@ -3063,6 +3094,8 @@ export interface components {
             preferredLanguages?: string[] | null;
             profileType?: string | null;
             role?: string | null;
+            /** @description Children only: owned household books to assign in the creation transaction. */
+            startingBookIds?: number[] | null;
             username: string;
         };
         CreatedToken: {
@@ -3338,6 +3371,7 @@ export interface components {
             isbn10: string | null;
             isbn13: string | null;
             language: string | null;
+            metadataSources: components["schemas"]["MetadataSource"][];
             /** Format: int64 */
             publicationYear: number | null;
             publisher: string | null;
@@ -3615,6 +3649,8 @@ export interface components {
         };
         LoginUser: {
             authMode: string;
+            avatarPreset: string | null;
+            avatarUrl: string | null;
             displayName: string | null;
             profileType: string;
             role: components["schemas"]["Role"];
@@ -3626,6 +3662,8 @@ export interface components {
         MeResponse: {
             user: components["schemas"]["UserView"];
         };
+        /** @enum {string} */
+        MetadataField: "title" | "authors" | "description" | "language" | "series" | "seriesNumber" | "cover" | "publicationYear" | "publisher";
         MetadataJobStatus: {
             /** Format: uint64 */
             booksEnriched: number;
@@ -3639,6 +3677,12 @@ export interface components {
             running: boolean;
             /** Format: int64 */
             startedAt: number | null;
+        };
+        MetadataSource: {
+            field: string;
+            manual: boolean;
+            source: string;
+            sourceKey: string | null;
         };
         MissingFile: {
             /** Format: int64 */
@@ -3704,6 +3748,15 @@ export interface components {
         };
         PreferenceUpdate: {
             preference?: string | null;
+        };
+        /**
+         * @description IDs of the bundled, age-neutral Bokhylle profile marks.
+         * @enum {string}
+         */
+        ProfileMark: "fox" | "owl" | "cat" | "bear" | "whale" | "book" | "tree" | "mountain" | "moon" | "leaf";
+        /** @description A required nullable field: null restores initials, a bundled ID selects a mark. */
+        ProfileMarkInput: {
+            avatarPreset: components["schemas"]["ProfileMark"] | null;
         };
         ProfileStats: {
             /** Format: int64 */
@@ -4200,6 +4253,8 @@ export interface components {
             value: unknown;
         };
         UpdateUserInput: {
+            /** @description Omitted preserves the mark; null restores initials. Does not remove a photo. */
+            avatarPreset?: components["schemas"]["ProfileMark"] | null;
             /** @description Adults only: allow adding new books to the shared library. */
             canAcquire?: boolean | null;
             /** @description Children only: allow public catalogue browsing and suggestions. */
@@ -4238,6 +4293,7 @@ export interface components {
         };
         UserView: {
             acquisitionMode: string;
+            avatarPreset: string | null;
             /** Format: int64 */
             avatarVersion: number | null;
             canAcquire: boolean;
@@ -7201,6 +7257,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoginUsersResponse"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_auth_users__id__avatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Binary response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
                 };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */
@@ -11851,6 +11938,57 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_profile_avatar_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A required nullable field: null restores initials, a bundled ID selects a mark. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileMarkInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */
             401: {

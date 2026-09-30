@@ -3,8 +3,10 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use bokhylle_core::identity::{isbn10_to_isbn13, normalize_text};
 use bokhylle_metadata::MetadataResult;
 
+use super::metadata_fields::{self, MetadataField as Field, Scope};
 use crate::error::AppError;
 use crate::library::subjects;
+use serde_json::json;
 
 pub async fn upsert_book_from_metadata(
     pool: &SqlitePool,
@@ -196,9 +198,7 @@ async fn create_book(
     .await?
     .last_insert_rowid();
 
-    link_authors(tx, book_id, &metadata.authors).await?;
-    link_subjects(tx, book_id, &metadata.subjects).await?;
-    refresh_fts(tx, book_id).await?;
+    merge_book(tx, book_id, metadata).await?;
     Ok(book_id)
 }
 
@@ -207,30 +207,35 @@ async fn merge_book(
     book_id: i64,
     metadata: &MetadataResult,
 ) -> Result<(), AppError> {
-    sqlx::query(
-        "UPDATE books SET
-            description = COALESCE(description, ?),
-            language = COALESCE(language, ?),
-            series = COALESCE(series, ?),
-            series_number = CASE WHEN series_link_locked = 1 THEN series_number
-                                 ELSE COALESCE(series_number, ?) END,
-            updated_at = unixepoch()
-         WHERE id = ?",
-    )
-    .bind(&metadata.description)
-    .bind(
-        metadata
-            .language
-            .as_deref()
-            .filter(|_| !is_open_library_work(metadata)),
-    )
-    .bind(&metadata.series)
-    .bind(&metadata.series_number)
-    .bind(book_id)
-    .execute(&mut **tx)
-    .await?;
-
-    link_authors(tx, book_id, &metadata.authors).await?;
+    let scope = Scope::Book(book_id);
+    let fields = [
+        (Field::Title, json!(metadata.title.trim())),
+        (Field::Authors, json!(metadata.authors)),
+        (Field::Description, json!(metadata.description)),
+        (
+            Field::Language,
+            json!(
+                metadata
+                    .language
+                    .as_deref()
+                    .filter(|_| !is_open_library_work(metadata))
+            ),
+        ),
+        (Field::Series, json!(metadata.series)),
+        (Field::SeriesNumber, json!(metadata.series_number)),
+    ];
+    for (field, value) in fields {
+        metadata_fields::automatic(
+            tx,
+            scope,
+            field,
+            value,
+            &metadata.provider,
+            provider_key(metadata),
+            false,
+        )
+        .await?;
+    }
     link_subjects(tx, book_id, &metadata.subjects).await?;
     refresh_fts(tx, book_id).await?;
     Ok(())
@@ -292,7 +297,7 @@ pub async fn store_subjects(
     Ok(())
 }
 
-async fn link_authors(
+pub(crate) async fn link_authors(
     tx: &mut Transaction<'_, Sqlite>,
     book_id: i64,
     authors: &[String],
@@ -420,24 +425,14 @@ async fn update_edition(
     // A work result is not a verified edition. Its first ISBN, language and
     // publication year come from unrelated entries in a small editions sample.
     let work = is_open_library_work(metadata);
+    apply_edition_fields(tx, edition_id, metadata).await?;
     sqlx::query(
         "UPDATE editions SET
-            title = CASE WHEN title IS NULL OR title = '' THEN ? ELSE title END,
-            language = COALESCE(language, ?),
-            publication_year = COALESCE(publication_year, ?),
-            publisher = COALESCE(publisher, ?),
-            isbn10 = COALESCE(isbn10, ?),
-            isbn13 = COALESCE(isbn13, ?),
-            provider = COALESCE(provider, ?),
-            provider_key = COALESCE(provider_key, ?),
+            isbn10 = COALESCE(isbn10, ?), isbn13 = COALESCE(isbn13, ?),
+            provider = COALESCE(provider, ?), provider_key = COALESCE(provider_key, ?),
             is_unknown = CASE WHEN ? THEN is_unknown ELSE 0 END,
-            updated_at = unixepoch()
-         WHERE id = ?",
+            updated_at = unixepoch() WHERE id = ?",
     )
-    .bind(&metadata.title)
-    .bind(metadata.language.as_deref().filter(|_| !work))
-    .bind((!work).then_some(metadata.year).flatten())
-    .bind(&metadata.publisher)
     .bind(isbn10.as_deref().filter(|_| !work))
     .bind(isbn13.as_deref().filter(|_| !work))
     .bind(&metadata.provider)
@@ -478,5 +473,38 @@ async fn create_edition(
     .await?
     .last_insert_rowid();
 
+    apply_edition_fields(tx, edition_id, metadata).await?;
     Ok(edition_id)
+}
+
+async fn apply_edition_fields(
+    tx: &mut Transaction<'_, Sqlite>,
+    edition_id: i64,
+    metadata: &MetadataResult,
+) -> Result<(), AppError> {
+    let work = is_open_library_work(metadata);
+    for (field, value) in [
+        (Field::Title, json!(metadata.title.trim())),
+        (
+            Field::Language,
+            json!(metadata.language.as_deref().filter(|_| !work)),
+        ),
+        (
+            Field::PublicationYear,
+            json!((!work).then_some(metadata.year).flatten()),
+        ),
+        (Field::Publisher, json!(metadata.publisher)),
+    ] {
+        metadata_fields::automatic(
+            tx,
+            Scope::Edition(edition_id),
+            field,
+            value,
+            &metadata.provider,
+            provider_key(metadata),
+            false,
+        )
+        .await?;
+    }
+    Ok(())
 }

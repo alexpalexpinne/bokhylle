@@ -51,6 +51,25 @@ capture `docs/media/catalogues-desktop.png` and `catalogues-mobile.png`, then
 copy them to `assets/catalogues-desktop.png` and `catalogues-mobile.png`.
 The public demo keeps external acquisition disabled.
 
+The household sign-in previews use fictional profiles and illustrated portraits.
+With the built frontend preview running, run:
+
+```sh
+BOKHYLLE_DOCS_SELECT=sign-in-desktop.png,sign-in-mobile.png node frontend/scripts/capture-docs.mjs
+cp docs/media/sign-in-{desktop,mobile}.png website/assets/
+```
+
+The mobile image shows the selected child's PIN panel. The public demo keeps
+its separate adult/child entry screen rather than requiring a password.
+
+Metadata correction previews also use the fictional catalogue. With the built
+frontend preview running, refresh them with:
+
+```sh
+BOKHYLLE_DOCS_SELECT=metadata-corrections-desktop.png,metadata-corrections-mobile.png node frontend/scripts/capture-docs.mjs
+cp docs/media/metadata-corrections-{desktop,mobile}.png website/assets/
+```
+
 ## Publish the static site
 
 Build into a new directory with the actual HTTPS demo address:

@@ -5,6 +5,8 @@ import { MoreHorizontal, Trash2, Wrench } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import {
   type BookDetail,
+  type BookUpdate,
+  type MetadataField,
   deleteBookAdmin,
   deleteBookFileAdmin,
   updateBookAdmin,
@@ -40,13 +42,16 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
     publicationYear: '',
     readingDirection: '' as '' | 'ltr' | 'rtl',
   })
+  const [initialForm, setInitialForm] = useState(form)
+  const [automaticFields, setAutomaticFields] = useState<MetadataField[]>([])
   const [availableSeries, setAvailableSeries] = useState<SeriesRecord[]>([])
   const [seriesError, setSeriesError] = useState<string | null>(null)
   const mutation = useMutation()
 
   function openEdit() {
     mutation.clearError()
-    setForm({
+    const publicationYear = book.editions.length ? book.editions[0].publicationYear : book.publicationYear
+    const initial = {
       title: book.title,
       authors: book.authors.join(', '),
       description: book.description ? descriptionText(book.description) : '',
@@ -56,9 +61,12 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
       seriesNumber: book.seriesNumber ?? '',
       seriesSortOrder: book.seriesSortOrder == null ? '' : String(book.seriesSortOrder),
       publicationKind: book.publicationKind,
-      publicationYear: book.publicationYear ? String(book.publicationYear) : '',
-      readingDirection: book.readingDirection === 'rtl' || book.readingDirection === 'ltr' ? book.readingDirection : '',
-    })
+      publicationYear: publicationYear == null ? '' : String(publicationYear),
+      readingDirection: (book.readingDirection === 'rtl' || book.readingDirection === 'ltr' ? book.readingDirection : '') as '' | 'ltr' | 'rtl',
+    }
+    setForm(initial)
+    setInitialForm(initial)
+    setAutomaticFields([])
     setSeriesError(null)
     void fetchAdminSeries().then(setAvailableSeries).catch((caught: unknown) => {
       setSeriesError(caught instanceof ApiError ? caught.message : 'Could not load series')
@@ -75,24 +83,55 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
           : null
         const chosen = created?.id ?? (form.seriesChoice && form.seriesChoice !== 'new'
           ? Number(form.seriesChoice) : null)
-        return updateBookAdmin(book.id, {
-          title: form.title,
-          authors: form.authors.split(',').map((author) => author.trim()).filter(Boolean),
-          description: form.description,
-          language: form.language,
-          seriesId: chosen,
-          seriesNumber: form.seriesNumber,
-          seriesSortOrder: form.seriesSortOrder ? Number(form.seriesSortOrder) : null,
-          publicationKind: form.publicationKind,
-          publicationYear: form.publicationYear ? Number(form.publicationYear) : undefined,
-          readingDirection: form.readingDirection || null,
-        })
+        const update: BookUpdate = { useAutomaticMetadata: automaticFields }
+        if (form.title !== initialForm.title && !automaticFields.includes('title')) update.title = form.title
+        if (form.authors !== initialForm.authors && !automaticFields.includes('authors')) {
+          update.authors = form.authors.split(',').map((author) => author.trim()).filter(Boolean)
+        }
+        if (form.description !== initialForm.description && !automaticFields.includes('description')) update.description = form.description
+        if (form.language !== initialForm.language && !automaticFields.includes('language')) update.language = form.language
+        if (form.seriesChoice !== initialForm.seriesChoice) update.seriesId = chosen
+        if (form.seriesNumber !== initialForm.seriesNumber && !automaticFields.includes('seriesNumber')) update.seriesNumber = form.seriesNumber
+        if (form.seriesSortOrder !== initialForm.seriesSortOrder) update.seriesSortOrder = form.seriesSortOrder ? Number(form.seriesSortOrder) : null
+        if (form.publicationKind !== initialForm.publicationKind) update.publicationKind = form.publicationKind
+        if (form.publicationYear !== initialForm.publicationYear && !automaticFields.includes('publicationYear')) update.publicationYear = form.publicationYear ? Number(form.publicationYear) : null
+        if (form.readingDirection !== initialForm.readingDirection) update.readingDirection = form.readingDirection || null
+        return updateBookAdmin(book.id, update)
       },
       'Could not save the book',
       () => {
         setAction(null)
         onUpdated()
       },
+    )
+  }
+
+  function sourceHint(field: MetadataField, label: string) {
+    const bookSource = book.metadataSources?.find((entry) => entry.field === field)
+    const fileEdition = book.editions.find((edition) => edition.id === book.files[0]?.editionId)
+    const sources = field === 'publicationYear' ? book.editions[0]?.metadataSources
+      : field === 'language' && !bookSource?.manual && fileEdition ? fileEdition.metadataSources
+      : book.metadataSources
+    const source = sources?.find((entry) => entry.field === field)
+    const labels: Record<string, string> = {
+      filename: 'Filename', manual: 'Manual correction', unknown: 'Source unknown', mixed: 'Multiple sources',
+      openlibrary: 'Open Library', googlebooks: 'Google Books', epub: 'EPUB', pdf: 'PDF', cbz: 'CBZ',
+    }
+    const resetting = automaticFields.includes(field)
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
+        <span>{resetting ? 'Automatic value will be restored on save.' : labels[source?.source ?? 'unknown'] ?? source?.source}</span>
+        {source?.manual && (
+          <button
+            type="button"
+            aria-label={`${resetting ? 'Keep manual correction' : 'Use automatic metadata again'} for ${label}`}
+            className="min-h-8 text-accent underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+            onClick={() => setAutomaticFields((current) => resetting ? current.filter((value) => value !== field) : [...current, field])}
+          >
+            {resetting ? 'Keep manual correction' : 'Use automatic metadata again'}
+          </button>
+        )}
+      </div>
     )
   }
 
@@ -131,7 +170,7 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
       {action === 'edit' && createPortal(
         <Modal
           title="Fix details"
-          description="Correct what Bokhylle knows about this book."
+          description="Your corrections stay in place through imports and metadata refreshes. Only changed fields are saved."
           onClose={() => setAction(null)}
           wide
           footer={
@@ -147,16 +186,20 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
           {seriesError && <p className="mb-4 text-sm text-danger">{seriesError}</p>}
           <div className="grid gap-4 sm:grid-cols-2">
             {fields.map((field) => (
-              <label key={field.key} className={`block${field.wide ? ' sm:col-span-2' : ''}`}>
-                <span className="mb-1.5 block text-xs text-ink-muted">{field.label}</span>
-                <input
-                  type={field.key === 'publicationYear' ? 'number' : 'text'}
-                  value={form[field.key]}
-                  onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
-                  placeholder={field.key === 'language' ? 'en' : undefined}
-                  className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-focus"
-                />
-              </label>
+              <div key={field.key} className={`block${field.wide ? ' sm:col-span-2' : ''}`}>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs text-ink-muted">{field.label}</span>
+                  <input
+                    type={field.key === 'publicationYear' ? 'number' : 'text'}
+                    value={form[field.key]}
+                    disabled={automaticFields.includes(field.key)}
+                    onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
+                    placeholder={field.key === 'language' ? 'en' : undefined}
+                    className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-focus"
+                  />
+                </label>
+                {sourceHint(field.key, field.label)}
+              </div>
             ))}
             <label className="block">
               <span className="mb-1.5 block text-xs text-ink-muted">Publication type</span>
@@ -182,10 +225,13 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
               <input value={form.seriesName} onChange={(event) => setForm((current) => ({ ...current, seriesName: event.target.value }))} className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-focus" />
             </label>}
             {book.legacySeriesText && <p className="text-xs text-ink-muted sm:col-span-2">Imported series text: {book.legacySeriesText}</p>}
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-ink-muted">Volume label</span>
-              <input value={form.seriesNumber} onChange={(event) => setForm((current) => ({ ...current, seriesNumber: event.target.value }))} className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-focus" />
-            </label>
+            <div className="block">
+              <label className="block">
+                <span className="mb-1.5 block text-xs text-ink-muted">Volume label</span>
+                <input value={form.seriesNumber} disabled={automaticFields.includes('seriesNumber')} onChange={(event) => setForm((current) => ({ ...current, seriesNumber: event.target.value }))} className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-focus" />
+              </label>
+              {sourceHint('seriesNumber', 'Volume label')}
+            </div>
             <label className="block">
               <span className="mb-1.5 block text-xs text-ink-muted">Volume sort order</span>
               <input type="number" step="any" value={form.seriesSortOrder} onChange={(event) => setForm((current) => ({ ...current, seriesSortOrder: event.target.value }))} placeholder="Automatic for numbers" className="w-full rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus-visible:outline-2 focus-visible:outline-focus" />
@@ -198,15 +244,18 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
                 <option value="rtl">Right to left</option>
               </select>
             </label>
-            <label className="block sm:col-span-2">
-              <span className="mb-1.5 block text-xs text-ink-muted">Description</span>
+            <div className="block sm:col-span-2">
+              <label htmlFor={`book-${book.id}-description`} className="mb-1.5 block text-xs text-ink-muted">Description</label>
               <textarea
+                id={`book-${book.id}-description`}
                 value={form.description}
+                disabled={automaticFields.includes('description')}
                 onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
                 rows={4}
                 className="w-full resize-y rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-focus"
               />
-            </label>
+              {sourceHint('description', 'Description')}
+            </div>
           </div>
         </Modal>,
         document.body,

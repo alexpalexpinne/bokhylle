@@ -46,6 +46,10 @@ async fn released_database_reopens_without_losing_profile_and_book_data() {
     .execute(&pool)
     .await
     .unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     pool.close().await;
     let reopened = db::init(&database_path).await.unwrap();
     let profile: (String, String, i64) =
@@ -65,7 +69,7 @@ async fn released_database_reopens_without_losing_profile_and_book_data() {
         .fetch_one(&reopened)
         .await
         .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, before);
 }
 
 #[tokio::test]

@@ -16,6 +16,7 @@ import zipfile
 
 
 PASSWORD = "isolated-image-test-123"
+MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
 
 def docker(*args):
@@ -43,6 +44,21 @@ def wait_ready(client, base, path="/healthz"):
         except (OSError, urllib.error.URLError):
             time.sleep(0.5)
     raise RuntimeError("image did not become ready: " + path)
+
+
+def verify_migrations(db, directory=MIGRATIONS):
+    # SQLx hashes the migration's original UTF-8 SQL with SHA-384. Compare the
+    # actual versions and checksums, so an image missing new migrations fails
+    # without hard-coding the migration count for every future schema change.
+    expected = sorted(
+        (int(path.name.split("_", 1)[0]), 1, hashlib.sha384(path.read_bytes()).digest())
+        for path in directory.glob("*.sql")
+    )
+    assert expected, "no source migrations found"
+    actual = db.execute(
+        "SELECT version, success, checksum FROM _sqlx_migrations ORDER BY version"
+    ).fetchall()
+    assert actual == expected, "image migrations do not match the source versions, successful status and checksums"
 
 
 def main():
@@ -107,7 +123,7 @@ def main():
             with sqlite3.connect(backup) as db:
                 assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
                 assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-                assert db.execute("SELECT count(*) FROM _sqlx_migrations").fetchone()[0] == 1
+                verify_migrations(db)
                 saved_path, saved_digest = db.execute("SELECT path, sha256 FROM book_files").fetchone()
                 assert saved_digest == digest
             library = root / "library"

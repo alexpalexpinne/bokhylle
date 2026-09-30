@@ -17,16 +17,16 @@ import {
   setAuthorFollow,
   setBookPreference,
 } from '../api/library'
-import { completeOnboarding, saveInterests, updateProfile } from '../api/profile'
+import { completeOnboarding, fetchLikedBooks, fetchOnboarding, saveInterests, updateProfile } from '../api/profile'
 import { type DiscoveryResult, discoverCoverUrl, likeExternalBook, searchDiscover } from '../api/discover'
 import { AuthorAvatar } from '../components/AuthorAvatar'
 import { BookCover } from '../components/BookCover'
 import { BrandMark } from '../components/BrandMark'
+import { ReadingInterests } from '../components/ReadingInterests'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Field'
 import { SearchField } from '../components/ui/SearchField'
 import { LANGUAGES, languageLabel } from '../lib/languages'
-import { GENRES } from '../lib/genres'
 
 const STEP_TITLES = [
   'What do you like to read?',
@@ -48,6 +48,10 @@ function AdultOnboarding() {
     return user?.defaultLanguage ? [user.defaultLanguage] : []
   })
   const [subjects, setSubjects] = useState<string[]>([])
+  const [savedSubjects, setSavedSubjects] = useState<string[]>([])
+  const [interestsReady, setInterestsReady] = useState(false)
+  const [interestsError, setInterestsError] = useState<string | null>(null)
+  const [interestsAttempt, setInterestsAttempt] = useState(0)
   const [authorQuery, setAuthorQuery] = useState('')
   const [authorHits, setAuthorHits] = useState<AuthorHit[]>([])
   const [bookQuery, setBookQuery] = useState('')
@@ -66,6 +70,22 @@ function AdultOnboarding() {
   const [error, setError] = useState<string | null>(null)
   const authorSearchSeq = useRef(0)
   const bookSearchSeq = useRef(0)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([fetchOnboarding(), fetchLikedBooks()]).then(([profile, preferences]) => {
+      if (cancelled) return
+      const interests = profile.interests ?? []
+      setSubjects(interests)
+      setSavedSubjects(interests)
+      setLiked(preferences.items?.map((book) => book.bookId) ?? [])
+      setLikedKeys(preferences.items?.flatMap((book) => book.providerKey ? [book.providerKey] : []) ?? [])
+      setInterestsReady(true)
+    }).catch((caught: unknown) => {
+      if (!cancelled) setInterestsError(caught instanceof ApiError ? caught.message : 'Could not load your interests.')
+    })
+    return () => { cancelled = true }
+  }, [interestsAttempt])
 
   useEffect(() => {
     fetchBooks('recent', 1, 1, { mine: false })
@@ -142,21 +162,27 @@ function AdultOnboarding() {
   }
 
   async function skip() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
     try {
       await completeOnboarding()
-    } catch {
-      // Skipping must never trap the user.
+      clearSessionSearch()
+      navigate('/', { replace: true, state: { fromOnboarding: true } })
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not skip setup. Try again.')
+    } finally {
+      setBusy(false)
     }
-    clearSessionSearch()
-    navigate('/', { replace: true, state: { fromOnboarding: true } })
   }
 
   async function next() {
     setError(null)
     setBusy(true)
     try {
-      if (step === 0 && subjects.length > 0) {
+      if (step === 0 && JSON.stringify(subjects) !== JSON.stringify(savedSubjects)) {
         await saveInterests(subjects)
+        setSavedSubjects(subjects)
       }
       if (step === 1) {
         await updateProfile({
@@ -202,6 +228,7 @@ function AdultOnboarding() {
         </p>
         <button
           type="button"
+          disabled={busy}
           onClick={() => void skip()}
           className="font-sans text-[11px] font-medium uppercase tracking-[0.16em] text-ink-muted transition-colors hover:text-ink"
         >
@@ -216,34 +243,17 @@ function AdultOnboarding() {
           : 'Everything here is optional, and you can change it later in Profile.'}
       </p>
 
-      {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
 
       <div className="mt-8 flex-1">
         {step === 0 && (
-          <div className="flex flex-wrap gap-2">
-            {GENRES.map((genre) => {
-              const selected = subjects.includes(genre)
-              return (
-                <button
-                  key={genre}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() =>
-                    setSubjects((current) =>
-                      selected ? current.filter((item) => item !== genre) : [...current, genre],
-                    )
-                  }
-                  className={`rounded-[3px] px-3.5 py-2 text-sm transition-colors ${
-                    selected
-                      ? 'bg-accent text-accent-ink'
-                      : 'bg-surface-2 text-ink-soft hover:bg-surface-3'
-                  }`}
-                >
-                  {genre}
-                </button>
-              )
-            })}
-          </div>
+          interestsReady ? <>
+            <p className="mb-4 text-sm text-ink-muted">Choose your favourite topics first. Search the suggestions or add a topic of your own.</p>
+            <ReadingInterests selected={subjects} onChange={setSubjects} disabled={busy} />
+          </> : interestsError ? <div role="alert">
+            <p className="text-sm text-danger">{interestsError}</p>
+            <Button variant="ghost" onClick={() => { setInterestsError(null); setInterestsAttempt((value) => value + 1) }}>Try again</Button>
+          </div> : <p role="status" className="text-sm text-ink-muted">Loading your interests…</p>
         )}
 
         {step === 1 && (
@@ -595,13 +605,13 @@ function AdultOnboarding() {
         <Button
           variant="ghost"
           size="sm"
-          disabled={step === 0}
+          disabled={step === 0 || busy}
           onClick={() => setStep((current) => Math.max(0, current - 1))}
         >
           Back
         </Button>
         {step < STEP_TITLES.length - 1 ? (
-          <Button variant="primary" disabled={busy} onClick={() => void next()}>
+          <Button variant="primary" disabled={busy || (step === 0 && !interestsReady)} onClick={() => void next()}>
             {busy ? 'Saving…' : 'Next'}
           </Button>
         ) : (

@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::AppState;
-use crate::auth::{AdminUser, Role, infer_credential_type};
+use crate::auth::{AdminUser, Role};
 use crate::error::AppError;
 use crate::services::reader::ReadingDirection;
 use crate::settings;
@@ -315,16 +315,23 @@ pub async fn backup(
 pub struct BookUpdateInput {
     pub title: Option<String>,
     pub authors: Option<Vec<String>>,
-    pub description: Option<String>,
-    pub language: Option<String>,
-    pub series: Option<String>,
-    pub series_number: Option<String>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub language: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub series: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub series_number: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub series_id: Option<Option<i64>>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub series_sort_order: Option<Option<f64>>,
     pub publication_kind: Option<String>,
-    pub publication_year: Option<i64>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub publication_year: Option<Option<i64>>,
+    #[serde(default)]
+    pub use_automatic_metadata: Vec<crate::library::metadata_fields::MetadataField>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub reading_direction: Option<Option<ReadingDirection>>,
 }
@@ -480,16 +487,83 @@ pub async fn update_book(
     Path(id): Path<i64>,
     Json(body): Json<BookUpdateInput>,
 ) -> Result<Json<UpdatedBook>, AppError> {
+    let mut transaction = state
+        .db
+        .begin_with(sqlx::AssertSqlSafe("BEGIN IMMEDIATE".to_string()))
+        .await?;
     let Some(current_title): Option<String> =
         sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
             .bind(id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *transaction)
             .await?
     else {
         return Err(AppError::NotFound("book not found".to_string()));
     };
 
-    let mut transaction = state.db.begin().await?;
+    use crate::library::metadata_fields::{self, MetadataField as Field, Scope};
+    let supplied = [
+        (
+            Field::Title,
+            body.title
+                .as_ref()
+                .is_some_and(|title| !title.trim().is_empty()),
+        ),
+        (Field::Authors, body.authors.is_some()),
+        (Field::Description, body.description.is_some()),
+        (Field::Language, body.language.is_some()),
+        (Field::Series, body.series.is_some()),
+        (
+            Field::SeriesNumber,
+            body.series_number.is_some() || body.series_id.is_some(),
+        ),
+        (Field::PublicationYear, body.publication_year.is_some()),
+    ];
+    for field in &body.use_automatic_metadata {
+        if supplied
+            .iter()
+            .any(|(candidate, present)| candidate == field && *present)
+        {
+            return Err(AppError::BadRequest(
+                "a metadata field cannot be corrected and reset together".into(),
+            ));
+        }
+    }
+    let first_edition: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM editions WHERE book_id = ? ORDER BY id LIMIT 1")
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+    for (field, present) in supplied {
+        if present {
+            let scope = if field == Field::PublicationYear {
+                first_edition.map(Scope::Edition)
+            } else {
+                Some(Scope::Book(id))
+            };
+            if let Some(scope) = scope {
+                metadata_fields::mark_manual(&mut transaction, scope, field).await?;
+            }
+        }
+    }
+    for field in &body.use_automatic_metadata {
+        let scope = if matches!(field, Field::PublicationYear | Field::Publisher) {
+            first_edition.map(Scope::Edition)
+        } else {
+            Some(Scope::Book(id))
+        };
+        if let Some(scope) = scope {
+            metadata_fields::reset(&mut transaction, scope, *field).await?;
+        }
+    }
+    // A reset may have restored the title before the ordinary patch is applied.
+    let current_title: String = if body.use_automatic_metadata.contains(&Field::Title) {
+        sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+            .bind(id)
+            .fetch_one(&mut *transaction)
+            .await?
+    } else {
+        current_title
+    };
 
     let title = match body.title {
         Some(title) if !title.trim().is_empty() => title.trim().to_string(),
@@ -497,7 +571,7 @@ pub async fn update_book(
         None => current_title,
     };
     let normalized_title = bokhylle_core::identity::normalize_text(&title);
-    let series_text = optional_text(body.series);
+    let series_text = body.series.map(|value| optional_text(value).flatten());
     let marks_classification_reviewed =
         body.publication_kind.is_some() || body.series_id.is_some() || body.series_number.is_some();
     let direction_present = body.reading_direction.is_some();
@@ -537,13 +611,22 @@ pub async fn update_book(
     .bind(&title)
     .bind(&normalized_title)
     .bind(body.description.is_some())
-    .bind(optional_text(body.description).flatten())
+    .bind(
+        body.description
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(body.language.is_some())
-    .bind(optional_text(body.language).flatten())
+    .bind(
+        body.language
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(series_text.is_some())
     .bind(series_text.as_ref().and_then(|value| value.as_deref()))
     .bind(body.series_number.is_some())
-    .bind(optional_text(body.series_number).flatten())
+    .bind(
+        body.series_number
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(sort_present)
     .bind(sort_value)
     .bind(kind)
@@ -656,6 +739,12 @@ pub async fn update_book(
         .await?;
     }
 
+    if !body.use_automatic_metadata.is_empty() {
+        sqlx::query("UPDATE books SET metadata_checked_at = NULL WHERE id = ?")
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+    }
     crate::library::refresh_fts(&mut transaction, id).await?;
     transaction.commit().await?;
 
@@ -769,6 +858,8 @@ pub struct AdminUserView {
     pub can_discover: bool,
     /// Adults only: permission to add new files to the shared collection.
     pub can_acquire: bool,
+    pub avatar_preset: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 fn parse_languages(stored: Option<String>) -> Vec<String> {
@@ -796,15 +887,27 @@ struct AdminAccess {
     can_acquire: bool,
 }
 
-fn user_view(
+async fn user_view(
+    state: &AppState,
     user: crate::auth::User,
     credential_type: &str,
     readers: i64,
     disabled: bool,
     preferred_languages: Vec<String>,
     access: AdminAccess,
-) -> AdminUserView {
-    AdminUserView {
+) -> Result<AdminUserView, AppError> {
+    let (avatar_preset, avatar_version): (Option<String>, Option<i64>) = sqlx::query_as(
+        "SELECT avatar_preset,
+         CASE WHEN EXISTS (SELECT 1 FROM user_avatars WHERE user_id = users.id)
+              THEN avatar_version ELSE NULL END FROM users WHERE id = ?",
+    )
+    .bind(user.id)
+    .fetch_one(&state.db)
+    .await?;
+    let avatar_url = avatar_version
+        .filter(|_| !disabled)
+        .map(|version| format!("/api/auth/users/{}/avatar?v={version}", user.id));
+    Ok(AdminUserView {
         id: user.id,
         username: user.username,
         display_name: user.display_name,
@@ -816,7 +919,9 @@ fn user_view(
         can_request: access.can_request,
         can_discover: access.can_discover,
         can_acquire: access.can_acquire,
-    }
+        avatar_preset,
+        avatar_url,
+    })
 }
 
 pub async fn list_users(
@@ -836,40 +941,27 @@ pub async fn list_users(
             .unwrap_or((None, 1, 0));
         let preferred_languages = preferred_languages_of(&state.db, user.id).await?;
         let can_acquire = crate::auth::can_acquire(&state.db, &user).await?;
-        views.push(user_view(
-            user,
-            credential_type.as_deref().unwrap_or("legacy"),
-            readers,
-            disabled,
-            preferred_languages,
-            AdminAccess {
-                can_request: can_request != 0,
-                can_discover: can_discover != 0,
-                can_acquire,
-            },
-        ));
+        views.push(
+            user_view(
+                &state,
+                user,
+                credential_type.as_deref().unwrap_or("legacy"),
+                readers,
+                disabled,
+                preferred_languages,
+                AdminAccess {
+                    can_request: can_request != 0,
+                    can_discover: can_discover != 0,
+                    can_acquire,
+                },
+            )
+            .await?,
+        );
     }
     Ok(Json(views))
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateUserInput {
-    pub username: String,
-    pub password: Option<String>,
-    pub credential: Option<String>,
-    pub credential_type: Option<String>,
-    pub role: Option<String>,
-    pub display_name: Option<String>,
-    pub preferred_languages: Option<Vec<String>>,
-    pub profile_type: Option<String>,
-    /// Children only: permits request submission and basic catalogue search.
-    pub can_request: Option<bool>,
-    /// Children only: allow public catalogue browsing and suggestions.
-    pub can_discover: Option<bool>,
-    /// Adults only: allow adding new books to the shared library.
-    pub can_acquire: Option<bool>,
-}
+pub use crate::services::users::CreateUserInput;
 
 /// The ordered list is the reader's preference; the legacy single column
 /// keeps the first entry so older queries stay meaningful.
@@ -910,83 +1002,25 @@ pub async fn create_user(
     State(state): State<AppState>,
     Json(body): Json<CreateUserInput>,
 ) -> Result<(StatusCode, Json<AdminUserView>), AppError> {
-    let role = parse_role(body.role.as_deref())?.unwrap_or(Role::User);
-    let profile_type = body.profile_type.as_deref().unwrap_or("adult");
-    let secret = body
-        .credential
-        .or(body.password)
-        .ok_or_else(|| AppError::Unprocessable("a PIN or password is required".to_string()))?;
-    let credential_type = body
-        .credential_type
-        .clone()
-        .unwrap_or_else(|| infer_credential_type(role, &secret).to_string());
-    let user = state
-        .auth
-        .create_user_with_profile(
-            &body.username,
-            &secret,
-            role,
-            &credential_type,
-            profile_type,
-        )
-        .await?;
-
-    let display_name = body
-        .display_name
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty());
-    let user = match display_name {
-        Some(name) => state
-            .auth
-            .update_profile(user.id, Some(name), None, None, None)
-            .await?
-            .ok_or_else(|| AppError::NotFound("user not found".to_string()))?,
-        None => user,
-    };
-
-    if let Some(languages) = body.preferred_languages.as_deref() {
-        set_preferred_languages(&state.db, user.id, languages).await?;
-    }
-    if body.can_request == Some(false) {
-        sqlx::query("UPDATE users SET can_request = 0 WHERE id = ?")
-            .bind(user.id)
-            .execute(&state.db)
-            .await?;
-    }
-    if body.can_discover == Some(true) && profile_type == "child" {
-        sqlx::query("UPDATE users SET can_discover = 1 WHERE id = ?")
-            .bind(user.id)
-            .execute(&state.db)
-            .await?;
-    }
-    let can_acquire = profile_type == "adult" && body.can_acquire.unwrap_or(true);
-    sqlx::query("UPDATE users SET can_acquire = ? WHERE id = ?")
-        .bind(can_acquire)
-        .bind(user.id)
-        .execute(&state.db)
-        .await?;
-
-    let credential_type: Option<String> =
-        sqlx::query_scalar("SELECT credential_type FROM users WHERE id = ?")
-            .bind(user.id)
-            .fetch_optional(&state.db)
-            .await?
-            .flatten();
-    let preferred_languages = preferred_languages_of(&state.db, user.id).await?;
+    let created = crate::services::users::create(&state, body).await?;
     Ok((
         StatusCode::CREATED,
-        Json(user_view(
-            user,
-            credential_type.as_deref().unwrap_or("legacy"),
-            0,
-            false,
-            preferred_languages,
-            AdminAccess {
-                can_request: body.can_request.unwrap_or(true),
-                can_discover: body.can_discover == Some(true) && profile_type == "child",
-                can_acquire: can_acquire || role == Role::Admin,
-            },
-        )),
+        Json(
+            user_view(
+                &state,
+                created.user,
+                &created.credential_type,
+                0,
+                false,
+                created.preferred_languages,
+                AdminAccess {
+                    can_request: created.can_request,
+                    can_discover: created.can_discover,
+                    can_acquire: created.can_acquire,
+                },
+            )
+            .await?,
+        ),
     ))
 }
 
@@ -1006,6 +1040,9 @@ pub struct UpdateUserInput {
     pub can_discover: Option<bool>,
     /// Adults only: allow adding new books to the shared library.
     pub can_acquire: Option<bool>,
+    /// Omitted preserves the mark; null restores initials. Does not remove a photo.
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub avatar_preset: Option<Option<crate::services::users::ProfileMark>>,
 }
 
 pub async fn update_user(
@@ -1072,6 +1109,10 @@ pub async fn update_user(
         .await?
         .ok_or_else(|| AppError::NotFound("user not found".to_string()))?;
 
+    if let Some(preset) = body.avatar_preset {
+        crate::services::users::set_profile_mark(&state.db, id, preset).await?;
+    }
+
     // A disabled account must not receive queued background sends.
     if body.disabled == Some(true) {
         sqlx::query("UPDATE acquisition_requests SET deliver_on_ready = 0 WHERE user_id = ?")
@@ -1137,18 +1178,22 @@ pub async fn update_user(
         .await?;
     let preferred_languages = preferred_languages_of(&state.db, id).await?;
     let can_acquire = crate::auth::can_acquire(&state.db, &updated).await?;
-    Ok(Json(user_view(
-        updated,
-        credential_type.as_deref().unwrap_or("legacy"),
-        readers,
-        disabled != 0,
-        preferred_languages,
-        AdminAccess {
-            can_request: can_request != 0,
-            can_discover: can_discover != 0,
-            can_acquire,
-        },
-    )))
+    Ok(Json(
+        user_view(
+            &state,
+            updated,
+            credential_type.as_deref().unwrap_or("legacy"),
+            readers,
+            disabled != 0,
+            preferred_languages,
+            AdminAccess {
+                can_request: can_request != 0,
+                can_discover: can_discover != 0,
+                can_acquire,
+            },
+        )
+        .await?,
+    ))
 }
 
 pub async fn list_settings(

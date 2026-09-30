@@ -448,6 +448,12 @@ pub async fn apply_batch(
                 .and_then(|value| value.parse::<f64>().ok())
                 .filter(|n| n.is_finite() && *n >= 0.0)
         });
+        crate::library::metadata_fields::mark_manual(
+            &mut tx,
+            crate::library::metadata_fields::Scope::Book(decision.book_id),
+            crate::library::metadata_fields::MetadataField::SeriesNumber,
+        )
+        .await?;
         sqlx::query(
             "UPDATE books SET publication_kind = ?, series_id = ?, series_link_locked = 1,
                     series_number = ?, series_sort_order = ?, reading_direction = ?,

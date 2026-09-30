@@ -9,7 +9,7 @@ its domain routers are merged once for the running app and OpenAPI document.
 
 The application authenticates most operations with the `bokhylle_session`
 cookie returned by login. The document marks the public health, login, logout,
-login user list, and demo entry operations separately. An administrator's role
+login user list and pictures, and demo entry operations separately. An administrator's role
 and a child's access to a book are enforced by the server; possession of a cookie
 alone does not grant access. Error responses use `{ code, message, details }`.
 Downloads return EPUB, PDF, or CBZ data, backup downloads use an octet stream, and
@@ -108,6 +108,28 @@ review has already processed the file. The server never applies suggestions
 during a scan; manual series links and volume corrections are retained during
 later metadata refreshes.
 
+Book and edition detail responses include `metadataSources`: each entry has
+`field`, `source`, nullable `sourceKey`, and `manual`. Origins include provider
+names, `epub`, `pdf`, `cbz`, `filename`, `mixed`, and `unknown`; manual corrections report
+`source=manual`. Existing metadata is migrated with unknown origins rather
+than inferring them from provider identities. Source keys never contain local
+filesystem paths. Ratings retain their separate rating provenance.
+
+`PUT /api/admin/books/{id}` only changes supplied fields. Corrections to title,
+authors, description, language, imported series text, volume label, and the first
+edition's publication year protect those fields from automatic updates. An
+explicit null or empty string clears nullable text while preserving the manual
+intent; an empty author list is also protected. `useAutomaticMetadata` accepts
+field names (`title`, `authors`, `description`, `language`, `series`,
+`seriesNumber`, `publicationYear`, `cover`, `publisher`) and restores each
+selected field's saved automatic value, releasing its manual correction.
+Cover and publisher have provenance but no manual editor in this release.
+A field cannot be corrected and reset in the same request. The update, field
+ownership records, and search index commit together. Resetting imported series
+metadata does not remove an explicit local series link. Catalogue availability
+and a file's actual edition language remain separate from a corrected book
+language.
+
 Adult shelves are private: `user` shelf filters accept the caller's own ID,
 or an administrator's child profile ID. Only administrators may list child
 profiles, assign a child's shelf, and approve or decline another person's book
@@ -124,12 +146,56 @@ Invalid shelf finishes reject the entire update. Existing child and shared demo
 restrictions still apply. These appearance choices are independent of the
 browser's Paper/Ink theme and do not change book access or reading preferences.
 
+`POST /api/admin/users` accepts optional `startingBookIds` for a child profile
+(at most 1,000 IDs). Every selected book must have a file in the household
+library; metadata-only or missing books reject the request. Duplicate IDs are
+ignored. Credentials, display name, language preferences, permissions and
+initial shelf assignments commit in one transaction. A failure rolls back the
+account and all assignments. Adults cannot use nonempty `startingBookIds`.
+
+The household UI offers three child access modes using the existing booleans:
+assigned books only (`canDiscover=false`, `canRequest=false`), search and ask
+(`false`, `true`), and explore and ask (`true`, `true`). The API still supports
+existing browse-only profiles (`true`, `false`); unrelated UI edits preserve
+their permissions. All child library reads remain restricted to assigned books.
+
+`PUT /api/profile/interests` atomically replaces the interest selection.
+If a database write fails, the previous selection remains intact. Restarting
+onboarding clears only the completion marker; the wizard preloads saved
+interests and likes, and Skip does not replace interests.
+
+`avatarPreset` is the optional bundled profile mark ID: `fox`, `owl`, `cat`,
+`bear`, `whale`, `book`, `tree`, `mountain`, `moon`, or `leaf`. It is returned
+by `GET /api/auth/me`, `GET /api/auth/users`, and the admin user API. New
+profiles default to null (initials). Administrators can send it during account
+creation or editing; omission on edit preserves it, while explicit null clears
+it. Creation saves it in the same transaction as the account and starting books.
+
+Any signed-in profile, including a child, can set its own mark with
+`PUT /api/profile/avatar/preset` and `{ "avatarPreset": "owl" }`, or null to
+restore initials. The field is required; unknown IDs and extra fields return
+422. This endpoint changes only the current profile's mark. Children still
+cannot change general account settings through `PUT /api/profile`.
+Bundled artwork is served from `/profile-marks/<id>.svg`. Uploaded photos take
+precedence; changing the mark does not delete a photo, and removing a photo
+reveals the selected mark or initials.
+
 Each signed-in user can set a profile picture with `PUT /api/profile/avatar`
 (raw PNG, JPEG, or WebP body, matching `Content-Type`, maximum 1 MB), read it
 with `GET /api/profile/avatar`, or remove it with `DELETE /api/profile/avatar`.
-The image is stored in `user_avatars` and can only be read or changed by
-that user, including child profiles. `GET /api/auth/me` includes
+The original image is stored in `user_avatars` and can only be read or changed
+through this endpoint by that user, including child profiles. `GET /api/auth/me` includes
 `avatarVersion` (null when absent) so clients can refresh the picture after a change.
+
+`GET /api/auth/users` lists enabled sign-in profiles and includes `avatarUrl`
+(null when no picture is set). That URL uses the public
+`GET /api/auth/users/{id}/avatar` endpoint, which serves only a re-encoded PNG
+thumbnail, at most 160 × 160 pixels, with `Cache-Control: no-store`. It applies
+image orientation and strips original metadata. Missing, disabled, corrupt, or
+over-limit pictures return 404; clients should show the selected bundled mark or initials. Decoding runs off
+the async runtime, at most two at a time, with a 1 MB input cap, 4096-pixel
+dimension limits, and a 64 MB allocation limit. No additional profile details
+or original image bytes are exposed by the thumbnail endpoint.
 
 ## Updating the contract
 

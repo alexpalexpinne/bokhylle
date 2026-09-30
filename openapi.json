@@ -401,6 +401,18 @@
       },
       "AdminUserView": {
         "properties": {
+          "avatarPreset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "canAcquire": {
             "description": "Adults only: permission to add new files to the shared collection.",
             "type": "boolean"
@@ -447,6 +459,8 @@
           }
         },
         "required": [
+          "avatarPreset",
+          "avatarUrl",
           "canAcquire",
           "canDiscover",
           "canRequest",
@@ -955,6 +969,12 @@
               "null"
             ]
           },
+          "metadataSources": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataSource"
+            },
+            "type": "array"
+          },
           "onShelf": {
             "type": "boolean"
           },
@@ -1049,6 +1069,7 @@
           "id",
           "language",
           "legacySeriesText",
+          "metadataSources",
           "onShelf",
           "preference",
           "publicationKind",
@@ -1403,8 +1424,7 @@
               {
                 "type": "null"
               }
-            ],
-            "default": null
+            ]
           },
           "series": {
             "type": [
@@ -1413,7 +1433,6 @@
             ]
           },
           "seriesId": {
-            "default": null,
             "format": "int64",
             "type": [
               "integer",
@@ -1427,7 +1446,6 @@
             ]
           },
           "seriesSortOrder": {
-            "default": null,
             "format": "double",
             "type": [
               "number",
@@ -1439,8 +1457,15 @@
               "string",
               "null"
             ]
+          },
+          "useAutomaticMetadata": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataField"
+            },
+            "type": "array"
           }
         },
+        "required": [],
         "type": "object"
       },
       "BooksQuery": {
@@ -2590,6 +2615,17 @@
       },
       "CreateUserInput": {
         "properties": {
+          "avatarPreset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileMark"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional bundled profile mark. Null or omitted uses initials."
+          },
           "canAcquire": {
             "description": "Adults only: allow adding new books to the shared library.",
             "type": [
@@ -2653,6 +2689,17 @@
           "role": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "startingBookIds": {
+            "description": "Children only: owned household books to assign in the creation transaction.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -3732,6 +3779,12 @@
               "null"
             ]
           },
+          "metadataSources": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataSource"
+            },
+            "type": "array"
+          },
           "publicationYear": {
             "format": "int64",
             "type": [
@@ -3757,6 +3810,7 @@
           "isbn10",
           "isbn13",
           "language",
+          "metadataSources",
           "publicationYear",
           "publisher",
           "title",
@@ -4703,6 +4757,18 @@
           "authMode": {
             "type": "string"
           },
+          "avatarPreset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "displayName": {
             "type": [
               "string",
@@ -4721,6 +4787,8 @@
         },
         "required": [
           "authMode",
+          "avatarPreset",
+          "avatarUrl",
           "displayName",
           "profileType",
           "role",
@@ -4752,6 +4820,20 @@
           "user"
         ],
         "type": "object"
+      },
+      "MetadataField": {
+        "enum": [
+          "title",
+          "authors",
+          "description",
+          "language",
+          "series",
+          "seriesNumber",
+          "cover",
+          "publicationYear",
+          "publisher"
+        ],
+        "type": "string"
       },
       "MetadataJobStatus": {
         "properties": {
@@ -4807,6 +4889,32 @@
           "finishedAt",
           "running",
           "startedAt"
+        ],
+        "type": "object"
+      },
+      "MetadataSource": {
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "manual": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "manual",
+          "source",
+          "sourceKey"
         ],
         "type": "object"
       },
@@ -5053,6 +5161,42 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ProfileMark": {
+        "description": "IDs of the bundled, age-neutral Bokhylle profile marks.",
+        "enum": [
+          "fox",
+          "owl",
+          "cat",
+          "bear",
+          "whale",
+          "book",
+          "tree",
+          "mountain",
+          "moon",
+          "leaf"
+        ],
+        "type": "string"
+      },
+      "ProfileMarkInput": {
+        "additionalProperties": false,
+        "description": "A required nullable field: null restores initials, a bundled ID selects a mark.",
+        "properties": {
+          "avatarPreset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileMark"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "avatarPreset"
+        ],
         "type": "object"
       },
       "ProfileStats": {
@@ -7114,6 +7258,17 @@
       },
       "UpdateUserInput": {
         "properties": {
+          "avatarPreset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProfileMark"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omitted preserves the mark; null restores initials. Does not remove a photo."
+          },
           "canAcquire": {
             "description": "Adults only: allow adding new books to the shared library.",
             "type": [
@@ -7275,6 +7430,12 @@
           "acquisitionMode": {
             "type": "string"
           },
+          "avatarPreset": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "avatarVersion": {
             "format": "int64",
             "type": [
@@ -7352,6 +7513,7 @@
         },
         "required": [
           "acquisitionMode",
+          "avatarPreset",
           "avatarVersion",
           "canAcquire",
           "canDiscover",
@@ -11282,6 +11444,49 @@
               }
             },
             "description": ""
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/users/{id}/avatar": {
+      "get": {
+        "operationId": "get_auth_users__id__avatar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Binary response"
           },
           "default": {
             "content": {
@@ -18010,6 +18215,72 @@
         "responses": {
           "204": {
             "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "profile"
+        ]
+      }
+    },
+    "/api/profile/avatar/preset": {
+      "put": {
+        "operationId": "put_profile_avatar_preset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileMarkInput"
+              }
+            }
+          },
+          "description": "A required nullable field: null restores initials, a bundled ID selects a mark.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": ""
           },
           "401": {
             "content": {

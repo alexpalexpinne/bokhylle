@@ -1,5 +1,6 @@
 import type { components } from './generated'
 import { apiRoute } from './client'
+import type { ProfileMarkId } from '../lib/profileMarks'
 
 export type AdminUser = components['schemas']['AdminUserView']
 
@@ -18,6 +19,8 @@ export function createUser(input: {
   canRequest?: boolean
   canDiscover?: boolean
   canAcquire?: boolean
+  startingBookIds?: number[]
+  avatarPreset?: ProfileMarkId | null
 }) {
   return apiRoute('/api/admin/users', '/api/admin/users', {
     method: 'POST',
@@ -37,6 +40,7 @@ export function updateUser(
     canRequest?: boolean
     canDiscover?: boolean
     canAcquire?: boolean
+    avatarPreset?: ProfileMarkId | null
   },
 ) {
   return apiRoute('/api/admin/users/{id}', `/api/admin/users/${id}`, {

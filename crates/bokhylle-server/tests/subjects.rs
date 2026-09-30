@@ -481,7 +481,7 @@ async fn metadata_enrichment_fills_subjects_by_provider_key_and_isbn() {
 }
 
 #[tokio::test]
-async fn home_rails_combine_shelf_subjects_with_personal_requests() {
+async fn home_rails_use_own_shelf_and_requests_without_household_fallback() {
     let test_app = common::test_app().await;
     test_app
         .state
@@ -554,6 +554,20 @@ async fn home_rails_combine_shelf_subjects_with_personal_requests() {
     let admin_cookie = common::login(&test_app, "admin", "password123").await;
     let (status, admin_rails) = get_json(&test_app, "/api/home/rails", &admin_cookie).await;
     assert_eq!(status, StatusCode::OK);
+    assert!(admin_rails.as_array().unwrap().is_empty());
+    let admin_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    let space_opera = books
+        .iter()
+        .find(|(_, subject)| subject == "Space opera")
+        .unwrap()
+        .0;
+    bokhylle_server::user_books::add(&test_app.state.db, admin_id, space_opera, "manual")
+        .await
+        .unwrap();
+    let (_, admin_rails) = get_json(&test_app, "/api/home/rails", &admin_cookie).await;
     let admin_titles: Vec<&str> = admin_rails
         .as_array()
         .unwrap()
@@ -561,6 +575,7 @@ async fn home_rails_combine_shelf_subjects_with_personal_requests() {
         .map(|rail| rail["title"].as_str().unwrap())
         .collect();
     assert!(admin_titles.contains(&"Space opera"));
+    assert_eq!(admin_titles.len(), 1);
     assert!(
         !admin_titles
             .iter()
@@ -577,9 +592,10 @@ async fn home_rails_combine_shelf_subjects_with_personal_requests() {
         .iter()
         .map(|rail| rail["title"].as_str().unwrap())
         .collect();
-    // Emma's requests promote Colonization above the count-ordered shelf
-    // rails, so it leads her Home instead of appearing as a personal rail.
+    // Emma's own requests qualify Colonization; unrelated household subjects
+    // and the administrator's shelf do not supply her interests.
     assert_eq!(emma_titles[0], "Colonization");
+    assert_eq!(emma_titles.len(), 1);
     assert!(
         !emma_titles
             .iter()
@@ -696,6 +712,16 @@ async fn home_rails_rank_by_personal_signals_and_respect_hidden_subjects() {
     let (status, emma_rails) = get_json(&test_app, "/api/home/rails", &emma_cookie).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(emma_rails[0]["subject"], "domestic thriller");
+    assert_eq!(emma_rails.as_array().unwrap().len(), 1);
+    sqlx::query(
+        "INSERT INTO user_subject_interests (user_id, normalized_name) VALUES (?, 'space opera')",
+    )
+    .bind(emma)
+    .execute(&test_app.state.db)
+    .await
+    .unwrap();
+    let (_, emma_rails) = get_json(&test_app, "/api/home/rails", &emma_cookie).await;
+    assert_eq!(emma_rails.as_array().unwrap().len(), 2);
 
     // Hiding is per user.
     let status = put_json(

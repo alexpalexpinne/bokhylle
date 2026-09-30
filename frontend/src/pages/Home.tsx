@@ -362,18 +362,20 @@ export function Home() {
           className="mt-10"
           title={
             isChild
-              ? 'Nothing here yet'
+              ? 'Your shelf is empty'
               : householdHasBooks
                 ? 'Your shelf is empty'
                 : 'Your library is empty'
           }
           message={
             isChild
-              ? 'Ask an adult to add some books to your shelf.'
+              ? user?.canRequest
+                ? 'Ask an adult to add books to your shelf, or search for a book and ask for it. Books appear here after approval.'
+                : 'Ask an adult to add some books to your shelf.'
               : householdHasBooks
                 ? `The household library has ${householdBooks} ${
                     householdBooks === 1 ? 'book' : 'books'
-                  }. Add them to your shelf or find something new.`
+                  }. Choose books for your shelf, or choose reading interests for personal suggestions.`
                 : 'Find a book and Bokhylle will fetch it for you, file it neatly, and send it to your reader when you are ready.'
           }
           action={
@@ -382,11 +384,12 @@ export function Home() {
                 Discover books
                 <ArrowRight size={16} />
               </ButtonLink>
+            ) : user?.canRequest ? (
+              <ButtonLink to="/requests" variant="primary" size="md">Search and ask<ArrowRight size={16} /></ButtonLink>
             ) : undefined : householdHasBooks ? (
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <ButtonLink to="/discover" variant="primary" size="md">
-                  Discover books
-                  <ArrowRight size={16} />
+                <ButtonLink to="/welcome" variant="primary" size="md">
+                  Choose reading interests
                 </ButtonLink>
                 <ButtonLink to="/library?scope=household" variant="secondary" size="md">
                   Browse household library

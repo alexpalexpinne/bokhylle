@@ -22,11 +22,34 @@ Bokhylle is a self-hosted library for a household's EPUB, PDF, and CBZ books. It
 - **Shared books, private shelves.** Keep one collection of files while each adult chooses books for a shelf only they can browse. New acquisitions enter the shared collection once; they do not appear on every shelf.
 - **Comics and manga by series.** Browse grouped volumes in reading order, mark them finished, and find the next volume on your shelf.
 - **Review imports together.** Administrators can review suggested publication types and series, preview changes, and accept or dismiss a batch. Corrections stay in place after rescanning.
-- **Child profiles.** Children see only books an administrator assigns to them. An administrator can separately enable catalogue discovery, which is not age-filtered, and requests that need approval.
+- **Child profiles.** Choose starting books and how a child finds new ones: assigned books only, search and ask, or explore and ask. Owned books stay restricted to their assigned shelf; public catalogue search is not age filtered, and requests need approval.
+- **Household sign-in.** Choose initials, a Bokhylle profile mark, or a personal photo; pick your profile, then enter a PIN or password. A username form remains available when needed.
 - **Discovery and requests.** Search titles, follow authors, request missing books, and track each request.
 - **Several ways to add books.** Import local files through a scan or watch folder, browse OPDS catalogues, or acquire a direct download. Optional torrent and Usenet services fit the same import workflow.
 - **Read in the browser or on your devices.** Open EPUB, PDF, and CBZ with saved progress and format-specific reading controls. Download a file, send it to an email-capable reader, or connect through OPDS and KOReader sync.
 - **Recovery and backups.** Imports verify files before placement, unfinished acquisitions can resume, and SQLite backups run on a schedule.
+
+<details>
+<summary>Household sign-in and profile marks</summary>
+
+![Bokhylle sign-in with three fictional household profiles and bundled profile marks](docs/media/sign-in-desktop.png)
+
+<img src="docs/media/sign-in-mobile.png" alt="Selecting a fictional child profile opens its PIN panel on a phone" width="390">
+
+<img src="docs/media/profile-marks-mobile.png" alt="Choosing an optional Bokhylle profile mark for any household reader" width="390">
+
+</details>
+
+<details>
+<summary>Child setup and reading interests</summary>
+
+![Three child access choices in household settings](docs/media/child-access-desktop.png)
+
+![Choosing fictional starting books for a child](docs/media/child-starting-books-desktop.png)
+
+<img src="docs/media/reading-interests-mobile.png" alt="Searchable reading interests with suggestions and a custom topic" width="390">
+
+</details>
 
 <details>
 <summary>Comics &amp; Manga preview</summary>
@@ -76,9 +99,23 @@ Bokhylle is a self-hosted library for a household's EPUB, PDF, and CBZ books. It
 
 </details>
 
+<details>
+<summary>Metadata corrections preview</summary>
+
+![Fix details showing metadata sources and an explicit reset for manual corrections](docs/media/metadata-corrections-desktop.png)
+
+<img src="docs/media/metadata-corrections-mobile.png" alt="Editing fictional book details on a phone with a manual title correction" width="390">
+
+</details>
+
 ## How it works
 
 One Rust server serves the web app and uses SQLite for metadata and user state; books remain in your configured library directory. You can start with local EPUB, PDF, or CBZ files alone.
+
+Home suggestions follow each profile's shelves and interests. Household books
+stay available through deliberate browsing and search. Administrators can correct
+book metadata without a later refresh undoing their edits; **Fix details** shows
+field origins and offers an explicit return to automatic metadata.
 
 Open Library supplies catalogue metadata. Adults can add a direct EPUB, PDF, or CBZ download link to a known book, or browse OPDS 1.x and 2.0 feeds configured by an administrator. An optional watch folder imports local EPUB, PDF, and CBZ files. Prowlarr or Torznab can find torrent releases for qBittorrent; Newznab can find Usenet releases for SABnzbd. Downloaded ZIP and RAR archives can be inspected for EPUB, PDF, and CBZ files. Configure only sources you are permitted to access.
 

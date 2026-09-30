@@ -126,6 +126,7 @@ export function fetchHighlights(limit = 12, mine = true) {
 }
 
 export type BookUpdate = components['schemas']['BookUpdateInput']
+export type MetadataField = components['schemas']['MetadataField']
 
 export function updateBookAdmin(id: number, update: BookUpdate) {
   return apiRoute('/api/admin/books/{id}', `/api/admin/books/${id}`, {

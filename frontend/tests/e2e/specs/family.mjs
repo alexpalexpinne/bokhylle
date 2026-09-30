@@ -611,6 +611,11 @@ export default async function family(page, { base }) {
   childCanRequest = true
 
   // FE-35: the child wizard only covers the assigned shelf and interests.
+  // Likes belong to a profile. The adult's earlier taste fixture must not
+  // appear as an existing like when the child opens setup.
+  await page.route('**/api/profile/liked', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
+  )
   let wizardLike = null
   await page.route('**/api/books/*/preference', (route) => {
     wizardLike = JSON.parse(route.request().postData() ?? '{}')

@@ -96,6 +96,17 @@ pub fn complete(document: aide::openapi::OpenApi) -> Value {
             }
         }
     }
+    // Omitted correction fields retain their values. Schema defaults would
+    // make generated clients populate (and require) nullable patch fields.
+    let correction = &mut document["components"]["schemas"]["BookUpdateInput"];
+    correction["required"] = json!([]);
+    if let Some(properties) = correction["properties"].as_object_mut() {
+        for property in properties.values_mut() {
+            if let Some(property) = property.as_object_mut() {
+                property.remove("default");
+            }
+        }
+    }
     require_serialized_response_fields(&mut document);
     document
 }
@@ -213,6 +224,7 @@ fn is_public(method: &str, path: &str) -> bool {
             | ("post", "/api/auth/login")
             | ("post", "/api/auth/logout")
             | ("get", "/api/auth/users")
+            | ("get", "/api/auth/users/{id}/avatar")
             | ("get", "/api/demo")
             | ("post", "/api/demo/enter")
     )
@@ -285,6 +297,7 @@ fn success_responses(method: &str, path: &str) -> Vec<(u16, Value)> {
         ("get", "/api/profile/avatar") => {
             &[S::Binary(200, &["image/png", "image/jpeg", "image/webp"])]
         }
+        ("get", "/api/auth/users/{id}/avatar") => &[S::Binary(200, &["image/png"])],
         ("put" | "delete", "/api/profile/avatar") => &[S::Empty(204)],
         ("post", "/api/admin/users") => &[S::Json(201, "AdminUserView")],
         ("post", "/api/collections") => &[S::Json(201, "CollectionSummary")],
@@ -416,5 +429,12 @@ mod tests {
         assert!(!required("ReleaseCandidate", "detectedTitle"));
         assert!(!required("ReleaseCandidate", "isCollection"));
         assert!(!required("ProfileUpdate", "preferredFormat"));
+        assert!(!required("BookUpdateInput", "description"));
+        assert!(!required("BookUpdateInput", "useAutomaticMetadata"));
+        assert!(
+            document["components"]["schemas"]["BookUpdateInput"]["properties"]["description"]
+                .get("default")
+                .is_none()
+        );
     }
 }

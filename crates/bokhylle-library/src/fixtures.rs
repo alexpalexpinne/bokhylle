@@ -431,6 +431,8 @@ mod tests {
             Some("Project Hail Mary")
         );
         assert_eq!(extracted.metadata.authors, vec!["Andy Weir"]);
+        assert!(!extracted.metadata.title_from_filename);
+        assert!(!extracted.metadata.authors_from_filename);
         assert_eq!(extracted.metadata.isbn.as_deref(), Some("9780593135204"));
         assert_eq!(extracted.metadata.language.as_deref(), Some("en"));
         assert_eq!(extracted.metadata.year, Some(2021));
@@ -461,6 +463,13 @@ mod tests {
         let path = dir.path().join("Anonymous").join("Mystery Book.epub");
         let extracted = extract_fixture(&path);
         assert_eq!(extracted.metadata.title.as_deref(), Some("Mystery Book"));
+        assert!(extracted.metadata.title_from_filename);
+        assert!(!extracted.metadata.authors_from_filename);
+        let with_author = path.with_file_name("Mystery Book - Filename Author.epub");
+        let extracted =
+            extract::extract_with_filename(&path, BookFormat::Epub, &with_author).unwrap();
+        assert_eq!(extracted.metadata.authors, ["Filename Author"]);
+        assert!(extracted.metadata.authors_from_filename);
     }
 
     #[test]
