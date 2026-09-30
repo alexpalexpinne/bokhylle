@@ -224,6 +224,7 @@ fn is_public(method: &str, path: &str) -> bool {
             | ("post", "/api/auth/login")
             | ("post", "/api/auth/logout")
             | ("get", "/api/auth/users")
+            | ("get", "/api/auth/users/{id}/avatar")
             | ("get", "/api/demo")
             | ("post", "/api/demo/enter")
     )
@@ -296,6 +297,7 @@ fn success_responses(method: &str, path: &str) -> Vec<(u16, Value)> {
         ("get", "/api/profile/avatar") => {
             &[S::Binary(200, &["image/png", "image/jpeg", "image/webp"])]
         }
+        ("get", "/api/auth/users/{id}/avatar") => &[S::Binary(200, &["image/png"])],
         ("put" | "delete", "/api/profile/avatar") => &[S::Empty(204)],
         ("post", "/api/admin/users") => &[S::Json(201, "AdminUserView")],
         ("post", "/api/collections") => &[S::Json(201, "CollectionSummary")],

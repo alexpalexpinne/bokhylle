@@ -4721,6 +4721,12 @@
           "authMode": {
             "type": "string"
           },
+          "avatarUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "displayName": {
             "type": [
               "string",
@@ -4739,6 +4745,7 @@
         },
         "required": [
           "authMode",
+          "avatarUrl",
           "displayName",
           "profileType",
           "role",
@@ -11340,6 +11347,49 @@
               }
             },
             "description": ""
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/users/{id}/avatar": {
+      "get": {
+        "operationId": "get_auth_users__id__avatar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Binary response"
           },
           "default": {
             "content": {

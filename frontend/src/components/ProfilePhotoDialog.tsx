@@ -62,7 +62,7 @@ export function ProfilePhotoDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Modal title="Profile picture" description="Choose a picture for your account." onClose={onClose}>
+    <Modal title="Profile picture" description="Your picture appears on your profile and the household sign-in screen." onClose={onClose}>
       <div
         onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragging(true) }}
         onDragLeave={(event) => {

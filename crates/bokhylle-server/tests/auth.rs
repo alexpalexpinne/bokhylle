@@ -505,6 +505,7 @@ async fn login_user_picker_is_public_and_hides_disabled_accounts() {
     assert_eq!(users.len(), 1);
     assert_eq!(users[0]["username"], "emma");
     assert_eq!(users[0]["authMode"], "pin");
+    assert!(users[0]["avatarUrl"].is_null());
     assert!(users[0].get("password").is_none());
 }
 

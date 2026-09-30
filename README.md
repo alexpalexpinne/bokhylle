@@ -23,10 +23,20 @@ Bokhylle is a self-hosted library for a household's EPUB, PDF, and CBZ books. It
 - **Comics and manga by series.** Browse grouped volumes in reading order, mark them finished, and find the next volume on your shelf.
 - **Review imports together.** Administrators can review suggested publication types and series, preview changes, and accept or dismiss a batch. Corrections stay in place after rescanning.
 - **Child profiles.** Children see only books an administrator assigns to them. An administrator can separately enable catalogue discovery, which is not age-filtered, and requests that need approval.
+- **Household sign-in.** Pick a profile picture or name, then enter a PIN or password. A username form remains available when needed.
 - **Discovery and requests.** Search titles, follow authors, request missing books, and track each request.
 - **Several ways to add books.** Import local files through a scan or watch folder, browse OPDS catalogues, or acquire a direct download. Optional torrent and Usenet services fit the same import workflow.
 - **Read in the browser or on your devices.** Open EPUB, PDF, and CBZ with saved progress and format-specific reading controls. Download a file, send it to an email-capable reader, or connect through OPDS and KOReader sync.
 - **Recovery and backups.** Imports verify files before placement, unfinished acquisitions can resume, and SQLite backups run on a schedule.
+
+<details>
+<summary>Household sign-in preview</summary>
+
+![Bokhylle sign-in with three fictional household profiles](docs/media/sign-in-desktop.png)
+
+<img src="docs/media/sign-in-mobile.png" alt="Selecting a fictional child profile opens its PIN panel on a phone" width="390">
+
+</details>
 
 <details>
 <summary>Comics &amp; Manga preview</summary>

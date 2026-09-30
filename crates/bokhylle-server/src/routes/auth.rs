@@ -3,6 +3,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use image::ImageDecoder;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -19,6 +20,7 @@ pub struct LoginUser {
     role: crate::auth::Role,
     auth_mode: String,
     profile_type: String,
+    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -177,6 +179,72 @@ fn avatar_mime(bytes: &[u8]) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+// Decode untrusted uploads off the runtime, with bounded memory and concurrency.
+// Public sign-in pictures are re-encoded to strip original metadata and size.
+static AVATAR_DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+pub async fn login_avatar(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let permit = AVATAR_DECODERS
+        .acquire()
+        .await
+        .map_err(|_| AppError::Unavailable("pictures unavailable".into()))?;
+    let row: Option<(Vec<u8>, String)> = sqlx::query_as(
+        "SELECT a.data, a.mime FROM user_avatars a
+         JOIN users u ON u.id = a.user_id WHERE u.id = ? AND u.disabled = 0",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+    let (bytes, mime) = row.ok_or_else(|| AppError::NotFound("picture not found".into()))?;
+    let thumbnail = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        if bytes.len() > MAX_AVATAR_BYTES {
+            return None;
+        }
+        let format = match mime.as_str() {
+            "image/png" => image::ImageFormat::Png,
+            "image/jpeg" => image::ImageFormat::Jpeg,
+            "image/webp" => image::ImageFormat::WebP,
+            _ => return None,
+        };
+        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(4096);
+        limits.max_image_height = Some(4096);
+        limits.max_alloc = Some(64 * 1024 * 1024);
+        reader.limits(limits.clone());
+        let mut decoder = reader.into_decoder().ok()?;
+        // `into_decoder` does not reserve the final image buffer as `decode`
+        // does. Account for it before constructing the DynamicImage.
+        limits.reserve(decoder.total_bytes()).ok()?;
+        decoder.set_limits(limits).ok()?;
+        let orientation = decoder.orientation().ok()?;
+        let mut picture = image::DynamicImage::from_decoder(decoder).ok()?;
+        picture.apply_orientation(orientation);
+        let mut output = std::io::Cursor::new(Vec::new());
+        picture
+            .thumbnail(160, 160)
+            .write_to(&mut output, image::ImageFormat::Png)
+            .ok()?;
+        Some(output.into_inner())
+    })
+    .await
+    .map_err(|_| AppError::Unavailable("pictures unavailable".into()))?
+    .ok_or_else(|| AppError::NotFound("picture not found".into()))?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        thumbnail,
+    )
+        .into_response())
 }
 
 pub async fn avatar(
@@ -348,18 +416,25 @@ pub async fn login_users(
         if disabled {
             continue;
         }
-        let row: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT credential_type, profile_type FROM users WHERE id = ?")
-                .bind(user.id)
-                .fetch_optional(&state.db)
-                .await?;
-        let (auth_mode, profile_type) = row.unwrap_or((None, None));
+        let row: Option<(Option<String>, Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT credential_type, profile_type,
+                CASE WHEN EXISTS (SELECT 1 FROM user_avatars WHERE user_id = users.id)
+                THEN avatar_version ELSE NULL END FROM users WHERE id = ? AND disabled = 0",
+        )
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await?;
+        let Some((auth_mode, profile_type, avatar_version)) = row else {
+            continue;
+        };
         items.push(LoginUser {
             username: user.username,
             display_name: user.display_name,
             role: user.role,
             auth_mode: auth_mode.unwrap_or_else(|| "legacy".to_string()),
             profile_type: profile_type.unwrap_or_else(|| "adult".to_string()),
+            avatar_url: avatar_version
+                .map(|version| format!("/api/auth/users/{}/avatar?v={version}", user.id)),
         });
     }
 

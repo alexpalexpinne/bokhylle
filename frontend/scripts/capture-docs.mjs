@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
+import { signInProfiles, signInPortrait } from './sign-in-preview.mjs'
 
 const base = process.env.BOKHYLLE_DOCS_BASE ?? 'http://127.0.0.1:4173'
 const output = fileURLToPath(new URL('../../docs/media/', import.meta.url))
@@ -197,6 +198,8 @@ const browser = await chromium.launch({
 })
 try {
   for (const [path, name, width, height, readyText] of [
+    ['/login', 'sign-in-desktop.png', 1280, 800, 'Who’s reading?'],
+    ['/login', 'sign-in-mobile.png', 390, 844, 'Who’s reading?'],
     ['/library', 'library-desktop.png', 1440, 900, 'Where Maps End'],
     ['/library', 'library-mobile.png', 390, 844, 'Where Maps End'],
     ['/library?category=comics', 'comics-desktop.png', 1440, 900, 'The Glass Compass'],
@@ -213,6 +216,8 @@ try {
     if (process.env.BOKHYLLE_DOCS_SELECT && !process.env.BOKHYLLE_DOCS_SELECT.split(',').includes(name)) continue
     const page = await browser.newPage({
       viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'light', timezoneId: 'UTC',
+      hasTouch: path === '/login' && width < 700,
+      isMobile: path === '/login' && width < 700,
     })
     await page.clock.setFixedTime(new Date('2026-01-15T10:00:00Z'))
     const reviewPreview = path === '/library/review'
@@ -220,6 +225,13 @@ try {
     const adminPreview = reviewPreview || correctionsPreview || path.startsWith('/settings')
     await page.route('**/api/**', (route) => {
       const url = new URL(route.request().url())
+      if (path === '/login') {
+        if (url.pathname === '/api/auth/me') return route.fulfill({ status: 401, json: { code: 'unauthorized', message: 'Authentication required' } })
+        if (url.pathname === '/api/demo') return route.fulfill({ json: { enabled: false } })
+        if (url.pathname === '/api/auth/users') return route.fulfill({ json: { users: signInProfiles } })
+        const avatarId = /^\/api\/auth\/users\/(\d+)\/avatar$/.exec(url.pathname)?.[1]
+        if (avatarId) return route.fulfill({ contentType: 'image/svg+xml', body: signInPortrait(avatarId) })
+      }
       const coverId = /^\/api\/books\/(\d+)\/cover$/.exec(url.pathname)?.[1]
       if (coverId) {
         const book = books.find((item) => item.id === Number(coverId))
@@ -235,6 +247,29 @@ try {
     })
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
+    if (name === 'sign-in-mobile.png') {
+      await page.getByRole('button', { name: 'Nora', exact: true }).tap()
+      await page.getByLabel('PIN', { exact: true }).waitFor()
+    }
+    await page.evaluate(() => document.fonts.ready)
+    // Capture the settled state, including the short credential-panel transition.
+    if (await page.locator('#sign-in-panel').count()) {
+      await page.waitForFunction(() => document.querySelector('#sign-in-panel')?.getAttribute('aria-busy') !== 'true')
+      await page.locator('#sign-in-panel').evaluate((panel) => Promise.all(panel.getAnimations().map((animation) => animation.finished.catch(() => {}))))
+      // Selection can gently scroll the form into view after its expansion.
+      await page.evaluate(() => new Promise((resolve) => {
+        let last = window.scrollY
+        let stable = 0
+        const sample = () => {
+          const current = window.scrollY
+          stable = Math.abs(current - last) < 0.5 ? stable + 1 : 0
+          last = current
+          if (stable >= 4) resolve()
+          else requestAnimationFrame(sample)
+        }
+        requestAnimationFrame(sample)
+      }))
+    }
     if (reviewPreview) {
       await page.getByText('Review details').first().click()
       await page.getByLabel('Select The Glass Compass · Volume 1').check()

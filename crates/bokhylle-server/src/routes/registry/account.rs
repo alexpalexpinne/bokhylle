@@ -29,6 +29,10 @@ pub(super) fn router() -> ApiRouter<AppState> {
             aide::axum::routing::get(routes::auth::login_users),
         )
         .api_route(
+            "/api/auth/users/{id}/avatar",
+            aide::axum::routing::get(routes::auth::login_avatar),
+        )
+        .api_route(
             "/api/auth/logout-all",
             aide::axum::routing::post(routes::auth::logout_all),
         )

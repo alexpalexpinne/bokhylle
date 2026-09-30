@@ -19,6 +19,7 @@ base64 = "0.23.1"
 getrandom = "0.4.3"
 futures-core = "0.3"
 hex = "0.4.3"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 md-5 = "0.11.0"
 lettre = { version = "0.11.23", features = ["tokio1-rustls-tls", "builder", "smtp-transport", "hostname", "pool"], default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }

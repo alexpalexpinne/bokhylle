@@ -22,6 +22,26 @@ docker compose -f compose.yaml -f compose.image.yaml up -d --no-build bokhylle
 
 The image includes the server and built web app. `.env.example` pins `BOKHYLLE_IMAGE` to the release version; use an available tag or digest from GHCR. For a source build, use `docker compose up -d --build` instead. When the container is healthy, visit `http://localhost:8080` (or the `BOKHYLLE_PORT` set in `.env`). If startup fails, check `docker compose logs bokhylle` and the host directory permissions.
 
+## Sign in
+
+Choose your picture or name on **Who’s reading?**, then enter your PIN or
+password. Profiles sit side by side and wrap on smaller screens; selecting one
+shows just that profile and opens its sign-in panel without asking you to type
+a username. **Back to profiles** returns to the chooser. **Sign in another way**
+opens the username form if you need it. **Remember this device** keeps
+the session across browser restarts until it expires or is revoked.
+
+The other profiles fade away, your profile slides into the centre, and then
+the sign-in panel opens below it. On touch screens the keyboard opens from the
+original profile tap; once the panel has opened, the page scrolls smoothly to
+keep the credential controls visible. Reduced motion skips these animations.
+
+Names and small profile pictures are visible before sign-in. Adults can change
+their picture from Profile; children use My settings. Missing or unreadable
+pictures show an initial. Disabled accounts do not appear. Selecting a profile
+still requires its credential; an existing authenticated session opens the app
+directly.
+
 ## Add books
 
 Put EPUB, PDF, or CBZ files under `data/library`, then run **Scan library** in Settings → Library. Scans extract title, author, and other available metadata. The books stay in the mounted library directory; the catalogue and account data live in `data/config/bokhylle.db`. CBZ metadata comes from filenames. After a scan, an administrator can open **Library → Review imports** to check suggested publication types and series grouping. Acquired CBZ files may also require the separate acquisition import review because a filename alone does not meet the automatic selection threshold.
@@ -183,7 +203,7 @@ After a child asks for a book, the action changes to **Requested** on the curren
 
 ## Network access
 
-The sample Compose file publishes HTTP on the host and is for a trusted local network. The unauthenticated profile picker shows member names and roles. For internet access, put Bokhylle behind an HTTPS reverse proxy, set `BOKHYLLE_SECURE_COOKIES=true`, and set `BOKHYLLE_TRUSTED_PROXY=true` only if that proxy is controlled by you and removes untrusted forwarding headers. Keep the Prowlarr and qBittorrent web interfaces private.
+The sample Compose file publishes HTTP on the host and is for a trusted local network. The unauthenticated profile picker shows member names and small profile pictures; its API also includes account names, roles, and credential types. For internet access, put Bokhylle behind an HTTPS reverse proxy, set `BOKHYLLE_SECURE_COOKIES=true`, and set `BOKHYLLE_TRUSTED_PROXY=true` only if that proxy is controlled by you and removes untrusted forwarding headers. Keep the Prowlarr and qBittorrent web interfaces private.
 
 Environment variables take precedence over saved settings. Paths are resolved when the server starts, so restart the container after changing path settings. See [.env.example](../.env.example) for the first-run values and [Security](../SECURITY.md) for the deployment boundary.
 

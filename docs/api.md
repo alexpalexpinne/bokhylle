@@ -9,7 +9,7 @@ its domain routers are merged once for the running app and OpenAPI document.
 
 The application authenticates most operations with the `bokhylle_session`
 cookie returned by login. The document marks the public health, login, logout,
-login user list, and demo entry operations separately. An administrator's role
+login user list and pictures, and demo entry operations separately. An administrator's role
 and a child's access to a book are enforced by the server; possession of a cookie
 alone does not grant access. Error responses use `{ code, message, details }`.
 Downloads return EPUB, PDF, or CBZ data, backup downloads use an octet stream, and
@@ -149,9 +149,19 @@ browser's Paper/Ink theme and do not change book access or reading preferences.
 Each signed-in user can set a profile picture with `PUT /api/profile/avatar`
 (raw PNG, JPEG, or WebP body, matching `Content-Type`, maximum 1 MB), read it
 with `GET /api/profile/avatar`, or remove it with `DELETE /api/profile/avatar`.
-The image is stored in `user_avatars` and can only be read or changed by
-that user, including child profiles. `GET /api/auth/me` includes
+The original image is stored in `user_avatars` and can only be read or changed
+through this endpoint by that user, including child profiles. `GET /api/auth/me` includes
 `avatarVersion` (null when absent) so clients can refresh the picture after a change.
+
+`GET /api/auth/users` lists enabled sign-in profiles and includes `avatarUrl`
+(null when no picture is set). That URL uses the public
+`GET /api/auth/users/{id}/avatar` endpoint, which serves only a re-encoded PNG
+thumbnail, at most 160 × 160 pixels, with `Cache-Control: no-store`. It applies
+image orientation and strips original metadata. Missing, disabled, corrupt, or
+over-limit pictures return 404; clients should show initials. Decoding runs off
+the async runtime, at most two at a time, with a 1 MB input cap, 4096-pixel
+dimension limits, and a 64 MB allocation limit. No additional profile details
+or original image bytes are exposed by the thumbnail endpoint.
 
 ## Updating the contract
 
