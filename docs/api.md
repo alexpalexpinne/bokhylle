@@ -146,6 +146,40 @@ Invalid shelf finishes reject the entire update. Existing child and shared demo
 restrictions still apply. These appearance choices are independent of the
 browser's Paper/Ink theme and do not change book access or reading preferences.
 
+`POST /api/admin/users` accepts optional `startingBookIds` for a child profile
+(at most 1,000 IDs). Every selected book must have a file in the household
+library; metadata-only or missing books reject the request. Duplicate IDs are
+ignored. Credentials, display name, language preferences, permissions and
+initial shelf assignments commit in one transaction. A failure rolls back the
+account and all assignments. Adults cannot use nonempty `startingBookIds`.
+
+The household UI offers three child access modes using the existing booleans:
+assigned books only (`canDiscover=false`, `canRequest=false`), search and ask
+(`false`, `true`), and explore and ask (`true`, `true`). The API still supports
+existing browse-only profiles (`true`, `false`); unrelated UI edits preserve
+their permissions. All child library reads remain restricted to assigned books.
+
+`PUT /api/profile/interests` atomically replaces the interest selection.
+If a database write fails, the previous selection remains intact. Restarting
+onboarding clears only the completion marker; the wizard preloads saved
+interests and likes, and Skip does not replace interests.
+
+`avatarPreset` is the optional bundled profile mark ID: `fox`, `owl`, `cat`,
+`bear`, `whale`, `book`, `tree`, `mountain`, `moon`, or `leaf`. It is returned
+by `GET /api/auth/me`, `GET /api/auth/users`, and the admin user API. New
+profiles default to null (initials). Administrators can send it during account
+creation or editing; omission on edit preserves it, while explicit null clears
+it. Creation saves it in the same transaction as the account and starting books.
+
+Any signed-in profile, including a child, can set its own mark with
+`PUT /api/profile/avatar/preset` and `{ "avatarPreset": "owl" }`, or null to
+restore initials. The field is required; unknown IDs and extra fields return
+422. This endpoint changes only the current profile's mark. Children still
+cannot change general account settings through `PUT /api/profile`.
+Bundled artwork is served from `/profile-marks/<id>.svg`. Uploaded photos take
+precedence; changing the mark does not delete a photo, and removing a photo
+reveals the selected mark or initials.
+
 Each signed-in user can set a profile picture with `PUT /api/profile/avatar`
 (raw PNG, JPEG, or WebP body, matching `Content-Type`, maximum 1 MB), read it
 with `GET /api/profile/avatar`, or remove it with `DELETE /api/profile/avatar`.
@@ -158,7 +192,7 @@ through this endpoint by that user, including child profiles. `GET /api/auth/me`
 `GET /api/auth/users/{id}/avatar` endpoint, which serves only a re-encoded PNG
 thumbnail, at most 160 × 160 pixels, with `Cache-Control: no-store`. It applies
 image orientation and strips original metadata. Missing, disabled, corrupt, or
-over-limit pictures return 404; clients should show initials. Decoding runs off
+over-limit pictures return 404; clients should show the selected bundled mark or initials. Decoding runs off
 the async runtime, at most two at a time, with a 1 MB input cap, 4096-pixel
 dimension limits, and a 64 MB allocation limit. No additional profile details
 or original image bytes are exposed by the thumbnail endpoint.

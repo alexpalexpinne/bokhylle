@@ -137,7 +137,8 @@ async fn sign_in_pictures_are_bounded_thumbnails_for_enabled_profiles_only() {
         users["users"][0]["avatarUrl"],
         format!("/api/auth/users/{}/avatar?v=3", user.id)
     );
-    assert_eq!(users["users"][0].as_object().unwrap().len(), 6);
+    assert_eq!(users["users"][0].as_object().unwrap().len(), 7);
+    assert!(users["users"][0]["avatarPreset"].is_null());
 
     sqlx::query("UPDATE users SET disabled = 1 WHERE id = ?")
         .bind(user.id)
@@ -429,5 +430,178 @@ async fn avatar_rejects_invalid_type_and_oversize_without_replacing_picture() {
     assert_eq!(
         request(&app, "GET", Some(&cookie), None, vec![]).await.2,
         picture
+    );
+}
+
+async fn profile_json(
+    app: &common::TestApp,
+    method: &str,
+    cookie: &str,
+    payload: serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(if method == "PUT" {
+                    if payload.get("avatarPreset").is_some() {
+                        "/api/profile/avatar/preset"
+                    } else {
+                        "/api/profile"
+                    }
+                } else {
+                    "/api/auth/me"
+                })
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    (status, serde_json::from_slice(&bytes).unwrap_or_default())
+}
+
+#[tokio::test]
+async fn profile_marks_are_optional_profile_scoped_and_separate_from_uploaded_photos() {
+    use serde_json::json;
+    let app = common::test_app().await;
+    app.state
+        .auth
+        .create_user("mira", "password123", Role::User)
+        .await
+        .unwrap();
+    app.state
+        .auth
+        .create_user_with_profile("nora", "482915", Role::User, "pin", "child")
+        .await
+        .unwrap();
+    let mira = common::login(&app, "mira", "password123").await;
+    let nora = common::login(&app, "nora", "482915").await;
+    let initial = profile_json(&app, "GET", &mira, json!(null)).await.1;
+    assert!(initial["user"]["avatarPreset"].is_null());
+    assert!(initial["user"]["avatarVersion"].is_null());
+    for preset in [
+        "fox", "owl", "cat", "bear", "whale", "book", "tree", "mountain", "moon", "leaf",
+    ] {
+        let (status, body) =
+            profile_json(&app, "PUT", &mira, json!({ "avatarPreset": preset })).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["user"]["avatarPreset"], preset);
+        assert!(body["user"]["avatarVersion"].is_null());
+    }
+    let child = profile_json(&app, "PUT", &nora, json!({ "avatarPreset": "owl" })).await;
+    assert_eq!(child.0, StatusCode::OK);
+    assert_eq!(child.1["user"]["avatarPreset"], "owl");
+    assert_eq!(
+        profile_json(&app, "PUT", &nora, json!({ "displayName": "Not allowed" }))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        profile_json(
+            &app,
+            "PUT",
+            &nora,
+            json!({ "avatarPreset": "fox", "canAcquire": true })
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        profile_json(
+            &app,
+            "PUT",
+            &nora,
+            json!({ "avatarPreset": "fox", "displayName": "Not allowed" })
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        profile_json(&app, "GET", &mira, json!(null)).await.1["user"]["avatarPreset"],
+        "leaf"
+    );
+    assert_eq!(
+        profile_json(&app, "PUT", "", json!({ "avatarPreset": "cat" }))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    assert_eq!(
+        request(&app, "PUT", Some(&mira), Some("image/png"), picture())
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let before = profile_json(&app, "GET", &mira, json!(null)).await.1;
+    let after = profile_json(&app, "PUT", &mira, json!({ "avatarPreset": "fox" }))
+        .await
+        .1;
+    assert_eq!(
+        after["user"]["avatarVersion"],
+        before["user"]["avatarVersion"]
+    );
+    assert_eq!(
+        request(&app, "GET", Some(&mira), None, vec![]).await.2,
+        picture()
+    );
+    let response = public_picture(&app, "/api/auth/users").await;
+    let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+    let users: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let public = users["users"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["username"] == "mira")
+        .unwrap();
+    assert_eq!(public["avatarPreset"], "fox");
+    assert!(public["avatarUrl"].is_string());
+
+    assert_eq!(
+        request(&app, "DELETE", Some(&mira), None, vec![]).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let restored = profile_json(&app, "GET", &mira, json!(null)).await.1;
+    assert_eq!(restored["user"]["avatarPreset"], "fox");
+    assert!(restored["user"]["avatarVersion"].is_null());
+    assert_eq!(
+        profile_json(&app, "PUT", &mira, json!({ "displayName": "Mira" }))
+            .await
+            .1["user"]["avatarPreset"],
+        "fox"
+    );
+    for (bad, expected) in [
+        (json!("../fox"), StatusCode::UNPROCESSABLE_ENTITY),
+        (json!("unknown"), StatusCode::UNPROCESSABLE_ENTITY),
+        (json!(123), StatusCode::BAD_REQUEST),
+    ] {
+        assert_eq!(
+            profile_json(&app, "PUT", &mira, json!({ "avatarPreset": bad }))
+                .await
+                .0,
+            expected
+        );
+        let unchanged = profile_json(&app, "GET", &mira, json!(null)).await.1;
+        assert_eq!(unchanged["user"]["avatarPreset"], "fox");
+        assert_eq!(unchanged["user"]["displayName"], "Mira");
+    }
+    assert!(
+        profile_json(&app, "PUT", &mira, json!({ "avatarPreset": null }))
+            .await
+            .1["user"]["avatarPreset"]
+            .is_null()
+    );
+    assert_eq!(
+        profile_json(&app, "GET", &nora, json!(null)).await.1["user"]["avatarPreset"],
+        "owl"
     );
 }

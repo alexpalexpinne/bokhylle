@@ -173,23 +173,49 @@ EPUBs and physical devices still need validation.
 
 Configure SMTP in Settings → Delivery if you want email delivery. Adults add a Kindle, PocketBook, or other email-capable reader destination in Profile. For a child, an administrator opens Settings → Household → Readers beside that child and adds the destination there. The administrator's default Kindle address is only a household fallback. Adults create OPDS and KOReader tokens in Profile; an administrator creates a child's tokens on the same Household reader page. Tokens are shown only once. Assistant access uses separate agent tokens.
 
-Adults can change their profile picture from Profile; children can do so from My settings. Either page accepts a PNG, JPEG, or WebP image up to 1 MB by choosing or dragging it in. My settings also lets a child choose the Paper/Ink app theme and EPUB text size for the current browser. The account menu has an in-app Help page for finding books, understanding personal and household shelves, and setting up readers. Profile Overview shows personal shelf, followed-author, liked-book, and sent-book counts. Sent books are distinct books successfully delivered by that profile; repeat sends of one book count once. Reader setup has one Add reader action beside My readers when readers exist, or inside the empty state when none exist. If a page's assets change while Bokhylle is open, the app refreshes once to load the new build and shows a recovery page if loading still fails.
+Adults can change their profile picture from Profile; children can do so from My settings. Both offer ten Bokhylle profile marks: fox, owl, cat, bear, whale, book, tree, mountain, moon, and leaf. Initials remain the default; no mark is assigned automatically. An administrator can optionally choose a mark when creating or editing any household account. Marks are the same for adults and children. A personal photo takes precedence, and removing it restores the chosen mark or initials. Either page also accepts a PNG, JPEG, or WebP image up to 1 MB by choosing or dragging it in. My settings also lets a child choose the Paper/Ink app theme and EPUB text size for the current browser. The account menu has an in-app Help page for finding books, understanding personal and household shelves, and setting up readers. Profile Overview shows personal shelf, followed-author, liked-book, and sent-book counts. Sent books are distinct books successfully delivered by that profile; repeat sends of one book count once. Reader setup has one Add reader action beside My readers when readers exist, or inside the empty state when none exist. If a page's assets change while Bokhylle is open, the app refreshes once to load the new build and shows a recovery page if loading still fails.
 
 An assistant with a write-enabled agent token can use `search_books` with `scope: "catalogue"`, then `add_catalogue_book` with the returned `provider` and `providerKey` to start an acquisition for an adult profile allowed to add shared books. Existing local books still use `add_book` with `bookId`. Child profiles and adults without acquisition permission can use `request_book` for a catalogue result; administrators decide those requests. `add_catalogue_book` accepts optional `preferredFormat`, `preferredLanguage`, and `sendToReader` values. The response includes `bookId`, acquisition `id`, `status`, and `duplicate`.
 
 ## Child profiles
 
-Administrators can set two independent child permissions under Settings →
-Household users. **Allow Discover** lets a child search the public metadata catalogue;
-it starts off. When enabled, it can also show suggestions based on the child's
-shelf and interests on Home. Discover does not reveal the wider household library
-or permit direct acquisitions, downloads,
-or delivery. **Can ask for books** lets the child search the basic request
-catalogue and send a title to an administrator for approval; it starts on. With Discover
-on and requests off, the child can browse but cannot submit a request. With
-Discover off and requests on, the child can still ask from Requests. A request
-from either page uses the same approval flow. Public catalogue metadata is not
-age filtered, so an adult should consider that before enabling Discover.
+Under Settings → Household users, choose **How can this child find new books?**
+
+| Mode | Child experience |
+| --- | --- |
+| **Assigned books only** | Read books an administrator puts on their shelf. |
+| **Search and ask** (default) | Search Requests by title, author or ISBN, see basic matches, and ask an adult for a book. |
+| **Explore and ask** | Also use Discover, book details and descriptions, and suggestions on Home. |
+
+Both search modes use the public catalogue, which is **not age filtered**.
+Neither exposes unassigned household books or allows a child to acquire,
+download, or send files themselves. Requests always require administrator approval.
+An existing profile that allows exploration without requests is shown as
+**Explore only (existing setting)**. Editing other details preserves it;
+choose a mode explicitly to change that access.
+
+When adding a child, choose **starting books** from the household library
+before creating the account. Search and select multiple books; only the chosen
+books enter their shelf. Account settings and initial assignments save together,
+so an assignment failure does not leave a partly created account. If there are
+no books to assign yet, explicitly choose **Set up books later** to create an
+empty shelf. Import books and assign them from **Manage access** on a book page
+before the child starts reading. The **Shelf** link beside a child opens their
+assigned books for the administrator to review.
+
+The child's welcome wizard explains their access, lets them like assigned books,
+and asks about reading interests. An empty shelf skips the favourites step;
+failed loads show an error and retry action. The final step offers Requests or
+Discover when allowed. **Restart setup** preserves saved likes and preloads
+interests; skipping setup does not replace those interests.
+
+Adult and child interest pickers include searchable genre and subject suggestions
+and an **Add** action for a custom topic. Choose up to 24 interests, with topics
+limited to 60 normalized UTF-8 bytes. Put favourite topics first: suggestions can
+give earlier choices more weight. Spelling aliases such as Humour/Humor select
+the same suggestion, but custom topics are not automatically matched to every
+synonym used by metadata providers. Reading interests do not grant book access
+or provide age filtering.
 
 Before approving a child's request, configure SMTP and either a reader
 destination under Settings → Household → Readers for that child or the household

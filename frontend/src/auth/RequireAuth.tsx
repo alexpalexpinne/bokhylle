@@ -24,8 +24,8 @@ export function RequireAuth() {
   return <Outlet />
 }
 
-/// Children are curated by a parent; discovery, authors, activity and reader
-/// management are adult surfaces even though the backend refuses the API too.
+// Authors, activity and reader management belong to adults. Optional child
+// catalogue exploration has its own RequireDiscover guard and child screen.
 export function RequireAdult() {
   const { user, loading } = useAuth()
 

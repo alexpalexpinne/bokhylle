@@ -21,6 +21,7 @@ pub struct LoginUser {
     auth_mode: String,
     profile_type: String,
     avatar_url: Option<String>,
+    avatar_preset: Option<String>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -90,6 +91,7 @@ pub struct UserView {
     shelf_decorations: bool,
     spotlight_rotation: bool,
     avatar_version: Option<i64>,
+    avatar_preset: Option<String>,
 }
 
 pub(crate) async fn user_with_notifications(
@@ -107,13 +109,14 @@ pub(crate) async fn user_with_notifications(
         i64,
         i64,
         Option<i64>,
+        Option<String>,
     );
     let extras: Option<Extras> = sqlx::query_as(
         "SELECT notification_email, email_notifications, profile_type, preferred_languages,
                 can_request, shelf_finish, shelf_decorations, spotlight_rotation,
                 can_discover,
                 CASE WHEN EXISTS (SELECT 1 FROM user_avatars WHERE user_id = users.id)
-                     THEN avatar_version ELSE NULL END
+                     THEN avatar_version ELSE NULL END, avatar_preset
          FROM users WHERE id = ?",
     )
     .bind(user.id)
@@ -142,7 +145,7 @@ pub(crate) async fn user_with_notifications(
             .unwrap_or(true),
         can_discover: extras
             .as_ref()
-            .map(|(_, _, _, _, _, _, _, _, can_discover, _)| *can_discover != 0)
+            .map(|(_, _, _, _, _, _, _, _, can_discover, _, _)| *can_discover != 0)
             .unwrap_or(false),
         can_acquire: crate::auth::can_acquire(&state.db, user).await?,
         profile_type: extras
@@ -155,15 +158,16 @@ pub(crate) async fn user_with_notifications(
             .unwrap_or_else(|| "oak".to_string()),
         shelf_decorations: extras
             .as_ref()
-            .map(|(_, _, _, _, _, _, enabled, _, _, _)| *enabled != 0)
+            .map(|(_, _, _, _, _, _, enabled, _, _, _, _)| *enabled != 0)
             .unwrap_or(true),
         spotlight_rotation: extras
             .as_ref()
-            .map(|(_, _, _, _, _, _, _, enabled, _, _)| *enabled != 0)
+            .map(|(_, _, _, _, _, _, _, enabled, _, _, _)| *enabled != 0)
             .unwrap_or(true),
         avatar_version: extras
             .as_ref()
-            .and_then(|(_, _, _, _, _, _, _, _, _, version)| *version),
+            .and_then(|(_, _, _, _, _, _, _, _, _, version, _)| *version),
+        avatar_preset: extras.and_then(|(_, _, _, _, _, _, _, _, _, _, preset)| preset),
     })
 }
 
@@ -245,6 +249,32 @@ pub async fn login_avatar(
         thumbnail,
     )
         .into_response())
+}
+
+/// A required nullable field: null restores initials, a bundled ID selects a mark.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileMarkInput {
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[schemars(required, schema_with = "nullable_profile_mark_schema")]
+    pub avatar_preset: Option<crate::services::users::ProfileMark>,
+}
+
+// Schemars' `required` attribute normally removes Option's null alternative.
+// The field must be present here, while null remains a valid choice.
+fn nullable_profile_mark_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    <Option<crate::services::users::ProfileMark> as schemars::JsonSchema>::json_schema(generator)
+}
+
+pub async fn set_avatar_preset(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<ProfileMarkInput>,
+) -> Result<Json<MeResponse>, AppError> {
+    crate::services::users::set_profile_mark(&state.db, user.id, body.avatar_preset).await?;
+    Ok(Json(MeResponse {
+        user: user_with_notifications(&state, &user).await?,
+    }))
 }
 
 pub async fn avatar(
@@ -416,15 +446,16 @@ pub async fn login_users(
         if disabled {
             continue;
         }
-        let row: Option<(Option<String>, Option<String>, Option<i64>)> = sqlx::query_as(
+        type LoginAppearance = (Option<String>, Option<String>, Option<i64>, Option<String>);
+        let row: Option<LoginAppearance> = sqlx::query_as(
             "SELECT credential_type, profile_type,
                 CASE WHEN EXISTS (SELECT 1 FROM user_avatars WHERE user_id = users.id)
-                THEN avatar_version ELSE NULL END FROM users WHERE id = ? AND disabled = 0",
+                THEN avatar_version ELSE NULL END, avatar_preset FROM users WHERE id = ? AND disabled = 0",
         )
         .bind(user.id)
         .fetch_optional(&state.db)
         .await?;
-        let Some((auth_mode, profile_type, avatar_version)) = row else {
+        let Some((auth_mode, profile_type, avatar_version, avatar_preset)) = row else {
             continue;
         };
         items.push(LoginUser {
@@ -435,6 +466,7 @@ pub async fn login_users(
             profile_type: profile_type.unwrap_or_else(|| "adult".to_string()),
             avatar_url: avatar_version
                 .map(|version| format!("/api/auth/users/{}/avatar?v={version}", user.id)),
+            avatar_preset,
         });
     }
 
@@ -679,7 +711,7 @@ pub async fn onboarding_state(
         .await?
         .flatten();
     let interests: Vec<String> = sqlx::query_scalar(
-        "SELECT normalized_name FROM user_subject_interests WHERE user_id = ? ORDER BY created_at",
+        "SELECT normalized_name FROM user_subject_interests WHERE user_id = ? ORDER BY created_at, rowid",
     )
     .bind(user.id)
     .fetch_all(&state.db)
@@ -697,25 +729,27 @@ pub async fn update_interests(
     State(state): State<AppState>,
     Json(body): Json<InterestsInput>,
 ) -> Result<Json<OkResponse>, AppError> {
+    let mut tx = state.db.begin().await?;
     sqlx::query("DELETE FROM user_subject_interests WHERE user_id = ?")
         .bind(user.id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     for subject in body.subjects.iter().take(24) {
         let normalized = bokhylle_core::identity::normalize_text(subject.trim());
         if normalized.is_empty() || normalized.len() > 60 {
             continue;
         }
-        let _ = sqlx::query(
+        sqlx::query(
             "INSERT INTO user_subject_interests (user_id, normalized_name)
              VALUES (?, ?)
              ON CONFLICT(user_id, normalized_name) DO NOTHING",
         )
         .bind(user.id)
         .bind(&normalized)
-        .execute(&state.db)
-        .await;
+        .execute(&mut *tx)
+        .await?;
     }
+    tx.commit().await?;
     Ok(Json(OkResponse { ok: true }))
 }
 

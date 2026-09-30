@@ -162,6 +162,91 @@ pub struct Auth {
     db: SqlitePool,
 }
 
+/// Validated credentials prepared before opening a write transaction. The hash
+/// stays private and is never serialized or included in debug output.
+pub(crate) struct PreparedUser {
+    username: String,
+    password_hash: String,
+    role: Role,
+    credential_type: String,
+    profile_type: String,
+}
+
+impl PreparedUser {
+    pub(crate) fn new(
+        username: &str,
+        secret: &str,
+        role: Role,
+        credential_type: &str,
+        profile_type: &str,
+    ) -> Result<Self, AppError> {
+        let username = username.trim();
+        if username.is_empty() {
+            return Err(AppError::Unprocessable("username must not be empty".into()));
+        }
+        if !matches!(profile_type, "adult" | "child") {
+            return Err(AppError::Unprocessable(
+                "profile type must be 'adult' or 'child'".into(),
+            ));
+        }
+        if role == Role::Admin && profile_type == "child" {
+            return Err(AppError::Unprocessable(
+                "a child profile cannot be an administrator".into(),
+            ));
+        }
+        if role == Role::Admin && credential_type != "password" {
+            return Err(AppError::Unprocessable(
+                "administrators must use a password".into(),
+            ));
+        }
+        validate_credential(credential_type, secret)?;
+        Ok(Self {
+            username: username.to_string(),
+            password_hash: hash_credential(credential_type, secret)?,
+            role,
+            credential_type: credential_type.to_string(),
+            profile_type: profile_type.to_string(),
+        })
+    }
+
+    pub(crate) async fn insert(
+        self,
+        connection: &mut sqlx::SqliteConnection,
+    ) -> Result<User, AppError> {
+        let role_value = match self.role {
+            Role::Admin => "admin",
+            Role::User => "user",
+        };
+        let result = sqlx::query(
+            "INSERT INTO users
+                (username, password_hash, role, credential_type, credential_version, profile_type, onboarded_at)
+             VALUES (?, ?, ?, ?, 2, ?, NULL)",
+        )
+        .bind(&self.username)
+        .bind(self.password_hash)
+        .bind(role_value)
+        .bind(self.credential_type)
+        .bind(self.profile_type)
+        .execute(connection)
+        .await
+        .map_err(|error| match error {
+            sqlx::Error::Database(ref database_error) if database_error.is_unique_violation() => {
+                AppError::Conflict(format!("user '{}' already exists", self.username))
+            }
+            other => AppError::Internal(other),
+        })?;
+        Ok(User {
+            id: result.last_insert_rowid(),
+            username: self.username,
+            display_name: None,
+            role: self.role,
+            preferred_format: None,
+            preferred_language: None,
+            acquisition_mode: "automatic".to_string(),
+        })
+    }
+}
+
 impl Auth {
     pub fn new(db: SqlitePool) -> Self {
         Self { db }
@@ -204,61 +289,9 @@ impl Auth {
         credential_type: &str,
         profile_type: &str,
     ) -> Result<User, AppError> {
-        let username = username.trim();
-        if username.is_empty() {
-            return Err(AppError::Unprocessable("username must not be empty".into()));
-        }
-        if !matches!(profile_type, "adult" | "child") {
-            return Err(AppError::Unprocessable(
-                "profile type must be 'adult' or 'child'".into(),
-            ));
-        }
-        if matches!(role, Role::Admin) && profile_type == "child" {
-            return Err(AppError::Unprocessable(
-                "a child profile cannot be an administrator".into(),
-            ));
-        }
-        if matches!(role, Role::Admin) && credential_type != "password" {
-            return Err(AppError::Unprocessable(
-                "administrators must use a password".into(),
-            ));
-        }
-        validate_credential(credential_type, secret)?;
-
-        let password_hash = hash_credential(credential_type, secret)?;
-        let role_value = match role {
-            Role::Admin => "admin",
-            Role::User => "user",
-        };
-
-        let result = sqlx::query(
-            "INSERT INTO users
-                (username, password_hash, role, credential_type, credential_version, profile_type, onboarded_at)
-             VALUES (?, ?, ?, ?, 2, ?, NULL)",
-        )
-        .bind(username)
-        .bind(password_hash)
-        .bind(role_value)
-        .bind(credential_type)
-        .bind(profile_type)
-        .execute(&self.db)
-        .await
-        .map_err(|error| match error {
-            sqlx::Error::Database(ref database_error) if database_error.is_unique_violation() => {
-                AppError::Conflict(format!("user '{username}' already exists"))
-            }
-            other => AppError::Internal(other),
-        })?;
-
-        Ok(User {
-            id: result.last_insert_rowid(),
-            username: username.to_string(),
-            display_name: None,
-            role,
-            preferred_format: None,
-            preferred_language: None,
-            acquisition_mode: "automatic".to_string(),
-        })
+        let prepared = PreparedUser::new(username, secret, role, credential_type, profile_type)?;
+        let mut connection = self.db.acquire().await?;
+        prepared.insert(&mut connection).await
     }
 
     pub async fn verify_login(

@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
-import { signInProfiles, signInPortrait } from './sign-in-preview.mjs'
+import { signInProfiles } from './sign-in-preview.mjs'
 
 const base = process.env.BOKHYLLE_DOCS_BASE ?? 'http://127.0.0.1:4173'
 const output = fileURLToPath(new URL('../../docs/media/', import.meta.url))
@@ -94,13 +94,17 @@ const user = {
   profileType: 'adult', preferredFormat: 'epub', preferredLanguage: 'en',
   preferredLanguages: ['en'], defaultLanguage: 'en', acquisitionMode: 'automatic',
   notificationEmail: null, emailNotifications: false,
-  canAcquire: true,
+  canAcquire: true, avatarPreset: 'book', avatarVersion: null,
 }
 
 function responseFor(url, adminPreview = false) {
   const path = url.pathname
   if (path === '/api/auth/me') return { user: adminPreview ? { ...user, role: 'admin' } : user }
   if (path === '/api/profile/onboarding') return { onboarded: true, interests: [] }
+  if (path === '/api/profile/stats') return { shelf: 5, authors: 2, liked: 3, booksSent: 2 }
+  if (path === '/api/profile/liked') return { items: [] }
+  if (path === '/api/admin/users') return [{ ...user, role: 'admin', disabled: false, readerCount: 0 }]
+  if (path === '/api/admin/users/profiles') return { users: [{ userId: 1, profileType: 'adult' }] }
   if (path === '/api/catalogues') return [{ id: 'open-shelf', name: 'Open shelf', url: 'https://catalogue.example.test/opds' }]
   if (path === '/api/catalogues/open-shelf/feed') return {
     title: 'The open reading room', pageUrl: 'https://catalogue.example.test/opds',
@@ -212,6 +216,10 @@ try {
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
     ['/settings/getting-books', 'acquisition-settings-desktop.png', 1440, 900, 'Import folder'],
+    ['/profile', 'profile-marks-mobile.png', 390, 844, 'My profile'],
+    ['/settings/household', 'child-access-desktop.png', 1280, 900, 'Household users'],
+    ['/settings/household', 'child-starting-books-desktop.png', 1280, 900, 'Household users'],
+    ['/welcome', 'reading-interests-mobile.png', 390, 844, 'What do you like to read?'],
   ]) {
     if (process.env.BOKHYLLE_DOCS_SELECT && !process.env.BOKHYLLE_DOCS_SELECT.split(',').includes(name)) continue
     const page = await browser.newPage({
@@ -229,8 +237,6 @@ try {
         if (url.pathname === '/api/auth/me') return route.fulfill({ status: 401, json: { code: 'unauthorized', message: 'Authentication required' } })
         if (url.pathname === '/api/demo') return route.fulfill({ json: { enabled: false } })
         if (url.pathname === '/api/auth/users') return route.fulfill({ json: { users: signInProfiles } })
-        const avatarId = /^\/api\/auth\/users\/(\d+)\/avatar$/.exec(url.pathname)?.[1]
-        if (avatarId) return route.fulfill({ contentType: 'image/svg+xml', body: signInPortrait(avatarId) })
       }
       const coverId = /^\/api\/books\/(\d+)\/cover$/.exec(url.pathname)?.[1]
       if (coverId) {
@@ -247,11 +253,37 @@ try {
     })
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
+    if (name === 'profile-marks-mobile.png') await page.getByRole('button', { name: 'Change picture', exact: true }).click()
+    if (name.startsWith('child-')) {
+      await page.getByRole('button', { name: 'Add user', exact: true }).click()
+      await page.getByLabel('Username', { exact: true }).fill('nora')
+      await page.getByLabel('Display name', { exact: true }).fill('Nora')
+      await page.getByRole('dialog').locator('input[type="password"]').fill('482915')
+      await page.getByRole('combobox', { name: /^Profile type/ }).selectOption('child')
+      await page.getByRole('radio', { name: 'Owl', exact: true }).check()
+      await page.getByRole('radio', { name: /^Explore and ask/ }).check()
+      if (name === 'child-starting-books-desktop.png') {
+        await page.getByRole('button', { name: 'Choose starting books', exact: true }).click()
+        await page.getByRole('checkbox', { name: /Where Maps End/ }).check()
+        await page.getByRole('list', { name: 'Available household books' }).getByRole('checkbox').nth(1).check()
+      } else await page.getByRole('group', { name: 'How can this child find new books?' }).scrollIntoViewIfNeeded()
+    }
+    if (name === 'reading-interests-mobile.png') {
+      await page.getByRole('button', { name: 'Fantasy', exact: true }).click()
+      await page.getByRole('button', { name: 'Animals', exact: true }).click()
+      await page.getByLabel('Search reading interests', { exact: true }).fill('Architecture')
+      await page.getByRole('button', { name: 'Add “Architecture”', exact: true }).click()
+      await page.getByLabel('Search reading interests', { exact: true }).fill('nature')
+      await page.evaluate(() => window.scrollTo(0, 0))
+    }
     if (name === 'sign-in-mobile.png') {
       await page.getByRole('button', { name: 'Nora', exact: true }).tap()
       await page.getByLabel('PIN', { exact: true }).waitFor()
     }
     await page.evaluate(() => document.fonts.ready)
+    // Screenshots include covers beyond the viewport as well as profile marks.
+    await page.evaluate(() => { for (const image of document.images) image.loading = 'eager' })
+    await page.waitForFunction(() => Array.from(document.images).every((image) => image.complete))
     // Capture the settled state, including the short credential-panel transition.
     if (await page.locator('#sign-in-panel').count()) {
       await page.waitForFunction(() => document.querySelector('#sign-in-panel')?.getAttribute('aria-busy') !== 'true')

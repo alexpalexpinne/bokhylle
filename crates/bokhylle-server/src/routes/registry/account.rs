@@ -65,6 +65,10 @@ pub(super) fn router() -> ApiRouter<AppState> {
                 .delete(routes::auth::delete_avatar),
         )
         .api_route(
+            "/api/profile/avatar/preset",
+            aide::axum::routing::put(routes::auth::set_avatar_preset),
+        )
+        .api_route(
             "/api/profile",
             aide::axum::routing::put(routes::auth::update_profile),
         )

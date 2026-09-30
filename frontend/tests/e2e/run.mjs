@@ -21,6 +21,8 @@ import searchStatesSpec from './specs/search-states.mjs'
 import profileHelpSpec from './specs/profile-help.mjs'
 import chunkRecoverySpec from './specs/chunk-recovery.mjs'
 import onboardingSearchSpec from './specs/onboarding-search.mjs'
+import childSetupSpec from './specs/child-setup.mjs'
+import profileMarksSpec from './specs/profile-marks.mjs'
 import bookDetailSpec from './specs/book-detail.mjs'
 import demoSpec from './specs/demo.mjs'
 import discoverDeepLinkSpec from './specs/discover-deep-link.mjs'
@@ -78,6 +80,8 @@ const allSpecs = [
   { name: 'profile-help', run: profileHelpSpec, auth: false },
   { name: 'chunk-recovery', run: chunkRecoverySpec, auth: false },
   { name: 'onboarding-search', run: onboardingSearchSpec, auth: false },
+  { name: 'child-setup', run: childSetupSpec, auth: false },
+  { name: 'profile-marks', run: profileMarksSpec, auth: false },
   { name: 'book-detail', run: bookDetailSpec, auth: false },
   { name: 'demo', run: demoSpec, auth: false },
   { name: 'discover-deep-link', run: discoverDeepLinkSpec, auth: false },

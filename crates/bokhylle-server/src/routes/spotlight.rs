@@ -269,7 +269,7 @@ async fn taste_profile(state: &AppState, user_id: i64) -> Result<Taste, AppError
         "SELECT COALESCE(s.id, 0), i.normalized_name
          FROM user_subject_interests i
          LEFT JOIN subjects s ON s.normalized_name = i.normalized_name
-         WHERE i.user_id = ? ORDER BY i.created_at LIMIT 3",
+         WHERE i.user_id = ? ORDER BY i.created_at, i.rowid LIMIT 3",
     )
     .bind(user_id)
     .fetch_all(&state.db)

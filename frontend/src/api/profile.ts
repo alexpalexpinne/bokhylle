@@ -1,5 +1,6 @@
 import type { components } from './generated'
 import { apiRoute, uploadBinary } from './client'
+import type { ProfileMarkId } from '../lib/profileMarks'
 
 export type ProfileUpdate = components['schemas']['ProfileUpdate']
 
@@ -41,6 +42,13 @@ export function updateProfile(update: ProfileUpdate) {
 
 export function uploadProfilePicture(file: File) {
   return uploadBinary('/api/profile/avatar', file)
+}
+
+export function saveProfileMark(avatarPreset: ProfileMarkId | null) {
+  return apiRoute('/api/profile/avatar/preset', '/api/profile/avatar/preset', {
+    method: 'PUT',
+    json: { avatarPreset },
+  })
 }
 
 export function deleteProfilePicture() {

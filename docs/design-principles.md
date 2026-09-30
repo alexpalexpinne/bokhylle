@@ -97,6 +97,18 @@ and real cover art. It remains a useful web application, not a magazine.
   FOUND → FETCHING → SHELVING → READY → DELIVERED, rendered as numbered
   stages with rules and plain text, not a generic progress bar.
 
+## Profile marks
+
+- Profiles start with initials. A mark is chosen deliberately, never inferred
+  from a name, gender, or profile type.
+- Adults and children share ten library and nature illustrations: fox, owl, cat,
+  bear, whale, book, tree, mountain, moon, and leaf. Use the bundled SVG assets
+  in `frontend/public/profile-marks/` with their stable IDs.
+- Keep distinct silhouettes, restrained accents, and the same neutral circular
+  surface in Paper and Ink. These are household identity marks, not role badges.
+- An uploaded personal photo takes precedence. Keep the selected mark so removing
+  a photo restores it; no mark means initials.
+
 ## Palette
 
 Paper is canonical: cream paper, near-black ink, oxide (burnt orange),

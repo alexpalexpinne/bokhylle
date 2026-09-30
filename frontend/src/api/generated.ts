@@ -2164,6 +2164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/avatar/preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_profile_avatar_preset"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profile/credential": {
         parameters: {
             query?: never;
@@ -2510,6 +2526,8 @@ export interface components {
             bookId: number;
         };
         AdminUserView: {
+            avatarPreset: string | null;
+            avatarUrl: string | null;
             /** @description Adults only: permission to add new files to the shared collection. */
             canAcquire: boolean;
             /** @description Children only: access to public catalogue browsing and suggestions. */
@@ -3061,6 +3079,8 @@ export interface components {
             url: string;
         };
         CreateUserInput: {
+            /** @description Optional bundled profile mark. Null or omitted uses initials. */
+            avatarPreset?: components["schemas"]["ProfileMark"] | null;
             /** @description Adults only: allow adding new books to the shared library. */
             canAcquire?: boolean | null;
             /** @description Children only: allow public catalogue browsing and suggestions. */
@@ -3074,6 +3094,8 @@ export interface components {
             preferredLanguages?: string[] | null;
             profileType?: string | null;
             role?: string | null;
+            /** @description Children only: owned household books to assign in the creation transaction. */
+            startingBookIds?: number[] | null;
             username: string;
         };
         CreatedToken: {
@@ -3627,6 +3649,7 @@ export interface components {
         };
         LoginUser: {
             authMode: string;
+            avatarPreset: string | null;
             avatarUrl: string | null;
             displayName: string | null;
             profileType: string;
@@ -3725,6 +3748,15 @@ export interface components {
         };
         PreferenceUpdate: {
             preference?: string | null;
+        };
+        /**
+         * @description IDs of the bundled, age-neutral Bokhylle profile marks.
+         * @enum {string}
+         */
+        ProfileMark: "fox" | "owl" | "cat" | "bear" | "whale" | "book" | "tree" | "mountain" | "moon" | "leaf";
+        /** @description A required nullable field: null restores initials, a bundled ID selects a mark. */
+        ProfileMarkInput: {
+            avatarPreset: components["schemas"]["ProfileMark"] | null;
         };
         ProfileStats: {
             /** Format: int64 */
@@ -4221,6 +4253,8 @@ export interface components {
             value: unknown;
         };
         UpdateUserInput: {
+            /** @description Omitted preserves the mark; null restores initials. Does not remove a photo. */
+            avatarPreset?: components["schemas"]["ProfileMark"] | null;
             /** @description Adults only: allow adding new books to the shared library. */
             canAcquire?: boolean | null;
             /** @description Children only: allow public catalogue browsing and suggestions. */
@@ -4259,6 +4293,7 @@ export interface components {
         };
         UserView: {
             acquisitionMode: string;
+            avatarPreset: string | null;
             /** Format: int64 */
             avatarVersion: number | null;
             canAcquire: boolean;
@@ -11903,6 +11938,57 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_profile_avatar_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A required nullable field: null restores initials, a bundled ID selects a mark. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileMarkInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */
             401: {
