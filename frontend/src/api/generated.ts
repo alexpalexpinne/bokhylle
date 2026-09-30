@@ -2644,6 +2644,7 @@ export interface components {
             id: number;
             language: string | null;
             legacySeriesText: string | null;
+            metadataSources: components["schemas"]["MetadataSource"][];
             onShelf: boolean;
             preference: string | null;
             publicationKind: string;
@@ -2746,21 +2747,15 @@ export interface components {
             publicationKind?: string | null;
             /** Format: int64 */
             publicationYear?: number | null;
-            /** @default null */
-            readingDirection: components["schemas"]["ReadingDirection"] | null;
+            readingDirection?: components["schemas"]["ReadingDirection"] | null;
             series?: string | null;
-            /**
-             * Format: int64
-             * @default null
-             */
-            seriesId: number | null;
+            /** Format: int64 */
+            seriesId?: number | null;
             seriesNumber?: string | null;
-            /**
-             * Format: double
-             * @default null
-             */
-            seriesSortOrder: number | null;
+            /** Format: double */
+            seriesSortOrder?: number | null;
             title?: string | null;
+            useAutomaticMetadata?: components["schemas"]["MetadataField"][];
         };
         BooksQuery: {
             /** Format: int64 */
@@ -3338,6 +3333,7 @@ export interface components {
             isbn10: string | null;
             isbn13: string | null;
             language: string | null;
+            metadataSources: components["schemas"]["MetadataSource"][];
             /** Format: int64 */
             publicationYear: number | null;
             publisher: string | null;
@@ -3626,6 +3622,8 @@ export interface components {
         MeResponse: {
             user: components["schemas"]["UserView"];
         };
+        /** @enum {string} */
+        MetadataField: "title" | "authors" | "description" | "language" | "series" | "seriesNumber" | "cover" | "publicationYear" | "publisher";
         MetadataJobStatus: {
             /** Format: uint64 */
             booksEnriched: number;
@@ -3639,6 +3637,12 @@ export interface components {
             running: boolean;
             /** Format: int64 */
             startedAt: number | null;
+        };
+        MetadataSource: {
+            field: string;
+            manual: boolean;
+            source: string;
+            sourceKey: string | null;
         };
         MissingFile: {
             /** Format: int64 */

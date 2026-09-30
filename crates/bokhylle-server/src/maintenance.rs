@@ -13,6 +13,8 @@ use bokhylle_metadata::MetadataQuery;
 
 use crate::AppState;
 use crate::error::AppError;
+use crate::library::metadata_fields::{self, MetadataField as Field, Scope};
+use serde_json::json;
 
 #[derive(Debug, Clone, Default, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -290,6 +292,7 @@ pub async fn run_metadata(state: &AppState, force: bool) -> Result<(), AppError>
         // their own provider and provenance; an existing cover is never
         // replaced).
         let mut cover_saved = false;
+        let mut description_origin: Option<(String, String)> = None;
         if (metadata.is_none()
             || metadata
                 .as_ref()
@@ -347,12 +350,21 @@ pub async fn run_metadata(state: &AppState, force: bool) -> Result<(), AppError>
                     let covers_dir = state.paths.config_dir.join("artwork").join("covers");
                     let path = covers_dir.join(format!("{}-{id}.jpg", fallback_provider.name()));
                     cover_saved = write_cover(&covers_dir, &path, &bytes).await
-                        && set_cover_path(state, id, &path).await;
+                        && set_cover_path(
+                            state,
+                            id,
+                            &path,
+                            fallback_provider.name(),
+                            Some(&cover_id),
+                        )
+                        .await;
                 }
 
                 match metadata.as_mut() {
                     Some(existing) => {
                         if existing.description.is_none() {
+                            description_origin =
+                                Some((found.provider.clone(), found.provider_key.clone()));
                             existing.description = found.description;
                         }
                         if existing.subjects.is_empty() {
@@ -375,27 +387,40 @@ pub async fn run_metadata(state: &AppState, force: bool) -> Result<(), AppError>
                         .is_ok();
             }
 
-            // Only missing fields are filled: existing local metadata wins.
-            if (description.is_none() && found.description.is_some())
-                || (series.is_none() && found.series.is_some())
-            {
-                enriched_fields = sqlx::query(
-                    "UPDATE books SET
-                         description = COALESCE(description, ?),
-                         series = COALESCE(series, ?),
-                         series_number = CASE WHEN series_link_locked = 1 THEN series_number
-                                              ELSE COALESCE(series_number, ?) END,
-                         updated_at = unixepoch()
-                     WHERE id = ?",
+            // Recheck field ownership inside the write transaction: a manual
+            // correction may have arrived while the provider was responding.
+            let mut tx = state.db.begin().await?;
+            let (description_source, description_key) = description_origin
+                .as_ref()
+                .map(|(source, key)| (source.as_str(), key.as_str()))
+                .unwrap_or((&found.provider, &found.provider_key));
+            enriched_fields |= metadata_fields::automatic(
+                &mut tx,
+                Scope::Book(id),
+                Field::Description,
+                json!(found.description),
+                description_source,
+                Some(description_key),
+                false,
+            )
+            .await?;
+            for (field, value) in [
+                (Field::Series, json!(found.series)),
+                (Field::SeriesNumber, json!(found.series_number)),
+            ] {
+                enriched_fields |= metadata_fields::automatic(
+                    &mut tx,
+                    Scope::Book(id),
+                    field,
+                    value,
+                    &found.provider,
+                    Some(&found.provider_key),
+                    false,
                 )
-                .bind(&found.description)
-                .bind(&found.series)
-                .bind(&found.series_number)
-                .bind(id)
-                .execute(&state.db)
-                .await
-                .is_ok();
+                .await?;
             }
+            crate::library::refresh_fts(&mut tx, id).await?;
+            tx.commit().await?;
         }
 
         // Keep the matched provider key so later runs are keyed lookups.
@@ -720,7 +745,7 @@ async fn backfill_covers(state: &AppState) {
             {
                 let path = covers_dir.join(format!("ol-isbn-{isbn}.jpg"));
                 if write_cover(&covers_dir, &path, &bytes).await
-                    && set_cover_path(state, id, &path).await
+                    && set_cover_path(state, id, &path, state.metadata.name(), Some(isbn)).await
                 {
                     saved = true;
                     break;
@@ -753,7 +778,8 @@ async fn backfill_covers(state: &AppState) {
                 {
                     let path = covers_dir.join(format!("ol-{cover_id}.jpg"));
                     if write_cover(&covers_dir, &path, &bytes).await
-                        && set_cover_path(state, id, &path).await
+                        && set_cover_path(state, id, &path, state.metadata.name(), Some(&cover_id))
+                            .await
                     {
                         saved = true;
                         break;
@@ -818,18 +844,26 @@ async fn repair_title_like_authors(state: &AppState) {
         }
 
         let book_format = BookFormat::from_extension(&format).unwrap_or(BookFormat::Epub);
-        let Ok(extracted) = bokhylle_library::extract::extract(Path::new(&path), book_format)
-        else {
+        let extracted = tokio::task::spawn_blocking(move || {
+            bokhylle_library::extract::extract(Path::new(&path), book_format)
+        })
+        .await;
+        let Ok(Ok(extracted)) = extracted else {
             continue;
+        };
+        let source = if extracted.metadata.authors_from_filename {
+            "filename"
+        } else {
+            &format
         };
         let new_authors = extracted.metadata.authors;
         if new_authors.is_empty() {
             continue;
         }
 
-        if replace_authors(&state.db, book_id, &new_authors)
+        if replace_authors(&state.db, book_id, &new_authors, source)
             .await
-            .is_ok()
+            .is_ok_and(|changed| changed)
         {
             update(|status| status.books_repaired += 1);
         }
@@ -840,49 +874,22 @@ async fn replace_authors(
     pool: &SqlitePool,
     book_id: i64,
     authors: &[String],
-) -> Result<(), AppError> {
-    let mut transaction = pool.begin().await?;
-
-    sqlx::query("DELETE FROM book_authors WHERE book_id = ?")
-        .bind(book_id)
-        .execute(&mut *transaction)
-        .await?;
-
-    for (position, author) in authors
-        .iter()
-        .map(|author| author.trim())
-        .filter(|author| !author.is_empty())
-        .enumerate()
-    {
-        let normalized = bokhylle_core::identity::normalize_text(author);
-        let existing: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM authors WHERE normalized_name = ? LIMIT 1")
-                .bind(&normalized)
-                .fetch_optional(&mut *transaction)
-                .await?;
-        let author_id = match existing {
-            Some(id) => id,
-            None => sqlx::query("INSERT INTO authors (name, normalized_name) VALUES (?, ?)")
-                .bind(author)
-                .bind(&normalized)
-                .execute(&mut *transaction)
-                .await?
-                .last_insert_rowid(),
-        };
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO book_authors (book_id, author_id, position) VALUES (?, ?, ?)",
-        )
-        .bind(book_id)
-        .bind(author_id)
-        .bind(position as i64)
-        .execute(&mut *transaction)
-        .await?;
-    }
-
-    crate::library::refresh_fts(&mut transaction, book_id).await?;
-    transaction.commit().await?;
-    Ok(())
+    source: &str,
+) -> Result<bool, AppError> {
+    let mut tx = pool.begin().await?;
+    let changed = metadata_fields::automatic(
+        &mut tx,
+        Scope::Book(book_id),
+        Field::Authors,
+        json!(authors),
+        source,
+        None,
+        true,
+    )
+    .await?;
+    crate::library::refresh_fts(&mut tx, book_id).await?;
+    tx.commit().await?;
+    Ok(changed)
 }
 
 async fn prune_orphan_authors(pool: &SqlitePool) -> Result<(), AppError> {
@@ -900,13 +907,30 @@ async fn prune_orphan_authors(pool: &SqlitePool) -> Result<(), AppError> {
     Ok(())
 }
 
-async fn set_cover_path(state: &AppState, book_id: i64, path: &Path) -> bool {
-    sqlx::query("UPDATE books SET cover_path = ?, updated_at = unixepoch() WHERE id = ?")
-        .bind(path.to_string_lossy().as_ref())
-        .bind(book_id)
-        .execute(&state.db)
-        .await
-        .is_ok()
+async fn set_cover_path(
+    state: &AppState,
+    book_id: i64,
+    path: &Path,
+    source: &str,
+    source_key: Option<&str>,
+) -> bool {
+    let result = async {
+        let mut tx = state.db.begin().await?;
+        let changed = metadata_fields::automatic(
+            &mut tx,
+            Scope::Book(book_id),
+            Field::Cover,
+            json!(path.to_string_lossy()),
+            source,
+            source_key,
+            false,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok::<_, AppError>(changed)
+    }
+    .await;
+    result.unwrap_or(false)
 }
 
 async fn write_cover(dir: &Path, path: &Path, bytes: &[u8]) -> bool {

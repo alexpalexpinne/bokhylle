@@ -68,3 +68,28 @@ language.
 
 Continue reading appears for unfinished books reported by browser or KOReader progress
 sync.
+
+## Personal recommendations
+
+Household ownership alone does not qualify a book for adult Home rails or
+Spotlight. Candidates need a personal reason: shelf membership, a like, a
+followed author, a selected interest, or informative subjects shared with books
+the profile deliberately shelved, requested, or received on its reader. Generic
+catalogue tags such as "fiction" do not establish inferred interests. Bulk claiming books
+does not make every subject a taste signal. Child assignments and another
+profile's likes never establish adult affinity.
+
+Hidden subjects and "not for me" exclude local recommendation candidates,
+including backfill candidates. Sparse profiles can choose reading interests
+through the setup wizard or deliberately browse Household. Adult household
+browsing, search, file access, and acquisition reuse retain their existing scope;
+children remain shelf scoped. There is no Audience assignment layer.
+
+## Metadata corrections
+
+Administrators see field origins in **Fix details**. Editing a field protects it
+through provider enrichment, imports, rescans, and author repair, including when
+the field is intentionally cleared. Saving the form sends only changed fields.
+**Use automatic metadata again** selects an explicit reset; Save restores the
+saved automatic value and releases the correction, while Cancel leaves it
+protected. Historical values without source records are labeled unknown.

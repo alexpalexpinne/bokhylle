@@ -12,9 +12,13 @@ use bokhylle_library::{Cover, ScannedFile};
 
 use crate::AppState;
 use crate::error::AppError;
+use metadata_fields::{MetadataField as Field, Scope};
+use serde_json::json;
 
 pub mod import_metadata;
+pub mod metadata_fields;
 pub mod queries;
+pub(crate) mod relevance;
 pub mod scan_state;
 pub mod subjects;
 
@@ -30,6 +34,25 @@ pub struct ScanSummary {
     pub duplicates: usize,
     pub errors: usize,
     pub duration_ms: u64,
+}
+
+struct ExtractedOrigin<'a> {
+    format: &'a str,
+    key: &'a str,
+    filename_title: bool,
+    filename_authors: bool,
+}
+
+impl ExtractedOrigin<'_> {
+    fn source(&self, field: Field) -> &str {
+        if (field == Field::Title && self.filename_title)
+            || (field == Field::Authors && self.filename_authors)
+        {
+            "filename"
+        } else {
+            self.format
+        }
+    }
 }
 
 enum Outcome {
@@ -75,7 +98,9 @@ pub async fn index_library(state: &AppState) -> Result<ScanSummary, AppError> {
     // drop the ones that no longer belong to any book.
     if let Err(error) = sqlx::query(
         "DELETE FROM authors
-         WHERE NOT EXISTS (SELECT 1 FROM book_authors WHERE author_id = authors.id)",
+         WHERE NOT EXISTS (SELECT 1 FROM book_authors WHERE author_id = authors.id)
+           AND NOT EXISTS (SELECT 1 FROM author_follows WHERE author_id = authors.id)
+           AND NOT EXISTS (SELECT 1 FROM author_discoveries WHERE author_id = authors.id)",
     )
     .execute(&state.db)
     .await
@@ -183,19 +208,25 @@ async fn index_file(
     let extracted =
         extract_blocking(file.path.clone(), file.format, filename.to_path_buf()).await?;
     let metadata = normalize_metadata(extracted.metadata, filename);
+    let origin = ExtractedOrigin {
+        format: file.format.as_str(),
+        key: &digest,
+        filename_title: metadata.title_from_filename,
+        filename_authors: metadata.authors_from_filename,
+    };
     let covers_dir = state.paths.config_dir.join("artwork").join("covers");
 
     let mut tx = state.db.begin().await?;
 
     let book_id = match identify_book(&mut tx, &metadata).await? {
         Some(book_id) => {
-            merge_book_metadata(&mut tx, book_id, &metadata).await?;
+            merge_book_metadata(&mut tx, book_id, &metadata, &origin).await?;
             book_id
         }
-        None => create_book(&mut tx, &metadata).await?,
+        None => create_book(&mut tx, &metadata, &origin).await?,
     };
 
-    let edition_id = identify_or_create_edition(&mut tx, book_id, &metadata).await?;
+    let edition_id = identify_or_create_edition(&mut tx, book_id, &metadata, &origin).await?;
 
     let cover_path = extracted
         .cover
@@ -218,12 +249,15 @@ async fn index_file(
     .await?;
 
     if let Some(cover_path) = cover_path {
-        sqlx::query(
-            "UPDATE books SET cover_path = COALESCE(cover_path, ?), updated_at = unixepoch() WHERE id = ?",
+        metadata_fields::automatic(
+            &mut tx,
+            Scope::Book(book_id),
+            Field::Cover,
+            json!(cover_path),
+            file.format.as_str(),
+            Some(&digest),
+            false,
         )
-        .bind(&cover_path)
-        .bind(book_id)
-        .execute(&mut *tx)
         .await?;
     }
 
@@ -236,8 +270,10 @@ async fn index_file(
 fn normalize_metadata(mut metadata: ExtractedMetadata, path: &Path) -> ExtractedMetadata {
     if metadata.title.as_deref().is_none_or(str::is_empty) {
         let (title, authors) = extract::fallback_from_filename(path);
+        metadata.title_from_filename = title.is_some();
         metadata.title = title.or_else(|| Some("Untitled".to_string()));
         if metadata.authors.is_empty() {
+            metadata.authors_from_filename = !authors.is_empty();
             metadata.authors = authors;
         }
     }
@@ -324,6 +360,7 @@ async fn identify_book(
 async fn create_book(
     tx: &mut Transaction<'_, Sqlite>,
     metadata: &ExtractedMetadata,
+    origin: &ExtractedOrigin<'_>,
 ) -> Result<i64, AppError> {
     let title = metadata
         .title
@@ -346,7 +383,7 @@ async fn create_book(
     .last_insert_rowid();
 
     link_authors(tx, book_id, &metadata.authors, 0).await?;
-    refresh_fts(tx, book_id).await?;
+    merge_book_metadata(tx, book_id, metadata, origin).await?;
 
     Ok(book_id)
 }
@@ -355,6 +392,7 @@ async fn merge_book_metadata(
     tx: &mut Transaction<'_, Sqlite>,
     book_id: i64,
     metadata: &ExtractedMetadata,
+    origin: &ExtractedOrigin<'_>,
 ) -> Result<(), AppError> {
     let unverified_work: bool = sqlx::query_scalar(
         "SELECT EXISTS (
@@ -370,33 +408,25 @@ async fn merge_book_metadata(
     .bind(book_id)
     .fetch_one(&mut **tx)
     .await?;
-    sqlx::query(
-        "UPDATE books SET
-            description = COALESCE(description, ?),
-            language = CASE WHEN ? THEN ? ELSE COALESCE(language, ?) END,
-            series = COALESCE(series, ?),
-            series_number = CASE WHEN series_link_locked = 1 THEN series_number
-                                 ELSE COALESCE(series_number, ?) END,
-            updated_at = unixepoch()
-         WHERE id = ?",
-    )
-    .bind(&metadata.description)
-    .bind(unverified_work)
-    .bind(&metadata.language)
-    .bind(&metadata.language)
-    .bind(&metadata.series)
-    .bind(&metadata.series_number)
-    .bind(book_id)
-    .execute(&mut **tx)
-    .await?;
-
-    let existing_authors: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM book_authors WHERE book_id = ?")
-            .bind(book_id)
-            .fetch_one(&mut **tx)
-            .await?;
-
-    link_authors(tx, book_id, &metadata.authors, existing_authors).await?;
+    for (field, value) in [
+        (Field::Title, json!(metadata.title)),
+        (Field::Authors, json!(metadata.authors)),
+        (Field::Description, json!(metadata.description)),
+        (Field::Language, json!(metadata.language)),
+        (Field::Series, json!(metadata.series)),
+        (Field::SeriesNumber, json!(metadata.series_number)),
+    ] {
+        metadata_fields::automatic(
+            tx,
+            Scope::Book(book_id),
+            field,
+            value,
+            origin.source(field),
+            Some(origin.key),
+            field == Field::Language && unverified_work,
+        )
+        .await?;
+    }
     refresh_fts(tx, book_id).await?;
 
     Ok(())
@@ -477,6 +507,7 @@ async fn identify_or_create_edition(
     tx: &mut Transaction<'_, Sqlite>,
     book_id: i64,
     metadata: &ExtractedMetadata,
+    origin: &ExtractedOrigin<'_>,
 ) -> Result<i64, AppError> {
     let (isbn10, isbn13) = isbn_forms(metadata.isbn.as_deref());
 
@@ -486,7 +517,7 @@ async fn identify_or_create_edition(
             .fetch_optional(&mut **tx)
             .await?
     {
-        update_edition(tx, edition_id, metadata).await?;
+        update_edition(tx, edition_id, metadata, origin).await?;
         return Ok(edition_id);
     }
 
@@ -496,7 +527,7 @@ async fn identify_or_create_edition(
             .fetch_optional(&mut **tx)
             .await?
     {
-        update_edition(tx, edition_id, metadata).await?;
+        update_edition(tx, edition_id, metadata, origin).await?;
         return Ok(edition_id);
     }
 
@@ -507,7 +538,7 @@ async fn identify_or_create_edition(
     .fetch_optional(&mut **tx)
     .await?
     {
-        update_edition(tx, edition_id, metadata).await?;
+        update_edition(tx, edition_id, metadata, origin).await?;
         return Ok(edition_id);
     }
 
@@ -532,6 +563,7 @@ async fn identify_or_create_edition(
     .await?
     .last_insert_rowid();
 
+    update_edition(tx, edition_id, metadata, origin).await?;
     Ok(edition_id)
 }
 
@@ -539,6 +571,7 @@ async fn update_edition(
     tx: &mut Transaction<'_, Sqlite>,
     edition_id: i64,
     metadata: &ExtractedMetadata,
+    origin: &ExtractedOrigin<'_>,
 ) -> Result<(), AppError> {
     let unverified_work: bool = sqlx::query_scalar(
         "SELECT EXISTS (
@@ -551,26 +584,23 @@ async fn update_edition(
     .bind(edition_id)
     .fetch_one(&mut **tx)
     .await?;
-    sqlx::query(
-        "UPDATE editions SET
-            title = COALESCE(NULLIF(title, ''), ?),
-            language = CASE WHEN ? THEN ? ELSE COALESCE(language, ?) END,
-            publication_year = CASE WHEN ? THEN ? ELSE COALESCE(publication_year, ?) END,
-            publisher = COALESCE(publisher, ?),
-            updated_at = unixepoch()
-         WHERE id = ?",
-    )
-    .bind(&metadata.title)
-    .bind(unverified_work)
-    .bind(&metadata.language)
-    .bind(&metadata.language)
-    .bind(unverified_work)
-    .bind(metadata.year)
-    .bind(metadata.year)
-    .bind(&metadata.publisher)
-    .bind(edition_id)
-    .execute(&mut **tx)
-    .await?;
+    for (field, value) in [
+        (Field::Title, json!(metadata.title)),
+        (Field::Language, json!(metadata.language)),
+        (Field::PublicationYear, json!(metadata.year)),
+        (Field::Publisher, json!(metadata.publisher)),
+    ] {
+        metadata_fields::automatic(
+            tx,
+            Scope::Edition(edition_id),
+            field,
+            value,
+            origin.source(field),
+            Some(origin.key),
+            unverified_work && matches!(field, Field::Language | Field::PublicationYear),
+        )
+        .await?;
+    }
 
     Ok(())
 }

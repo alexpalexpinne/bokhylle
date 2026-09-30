@@ -2,18 +2,18 @@ import axe from 'axe-core'
 
 const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']
 
-async function check(page, name) {
+export async function check(page, name, selector) {
   // The app's CSP blocks inline script tags. Playwright evaluation runs axe
   // in the page's context without weakening that policy.
   await page.evaluate(axe.source)
-  const violations = await page.evaluate(async (runOnly) => {
-    const results = await window.axe.run(document, { runOnly })
+  const violations = await page.evaluate(async ({ runOnly, selector }) => {
+    const results = await window.axe.run(selector ? document.querySelector(selector) : document, { runOnly })
     return results.violations.map((violation) => ({
       rule: violation.id,
       impact: violation.impact,
       elements: violation.nodes.map((node) => node.target),
     }))
-  }, { type: 'tag', values: tags })
+  }, { runOnly: { type: 'tag', values: tags }, selector })
 
   if (violations.length > 0) {
     throw new Error(`${name}: ${JSON.stringify(violations)}`)

@@ -76,9 +76,23 @@ Bokhylle is a self-hosted library for a household's EPUB, PDF, and CBZ books. It
 
 </details>
 
+<details>
+<summary>Metadata corrections preview</summary>
+
+![Fix details showing metadata sources and an explicit reset for manual corrections](docs/media/metadata-corrections-desktop.png)
+
+<img src="docs/media/metadata-corrections-mobile.png" alt="Editing fictional book details on a phone with a manual title correction" width="390">
+
+</details>
+
 ## How it works
 
 One Rust server serves the web app and uses SQLite for metadata and user state; books remain in your configured library directory. You can start with local EPUB, PDF, or CBZ files alone.
+
+Home suggestions follow each profile's shelves and interests. Household books
+stay available through deliberate browsing and search. Administrators can correct
+book metadata without a later refresh undoing their edits; **Fix details** shows
+field origins and offers an explicit return to automatic metadata.
 
 Open Library supplies catalogue metadata. Adults can add a direct EPUB, PDF, or CBZ download link to a known book, or browse OPDS 1.x and 2.0 feeds configured by an administrator. An optional watch folder imports local EPUB, PDF, and CBZ files. Prowlarr or Torznab can find torrent releases for qBittorrent; Newznab can find Usenet releases for SABnzbd. Downloaded ZIP and RAR archives can be inspected for EPUB, PDF, and CBZ files. Configure only sources you are permitted to access.
 

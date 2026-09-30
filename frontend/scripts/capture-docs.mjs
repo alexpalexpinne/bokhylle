@@ -132,6 +132,25 @@ function responseFor(url, adminPreview = false) {
     items: books, total: books.length, letters: [...new Set(books.map((book) => book.title[0]))],
     page: 1, pageSize: 24,
   }
+  const detailId = /^\/api\/books\/(\d+)$/.exec(path)?.[1]
+  if (detailId) {
+    const book = books.find((item) => item.id === Number(detailId))
+    return { ...book, authorRefs: [], availableLanguages: ['en'], readingDirection: null,
+      description: 'An unexpected letter sends a cartographer across old roads and unfamiliar coastlines.',
+      publicationYear: 2024, onShelf: true, preference: null, browserFileId: null, legacySeriesText: null,
+      subjects: [], files: [], editions: [{ id: 1, title: book.title, language: 'en', publicationYear: 2024,
+        isbn10: null, isbn13: null, publisher: 'Paper Atlas Press', unknown: false,
+        metadataSources: [{ field: 'publicationYear', source: 'epub', sourceKey: null, manual: false }] }],
+      metadataSources: [
+        { field: 'title', source: 'manual', sourceKey: null, manual: true },
+        { field: 'authors', source: 'openlibrary', sourceKey: '/works/FICTIONAL', manual: false },
+        { field: 'language', source: 'epub', sourceKey: null, manual: false },
+        { field: 'description', source: 'manual', sourceKey: null, manual: true },
+      ],
+    }
+  }
+  if (/^\/api\/books\/\d+\/related$/.test(path)) return { series: [], author: [], similar: [] }
+  if (path === '/api/deliveries') return []
   if (path === '/api/books/recent') return books.slice(0, 12)
   if (path === '/api/books/highlights') return books.slice(11, 18).concat(books.slice(0, 5))
   if (path === '/api/books/continue') return []
@@ -184,6 +203,8 @@ try {
     ['/series/42', 'series-desktop.png', 1440, 900, 'The Glass Compass'],
     ['/library/review', 'import-review-desktop.png', 1440, 900, 'The Glass Compass · Volume 1'],
     ['/library/review', 'import-review-preview-desktop.png', 1440, 900, 'The Glass Compass · Volume 1'],
+    ['/library/1', 'metadata-corrections-desktop.png', 1440, 1000, 'Where Maps End'],
+    ['/library/1', 'metadata-corrections-mobile.png', 390, 844, 'Where Maps End'],
     ['/', 'home-desktop.png', 1440, 900, 'Recently Added'],
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
@@ -195,7 +216,8 @@ try {
     })
     await page.clock.setFixedTime(new Date('2026-01-15T10:00:00Z'))
     const reviewPreview = path === '/library/review'
-    const adminPreview = reviewPreview || path.startsWith('/settings')
+    const correctionsPreview = name.startsWith('metadata-corrections-')
+    const adminPreview = reviewPreview || correctionsPreview || path.startsWith('/settings')
     await page.route('**/api/**', (route) => {
       const url = new URL(route.request().url())
       const coverId = /^\/api\/books\/(\d+)\/cover$/.exec(url.pathname)?.[1]
@@ -222,6 +244,11 @@ try {
         await page.getByRole('button', { name: 'Preview acceptance' }).click()
         await page.getByRole('dialog', { name: 'Accept 2 files?' }).waitFor()
       }
+    }
+    if (correctionsPreview) {
+      await page.getByLabel('Book actions', { exact: true }).click()
+      await page.getByRole('button', { name: 'Fix details', exact: true }).click()
+      await page.getByRole('dialog', { name: 'Fix details', exact: true }).waitFor()
     }
     await page.screenshot({ path: join(output, name), fullPage: path === '/' || path === '/series/42' || path.startsWith('/settings') || (reviewPreview && name !== 'import-review-preview-desktop.png') })
     await page.close()

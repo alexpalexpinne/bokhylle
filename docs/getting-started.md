@@ -39,6 +39,15 @@ a volume label and numeric sort order, or unlink it. Imported series text stays
 available in Fix details after a correction. Magazines and catalogues can be
 classified now, but do not yet have dedicated browsing views.
 
+**Fix details** also shows where metadata came from. Only fields you change
+become manual corrections; those corrections survive refreshes, imports, and
+rescans, even when you deliberately clear a description or author list. Choose
+**Use automatic metadata again** beside a corrected field, then Save, to restore
+its saved automatic value. Older metadata with no recorded origin is shown as
+**Source unknown**.
+
+![Fix details with metadata origins and an explicit reset for a manual description](media/metadata-corrections-desktop.png)
+
 Open a series to see your current volume and mark volumes finished or
 unfinished. The reader's **Display → Mark finished** does the same thing.
 Opening a volume alone does not finish it. After a finished regular volume,
@@ -66,6 +75,12 @@ the acquisition import review for downloaded files.
 The first Home recommendations can come from genres, liked books, and followed authors chosen during onboarding, before any files are acquired. The **Picked for you** row suggests catalogue books; library rows fill as EPUB or PDF files are added. Search results use every language listed for a work when matching your preferred languages. An individual edition's language is confirmed when a copy is acquired.
 
 After the setup wizard, Home shows a loading message and placeholder shelves while it gathers the first books and suggestions. If there are no books or suggestions yet, it then shows the empty-library guidance.
+
+Household books appear in your recommendations only when they have a personal
+reason to be there, such as a selected interest or an author you follow. Another
+profile's collection does not automatically become your taste. If your shelf is
+empty, choose reading interests or browse **Household** to select existing books.
+Your deliberate household searches still include books outside your shelf.
 
 Home shows a book spotlight, **Picked for you**, **From authors you follow**, **Continue reading**, **Recently Added**, **Rediscover your library**, subject rows, **Because you requested…**, **Based on books you liked**, collections, and authors when there is content for them. Subject and taste rows use books already in the library; **Picked for you** can suggest books from the catalogue. The hero uses familiar wording such as **Staff picks**, without the catalogue provider's name.
 

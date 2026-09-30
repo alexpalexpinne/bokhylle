@@ -51,6 +51,14 @@ capture `docs/media/catalogues-desktop.png` and `catalogues-mobile.png`, then
 copy them to `assets/catalogues-desktop.png` and `catalogues-mobile.png`.
 The public demo keeps external acquisition disabled.
 
+Metadata correction previews also use the fictional catalogue. With the built
+frontend preview running, refresh them with:
+
+```sh
+BOKHYLLE_DOCS_SELECT=metadata-corrections-desktop.png,metadata-corrections-mobile.png node frontend/scripts/capture-docs.mjs
+cp docs/media/metadata-corrections-{desktop,mobile}.png website/assets/
+```
+
 ## Publish the static site
 
 Build into a new directory with the actual HTTPS demo address:

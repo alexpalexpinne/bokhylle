@@ -177,6 +177,8 @@ pub(crate) fn extract_with_filename(
     let cover = (bytes.len() <= 8 * 1024 * 1024).then(|| Cover::new(bytes, mime));
     Ok(Extracted {
         metadata: ExtractedMetadata {
+            title_from_filename: title.is_some(),
+            authors_from_filename: !authors.is_empty(),
             title,
             authors,
             ..Default::default()

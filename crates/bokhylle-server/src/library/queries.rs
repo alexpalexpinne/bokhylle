@@ -3,8 +3,9 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 
+use super::metadata_fields::{self, MetadataSource, Scope};
 use crate::error::AppError;
-use crate::library::subjects;
+use crate::library::{relevance, subjects};
 
 const OWNED_FILTER: &str = "WHERE EXISTS (
     SELECT 1 FROM book_files f
@@ -55,6 +56,7 @@ pub struct BookSummary {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EditionDetail {
+    pub metadata_sources: Vec<MetadataSource>,
     pub id: i64,
     pub title: String,
     pub language: Option<String>,
@@ -92,6 +94,7 @@ pub struct AuthorRef {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BookDetail {
+    pub metadata_sources: Vec<MetadataSource>,
     pub id: i64,
     pub title: String,
     pub authors: Vec<String>,
@@ -1188,30 +1191,39 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
         })
         .collect();
 
-    let editions: Vec<EditionDetail> = edition_rows
-        .into_iter()
-        .map(|row| {
-            // Older Open Library work entries were persisted as though the
-            // first sampled edition had been selected. Hide those unverified
-            // edition facts until an actual file supplies its metadata.
-            let unverified_work = row.provider.as_deref() == Some("openlibrary")
-                && row
-                    .provider_key
-                    .as_deref()
-                    .is_some_and(|key| key.starts_with("/works/"))
-                && !files.iter().any(|file| file.edition_id == row.id);
-            EditionDetail {
-                id: row.id,
-                title: row.title,
-                language: (!unverified_work).then_some(row.language).flatten(),
-                publication_year: (!unverified_work).then_some(row.publication_year).flatten(),
-                isbn10: (!unverified_work).then_some(row.isbn10).flatten(),
-                isbn13: (!unverified_work).then_some(row.isbn13).flatten(),
-                publisher: row.publisher,
-                unknown: unverified_work || row.is_unknown != 0,
-            }
-        })
-        .collect();
+    let mut editions = Vec::new();
+    for row in edition_rows {
+        let metadata_sources = metadata_fields::sources(pool, Scope::Edition(row.id)).await?;
+        let manual_year = metadata_sources
+            .iter()
+            .any(|source| source.field == "publicationYear" && source.manual);
+        let manual_language = metadata_sources
+            .iter()
+            .any(|source| source.field == "language" && source.manual);
+        // A catalogue work is not a verified edition; explicit corrections
+        // are still meaningful when there is no local file.
+        let unverified_work = row.provider.as_deref() == Some("openlibrary")
+            && row
+                .provider_key
+                .as_deref()
+                .is_some_and(|key| key.starts_with("/works/"))
+            && !files.iter().any(|file| file.edition_id == row.id);
+        editions.push(EditionDetail {
+            id: row.id,
+            title: row.title,
+            language: (!unverified_work || manual_language)
+                .then_some(row.language)
+                .flatten(),
+            publication_year: (!unverified_work || manual_year)
+                .then_some(row.publication_year)
+                .flatten(),
+            isbn10: (!unverified_work).then_some(row.isbn10).flatten(),
+            isbn13: (!unverified_work).then_some(row.isbn13).flatten(),
+            publisher: row.publisher,
+            unknown: unverified_work || row.is_unknown != 0,
+            metadata_sources,
+        });
+    }
 
     let available_languages: Vec<String> = sqlx::query_scalar(
         "SELECT language FROM book_available_languages WHERE book_id = ? ORDER BY language",
@@ -1257,7 +1269,13 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
 
     let summary = row.into_summary();
 
-    let language = if let Some(file) = files.first() {
+    let metadata_sources = metadata_fields::sources(pool, Scope::Book(id)).await?;
+    let manual_language = metadata_sources
+        .iter()
+        .any(|source| source.field == "language" && source.manual);
+    let language = if manual_language {
+        summary.language.clone()
+    } else if let Some(file) = files.first() {
         editions
             .iter()
             .find(|edition| edition.id == file.edition_id)
@@ -1269,6 +1287,7 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
     };
 
     Ok(Some(BookDetail {
+        metadata_sources,
         id: summary.id,
         title: summary.title,
         authors: summary.authors,
@@ -1939,43 +1958,31 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
     let mut used: Vec<String> = Vec::new();
     let hidden = hidden_subjects(pool, user_id).await?;
 
-    let candidates: Vec<(String, String, i64, i64, i64, i64)> = sqlx::query_as(
-        "SELECT s.name, s.normalized_name,
-                count(DISTINCT bs.book_id) AS owned,
-                (
-                    SELECT count(DISTINCT a.id)
-                    FROM acquisition_requests ar
-                    JOIN acquisitions a ON a.id = ar.acquisition_id
-                    JOIN book_subjects other ON other.book_id = a.book_id
-                    WHERE ar.user_id = ? AND other.subject_id = s.id
-                ) AS requested,
-                (
-                    SELECT count(DISTINCT d.book_id)
-                    FROM deliveries d
-                    JOIN book_subjects other ON other.book_id = d.book_id
-                    WHERE d.user_id = ? AND other.subject_id = s.id
-                ) AS delivered,
-                (
-                    SELECT count(DISTINCT ub.book_id)
-                    FROM user_books ub
-                    JOIN book_subjects other ON other.book_id = ub.book_id
-                    WHERE ub.user_id = ? AND ub.preference = 'liked'
-                      AND other.subject_id = s.id
-                ) AS liked
-         FROM book_subjects bs
-         JOIN subjects s ON s.id = bs.subject_id
-         WHERE EXISTS (
-             SELECT 1 FROM book_files f
-             JOIN editions e ON e.id = f.edition_id
-             WHERE e.book_id = bs.book_id
-         )
-         GROUP BY s.id",
-    )
-    .bind(user_id)
-    .bind(user_id)
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+    let personal = relevance::personal();
+    let exclusions = relevance::EXCLUSIONS;
+    let candidates: Vec<(String, String, i64, i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "WITH viewer(id) AS (SELECT ?)
+         SELECT s.name, s.normalized_name, count(DISTINCT bs.book_id) AS owned,
+                (SELECT count(DISTINCT a.id) FROM acquisition_requests ar
+                 JOIN acquisitions a ON a.id = ar.acquisition_id
+                 JOIN book_subjects other ON other.book_id = a.book_id
+                 WHERE ar.user_id = (SELECT id FROM viewer) AND other.subject_id = s.id) AS requested,
+                (SELECT count(DISTINCT d.book_id) FROM deliveries d
+                 JOIN book_subjects other ON other.book_id = d.book_id
+                 WHERE d.user_id = (SELECT id FROM viewer) AND d.status = 'SENT'
+                   AND other.subject_id = s.id) AS delivered,
+                (SELECT count(DISTINCT ub.book_id) FROM user_books ub
+                 JOIN book_subjects other ON other.book_id = ub.book_id
+                 WHERE ub.user_id = (SELECT id FROM viewer) AND ub.preference = 'liked'
+                   AND other.subject_id = s.id) AS liked
+         FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id
+         JOIN books b ON b.id = bs.book_id
+         WHERE EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id
+                       WHERE e.book_id = b.id)
+           {personal} {exclusions}
+         GROUP BY s.id"
+    )))
+    .bind(user_id).fetch_all(pool).await?;
 
     let mut ranked: Vec<(String, String, i64, i64, i64, i64)> = candidates
         .into_iter()
@@ -2009,13 +2016,13 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
         rails.push(HomeRail {
             key: format!("shelf-{normalized}"),
             title: name,
-            subtitle: Some("From your shelf".to_string()),
+            subtitle: Some("Matches your interests".to_string()),
             subject: Some(normalized.clone()),
             books,
         });
     }
 
-    let personal: Vec<(String, String, i64)> = sqlx::query_as(
+    let requested_subjects: Vec<(String, String, i64)> = sqlx::query_as(
         "SELECT s.name, s.normalized_name, count(DISTINCT a.id) AS count
          FROM acquisition_requests ar
          JOIN acquisitions a ON a.id = ar.acquisition_id
@@ -2036,7 +2043,7 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
     .fetch_all(pool)
     .await?;
 
-    for (name, normalized, _) in personal {
+    for (name, normalized, _) in requested_subjects {
         if rails.len() >= 5 {
             break;
         }
@@ -2087,7 +2094,7 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
         .await?
     {
         let sql = format!(
-            "{BOOK_SELECT}
+            "WITH viewer(id) AS (SELECT ?) {BOOK_SELECT}
              WHERE EXISTS (
                    SELECT 1 FROM book_files f
                    JOIN editions e ON e.id = f.edition_id
@@ -2109,10 +2116,12 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
                          WHERE ub2.user_id = ? AND ub2.preference = 'liked'
                      )
                ) >= 2
+             {personal} {exclusions}
              ORDER BY b.created_at DESC, b.id DESC
              LIMIT 12"
         );
         let rows: Vec<BookRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(user_id)
             .bind(user_id)
             .bind(user_id)
             .fetch_all(pool)
@@ -2176,8 +2185,10 @@ async fn books_for_subject(
     normalized: &str,
     limit: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
+    let personal = relevance::personal();
+    let exclusions = relevance::EXCLUSIONS;
     let sql = format!(
-        "{BOOK_SELECT}
+        "WITH viewer(id) AS (SELECT ?) {BOOK_SELECT}
          WHERE EXISTS (
              SELECT 1 FROM book_subjects bs
              JOIN subjects s ON s.id = bs.subject_id
@@ -2188,17 +2199,13 @@ async fn books_for_subject(
                JOIN editions e ON e.id = f.edition_id
                WHERE e.book_id = b.id
            )
-           AND NOT EXISTS (
-               SELECT 1 FROM user_books ub
-               WHERE ub.book_id = b.id AND ub.user_id = ?
-                 AND ub.preference = 'not_for_me'
-           )
+           {personal} {exclusions}
          ORDER BY b.created_at DESC, b.id DESC
          LIMIT ?"
     );
     let rows: Vec<BookRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(normalized)
         .bind(user_id)
+        .bind(normalized)
         .bind(limit.clamp(1, 24))
         .fetch_all(pool)
         .await?;

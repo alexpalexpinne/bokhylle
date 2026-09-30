@@ -315,16 +315,23 @@ pub async fn backup(
 pub struct BookUpdateInput {
     pub title: Option<String>,
     pub authors: Option<Vec<String>>,
-    pub description: Option<String>,
-    pub language: Option<String>,
-    pub series: Option<String>,
-    pub series_number: Option<String>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub language: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub series: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub series_number: Option<Option<String>>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub series_id: Option<Option<i64>>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub series_sort_order: Option<Option<f64>>,
     pub publication_kind: Option<String>,
-    pub publication_year: Option<i64>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub publication_year: Option<Option<i64>>,
+    #[serde(default)]
+    pub use_automatic_metadata: Vec<crate::library::metadata_fields::MetadataField>,
     #[serde(default, deserialize_with = "present_nullable")]
     pub reading_direction: Option<Option<ReadingDirection>>,
 }
@@ -480,16 +487,83 @@ pub async fn update_book(
     Path(id): Path<i64>,
     Json(body): Json<BookUpdateInput>,
 ) -> Result<Json<UpdatedBook>, AppError> {
+    let mut transaction = state
+        .db
+        .begin_with(sqlx::AssertSqlSafe("BEGIN IMMEDIATE".to_string()))
+        .await?;
     let Some(current_title): Option<String> =
         sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
             .bind(id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *transaction)
             .await?
     else {
         return Err(AppError::NotFound("book not found".to_string()));
     };
 
-    let mut transaction = state.db.begin().await?;
+    use crate::library::metadata_fields::{self, MetadataField as Field, Scope};
+    let supplied = [
+        (
+            Field::Title,
+            body.title
+                .as_ref()
+                .is_some_and(|title| !title.trim().is_empty()),
+        ),
+        (Field::Authors, body.authors.is_some()),
+        (Field::Description, body.description.is_some()),
+        (Field::Language, body.language.is_some()),
+        (Field::Series, body.series.is_some()),
+        (
+            Field::SeriesNumber,
+            body.series_number.is_some() || body.series_id.is_some(),
+        ),
+        (Field::PublicationYear, body.publication_year.is_some()),
+    ];
+    for field in &body.use_automatic_metadata {
+        if supplied
+            .iter()
+            .any(|(candidate, present)| candidate == field && *present)
+        {
+            return Err(AppError::BadRequest(
+                "a metadata field cannot be corrected and reset together".into(),
+            ));
+        }
+    }
+    let first_edition: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM editions WHERE book_id = ? ORDER BY id LIMIT 1")
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await?;
+    for (field, present) in supplied {
+        if present {
+            let scope = if field == Field::PublicationYear {
+                first_edition.map(Scope::Edition)
+            } else {
+                Some(Scope::Book(id))
+            };
+            if let Some(scope) = scope {
+                metadata_fields::mark_manual(&mut transaction, scope, field).await?;
+            }
+        }
+    }
+    for field in &body.use_automatic_metadata {
+        let scope = if matches!(field, Field::PublicationYear | Field::Publisher) {
+            first_edition.map(Scope::Edition)
+        } else {
+            Some(Scope::Book(id))
+        };
+        if let Some(scope) = scope {
+            metadata_fields::reset(&mut transaction, scope, *field).await?;
+        }
+    }
+    // A reset may have restored the title before the ordinary patch is applied.
+    let current_title: String = if body.use_automatic_metadata.contains(&Field::Title) {
+        sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+            .bind(id)
+            .fetch_one(&mut *transaction)
+            .await?
+    } else {
+        current_title
+    };
 
     let title = match body.title {
         Some(title) if !title.trim().is_empty() => title.trim().to_string(),
@@ -497,7 +571,7 @@ pub async fn update_book(
         None => current_title,
     };
     let normalized_title = bokhylle_core::identity::normalize_text(&title);
-    let series_text = optional_text(body.series);
+    let series_text = body.series.map(|value| optional_text(value).flatten());
     let marks_classification_reviewed =
         body.publication_kind.is_some() || body.series_id.is_some() || body.series_number.is_some();
     let direction_present = body.reading_direction.is_some();
@@ -537,13 +611,22 @@ pub async fn update_book(
     .bind(&title)
     .bind(&normalized_title)
     .bind(body.description.is_some())
-    .bind(optional_text(body.description).flatten())
+    .bind(
+        body.description
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(body.language.is_some())
-    .bind(optional_text(body.language).flatten())
+    .bind(
+        body.language
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(series_text.is_some())
     .bind(series_text.as_ref().and_then(|value| value.as_deref()))
     .bind(body.series_number.is_some())
-    .bind(optional_text(body.series_number).flatten())
+    .bind(
+        body.series_number
+            .and_then(|value| optional_text(value).flatten()),
+    )
     .bind(sort_present)
     .bind(sort_value)
     .bind(kind)
@@ -656,6 +739,12 @@ pub async fn update_book(
         .await?;
     }
 
+    if !body.use_automatic_metadata.is_empty() {
+        sqlx::query("UPDATE books SET metadata_checked_at = NULL WHERE id = ?")
+            .bind(id)
+            .execute(&mut *transaction)
+            .await?;
+    }
     crate::library::refresh_fts(&mut transaction, id).await?;
     transaction.commit().await?;
 

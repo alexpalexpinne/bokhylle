@@ -32,9 +32,11 @@ pub(crate) fn extract_with_filename(
 
     let (fallback_title, fallback_authors) = super::fallback_from_filename(filename);
     if metadata.title.is_none() {
+        metadata.title_from_filename = fallback_title.is_some();
         metadata.title = fallback_title;
     }
     if metadata.authors.is_empty() {
+        metadata.authors_from_filename = !fallback_authors.is_empty();
         metadata.authors = fallback_authors;
     }
 

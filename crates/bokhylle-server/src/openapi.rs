@@ -96,6 +96,17 @@ pub fn complete(document: aide::openapi::OpenApi) -> Value {
             }
         }
     }
+    // Omitted correction fields retain their values. Schema defaults would
+    // make generated clients populate (and require) nullable patch fields.
+    let correction = &mut document["components"]["schemas"]["BookUpdateInput"];
+    correction["required"] = json!([]);
+    if let Some(properties) = correction["properties"].as_object_mut() {
+        for property in properties.values_mut() {
+            if let Some(property) = property.as_object_mut() {
+                property.remove("default");
+            }
+        }
+    }
     require_serialized_response_fields(&mut document);
     document
 }
@@ -416,5 +427,12 @@ mod tests {
         assert!(!required("ReleaseCandidate", "detectedTitle"));
         assert!(!required("ReleaseCandidate", "isCollection"));
         assert!(!required("ProfileUpdate", "preferredFormat"));
+        assert!(!required("BookUpdateInput", "description"));
+        assert!(!required("BookUpdateInput", "useAutomaticMetadata"));
+        assert!(
+            document["components"]["schemas"]["BookUpdateInput"]["properties"]["description"]
+                .get("default")
+                .is_none()
+        );
     }
 }

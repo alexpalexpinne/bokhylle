@@ -955,6 +955,12 @@
               "null"
             ]
           },
+          "metadataSources": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataSource"
+            },
+            "type": "array"
+          },
           "onShelf": {
             "type": "boolean"
           },
@@ -1049,6 +1055,7 @@
           "id",
           "language",
           "legacySeriesText",
+          "metadataSources",
           "onShelf",
           "preference",
           "publicationKind",
@@ -1403,8 +1410,7 @@
               {
                 "type": "null"
               }
-            ],
-            "default": null
+            ]
           },
           "series": {
             "type": [
@@ -1413,7 +1419,6 @@
             ]
           },
           "seriesId": {
-            "default": null,
             "format": "int64",
             "type": [
               "integer",
@@ -1427,7 +1432,6 @@
             ]
           },
           "seriesSortOrder": {
-            "default": null,
             "format": "double",
             "type": [
               "number",
@@ -1439,8 +1443,15 @@
               "string",
               "null"
             ]
+          },
+          "useAutomaticMetadata": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataField"
+            },
+            "type": "array"
           }
         },
+        "required": [],
         "type": "object"
       },
       "BooksQuery": {
@@ -3732,6 +3743,12 @@
               "null"
             ]
           },
+          "metadataSources": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataSource"
+            },
+            "type": "array"
+          },
           "publicationYear": {
             "format": "int64",
             "type": [
@@ -3757,6 +3774,7 @@
           "isbn10",
           "isbn13",
           "language",
+          "metadataSources",
           "publicationYear",
           "publisher",
           "title",
@@ -4753,6 +4771,20 @@
         ],
         "type": "object"
       },
+      "MetadataField": {
+        "enum": [
+          "title",
+          "authors",
+          "description",
+          "language",
+          "series",
+          "seriesNumber",
+          "cover",
+          "publicationYear",
+          "publisher"
+        ],
+        "type": "string"
+      },
       "MetadataJobStatus": {
         "properties": {
           "booksEnriched": {
@@ -4807,6 +4839,32 @@
           "finishedAt",
           "running",
           "startedAt"
+        ],
+        "type": "object"
+      },
+      "MetadataSource": {
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "manual": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "manual",
+          "source",
+          "sourceKey"
         ],
         "type": "object"
       },

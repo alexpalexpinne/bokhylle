@@ -373,7 +373,7 @@ export function Home() {
               : householdHasBooks
                 ? `The household library has ${householdBooks} ${
                     householdBooks === 1 ? 'book' : 'books'
-                  }. Add them to your shelf or find something new.`
+                  }. Choose books for your shelf, or choose reading interests for personal suggestions.`
                 : 'Find a book and Bokhylle will fetch it for you, file it neatly, and send it to your reader when you are ready.'
           }
           action={
@@ -384,9 +384,8 @@ export function Home() {
               </ButtonLink>
             ) : undefined : householdHasBooks ? (
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <ButtonLink to="/discover" variant="primary" size="md">
-                  Discover books
-                  <ArrowRight size={16} />
+                <ButtonLink to="/welcome" variant="primary" size="md">
+                  Choose reading interests
                 </ButtonLink>
                 <ButtonLink to="/library?scope=household" variant="secondary" size="md">
                   Browse household library

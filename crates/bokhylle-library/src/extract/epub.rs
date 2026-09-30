@@ -138,6 +138,7 @@ pub(crate) fn extract_with_filename(
 
     let (fallback_title, fallback_authors) = super::fallback_from_filename(filename);
     if metadata.title.is_none() {
+        metadata.title_from_filename = fallback_title.is_some();
         metadata.title = fallback_title;
     }
     if metadata.authors.is_empty() {
@@ -146,6 +147,7 @@ pub(crate) fn extract_with_filename(
             .into_iter()
             .filter(|author| !super::title_like_author(&title, author))
             .collect();
+        metadata.authors_from_filename = !metadata.authors.is_empty();
     }
 
     Ok(Extracted { metadata, cover })

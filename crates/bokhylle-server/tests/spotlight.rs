@@ -30,6 +30,242 @@ async fn spotlight_json(app: &common::TestApp, cookie: &str) -> serde_json::Valu
 }
 
 #[tokio::test]
+async fn household_recommendations_require_personal_affinity_and_respect_exclusions() {
+    let app = common::test_app().await;
+    app.state
+        .auth
+        .create_user("adult", "password123", bokhylle_server::auth::Role::User)
+        .await
+        .unwrap();
+    app.state
+        .auth
+        .create_user_with_profile(
+            "child",
+            "246810",
+            bokhylle_server::auth::Role::User,
+            "pin",
+            "child",
+        )
+        .await
+        .unwrap();
+    let adult: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'adult'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    let child: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'child'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "adult", "password123").await;
+    let mut cooking = Vec::new();
+    for index in 0..9 {
+        let children = index < 6;
+        let book = MetadataResult {
+            provider: "fake".into(), provider_key: format!("personal-candidate-{index}"),
+            title: format!("{} {index}", if children { "Little Lantern" } else { "Quiet Kitchen" }),
+            authors: vec![if children { "Story Artist" } else { "Quiet Cook" }.into()],
+            subjects: vec![if children { "Children's stories" } else { "Cooking" }.into()],
+            description: Some("An imaginary book with a deliberately long description that comfortably exceeds the Spotlight excerpt threshold and belongs only to an isolated test library.".into()),
+            language: Some("en".into()), ..Default::default()
+        };
+        let id = bokhylle_server::library::import_metadata::upsert_book_from_metadata(
+            &app.state.db,
+            &book,
+        )
+        .await
+        .unwrap();
+        let edition: i64 = sqlx::query_scalar("SELECT id FROM editions WHERE book_id = ?")
+            .bind(id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO book_files (edition_id, path, format, size, sha256) VALUES (?, ?, 'epub', 1, ?)")
+            .bind(edition).bind(format!("fixture-{index}.epub")).bind(format!("personal-{index}")).execute(&app.state.db).await.unwrap();
+        if children {
+            bokhylle_server::user_books::add(&app.state.db, child, id, "parent_assigned")
+                .await
+                .unwrap();
+            bokhylle_server::user_books::set_preference(&app.state.db, child, id, Some("liked"))
+                .await
+                .unwrap();
+        } else {
+            cooking.push(id);
+        }
+    }
+    assert!(
+        spotlight_json(&app, &cookie).await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        bokhylle_server::library::queries::home_rails(&app.state.db, adult)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    // An unshelved household copy is useful when it matches an explicit interest.
+    sqlx::query(
+        "INSERT INTO user_subject_interests (user_id, normalized_name) VALUES (?, 'cooking')",
+    )
+    .bind(adult)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let items = spotlight_json(&app, &cookie).await;
+    assert_eq!(items["items"].as_array().unwrap().len(), 3);
+    assert!(
+        items["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| cooking.contains(&item["bookId"].as_i64().unwrap()))
+    );
+    let rails = bokhylle_server::library::queries::home_rails(&app.state.db, adult)
+        .await
+        .unwrap();
+    assert_eq!(rails.len(), 1);
+    assert_eq!(rails[0].books.len(), 3);
+
+    bokhylle_server::user_books::set_preference(
+        &app.state.db,
+        adult,
+        cooking[0],
+        Some("not_for_me"),
+    )
+    .await
+    .unwrap();
+    let items = spotlight_json(&app, &cookie).await;
+    assert_eq!(items["items"].as_array().unwrap().len(), 2);
+    assert!(
+        items["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["bookId"] != cooking[0])
+    );
+    bokhylle_server::library::queries::set_subject_hidden(&app.state.db, adult, "cooking", true)
+        .await
+        .unwrap();
+    assert!(
+        spotlight_json(&app, &cookie).await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        bokhylle_server::library::queries::home_rails(&app.state.db, adult)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    // Exclusions affect recommendations, not adult household access or search.
+    let page = bokhylle_server::library::queries::list_books(
+        &app.state.db,
+        "recent",
+        1,
+        24,
+        &Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(page.total, 9);
+    let hits = bokhylle_server::library::queries::search_books(
+        &app.state.db,
+        "Little Lantern",
+        10,
+        &Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(hits.len(), 6);
+}
+
+#[tokio::test]
+async fn following_an_author_and_liking_a_book_supply_household_affinity() {
+    let app = common::test_app().await;
+    app.state
+        .auth
+        .create_user("reader", "password123", bokhylle_server::auth::Role::User)
+        .await
+        .unwrap();
+    let reader: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'reader'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    let mut ids = Vec::new();
+    for index in 0..6 {
+        let unrelated = index >= 3;
+        let book = MetadataResult {
+            provider: "fake".into(), provider_key: format!("follow-candidate-{index}"),
+            title: format!("Paper Trails {index}"),
+            authors: vec![if unrelated { "Another Author" } else { "Nora Vale" }.into()],
+            subjects: if unrelated { vec!["Fiction".into(), "Large type books".into()] } else { vec!["Adventure".into(), "Fiction".into(), "Large type books".into()] },
+            description: Some("An imaginary book with a deliberately long description that comfortably exceeds the Spotlight excerpt threshold and belongs only to an isolated test library.".into()),
+            ..Default::default()
+        };
+        let id = bokhylle_server::library::import_metadata::upsert_book_from_metadata(
+            &app.state.db,
+            &book,
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO book_files (edition_id, path, format, size, sha256) SELECT id, ?, 'epub', 1, ? FROM editions WHERE book_id = ?")
+            .bind(format!("follow-{index}.epub")).bind(format!("follow-{index}")).bind(id).execute(&app.state.db).await.unwrap();
+        ids.push(id);
+    }
+    assert!(
+        spotlight_json(&app, &cookie).await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    sqlx::query("INSERT INTO author_follows (user_id, author_id) SELECT ?, id FROM authors WHERE name = 'Nora Vale'")
+        .bind(reader).execute(&app.state.db).await.unwrap();
+    assert_eq!(
+        spotlight_json(&app, &cookie).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    sqlx::query("DELETE FROM author_follows WHERE user_id = ?")
+        .bind(reader)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    bokhylle_server::user_books::set_preference(&app.state.db, reader, ids[0], Some("liked"))
+        .await
+        .unwrap();
+    assert_eq!(
+        spotlight_json(&app, &cookie).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(
+        !bokhylle_server::user_books::contains(&app.state.db, reader, ids[0])
+            .await
+            .unwrap()
+    );
+    let rails = bokhylle_server::library::queries::home_rails(&app.state.db, reader)
+        .await
+        .unwrap();
+    assert!(!rails.is_empty());
+    assert!(
+        rails
+            .iter()
+            .flat_map(|rail| &rail.books)
+            .all(|book| ids[..3].contains(&book.id)),
+        "two generic tags must not qualify unrelated books for the liked-book rail"
+    );
+}
+
+#[tokio::test]
 async fn child_suggestions_require_discover_and_never_use_household_source() {
     let description = "A long introduction to this imaginary book with enough detail to qualify for the home spotlight. Its length is deliberately beyond the shelf threshold for this test.";
     let shelf = MetadataResult {
@@ -515,6 +751,10 @@ async fn spotlight_uses_catalogue_availability_or_actual_file_language() {
         .await
         .unwrap();
     }
+
+    // These owned books need a personal signal as well as an accepted language.
+    sqlx::query("INSERT INTO author_follows (user_id, author_id) SELECT ?, id FROM authors WHERE name IN ('English file', 'Russian file')")
+        .bind(user_id).execute(&app.state.db).await.unwrap();
 
     let cookie = common::login(&app, "english-reader", "password123").await;
     let response = app

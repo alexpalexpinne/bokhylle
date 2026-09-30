@@ -1,4 +1,5 @@
 import { expect } from '../support.mjs'
+import { check } from './accessibility.mjs'
 
 const USER = {
   id: 1, username: 'reader', displayName: 'Reader', role: 'admin', profileType: 'adult',
@@ -17,6 +18,7 @@ export default async function bookDetail(page, { base }) {
     description: 'A test book.', language: 'en', availableLanguages: [], publicationYear: 2020,
     series: null, seriesNumber: null, rating: null, ratingCount: null,
     subjects: [], editions: [], files: FILES, onShelf: true, preference: null,
+    metadataSources: [{ field: 'description', source: 'manual', sourceKey: null, manual: true }],
   }
   const collections = [{ id: 1, name: 'Original', bookCount: 1 }, { id: 2, name: 'Selected', bookCount: 0 }]
   const memberships = new Set([1])
@@ -83,7 +85,19 @@ export default async function bookDetail(page, { base }) {
     }
     if (path === '/api/admin/books/77' && method === 'PUT') {
       if (failEdit) { failEdit = false; return error('Metadata unavailable') }
-      book = { ...book, ...input }
+      const sources = book.metadataSources.filter((source) => !(input.useAutomaticMetadata ?? []).includes(source.field))
+      for (const field of ['title', 'authors', 'description', 'language', 'seriesNumber']) {
+        if (Object.hasOwn(input, field)) {
+          const previous = sources.findIndex((source) => source.field === field)
+          if (previous >= 0) sources.splice(previous, 1)
+          sources.push({ field, source: 'manual', sourceKey: null, manual: true })
+        }
+      }
+      book = { ...book, ...input, metadataSources: sources }
+      if ((input.useAutomaticMetadata ?? []).includes('description')) {
+        book.description = 'Provider description.'
+        book.metadataSources.push({ field: 'description', source: 'openlibrary', sourceKey: '/works/FICTIONAL', manual: false })
+      }
       return json({ ok: true })
     }
     if (path === '/api/admin/books/77/files/11') {
@@ -159,6 +173,7 @@ export default async function bookDetail(page, { base }) {
 
   await page.getByRole('button', { name: 'Fix details', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
+  await check(page, 'metadata corrections', '[role="dialog"]')
   await dialog.getByLabel('Title', { exact: true }).fill('Updated Book')
   await dialog.getByLabel('Authors (comma separated)').fill(' One, Two ')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
@@ -167,6 +182,30 @@ export default async function bookDetail(page, { base }) {
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await page.getByRole('heading', { name: 'Updated Book', exact: true }).waitFor()
   expect(book.authors.join(',') === 'One,Two', 'metadata edits must trim comma-separated authors')
+
+  const editWrite = writes.at(-1).input
+  expect(Object.keys(editWrite).sort().join(',') === 'authors,title,useAutomaticMetadata', 'saving changed fields must not claim ownership of untouched metadata')
+  await page.getByRole('button', { name: 'Fix details', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
+  await dialog.getByRole('button', { name: 'Use automatic metadata again for Description', exact: true }).focus()
+  await page.keyboard.press('Space')
+  expect(await dialog.getByLabel('Description', { exact: true }).isDisabled(), 'a pending automatic reset must disable the manual input')
+  await check(page, 'pending metadata reset', '[role="dialog"]')
+  const beforeCancel = writes.length
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(writes.length === beforeCancel, 'cancel must not release a manual correction')
+  await page.getByRole('button', { name: 'Fix details', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
+  expect(await dialog.getByLabel('Description', { exact: true }).isEnabled(), 'cancelled resets must not remain selected')
+  await dialog.getByRole('button', { name: 'Use automatic metadata again for Description', exact: true }).click()
+  failEdit = true
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await dialog.getByText('Metadata unavailable', { exact: true }).waitFor()
+  expect(await dialog.getByLabel('Description', { exact: true }).isDisabled(), 'a failed reset must preserve the pending selection')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByText('Provider description.', { exact: true }).waitFor()
+  expect(writes.at(-1).input.useAutomaticMetadata.join(',') === 'description', 'reset saves the explicitly selected field')
+  expect(Object.keys(writes.at(-1).input).length === 1, 'reset must not submit unchanged manual values')
 
   await page.getByRole('button', { name: 'Delete PDF file', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Delete the PDF file?', exact: true })
@@ -193,6 +232,20 @@ export default async function bookDetail(page, { base }) {
   const box = await dialog.boundingBox()
   expect(box.x >= -1 && box.x + box.width <= 391, 'household access must fit a narrow phone')
   await page.keyboard.press('Escape')
+
+  for (const theme of ['paper', 'ink']) {
+    await page.evaluate((value) => {
+      localStorage.setItem('bokhylle.theme', value)
+    }, theme)
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.getByLabel('Book actions').click()
+    await page.getByRole('button', { name: 'Fix details', exact: true }).click()
+    dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
+    const bounds = await dialog.boundingBox()
+    expect(bounds.x >= -1 && bounds.x + bounds.width <= 391, 'metadata corrections must fit a narrow phone')
+    await check(page, `mobile metadata corrections in ${theme}`, '[role="dialog"]')
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  }
 
   user = { ...USER, role: 'user', profileType: 'child' }
   await page.reload({ waitUntil: 'networkidle' })

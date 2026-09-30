@@ -108,6 +108,28 @@ review has already processed the file. The server never applies suggestions
 during a scan; manual series links and volume corrections are retained during
 later metadata refreshes.
 
+Book and edition detail responses include `metadataSources`: each entry has
+`field`, `source`, nullable `sourceKey`, and `manual`. Origins include provider
+names, `epub`, `pdf`, `cbz`, `filename`, `mixed`, and `unknown`; manual corrections report
+`source=manual`. Existing metadata is migrated with unknown origins rather
+than inferring them from provider identities. Source keys never contain local
+filesystem paths. Ratings retain their separate rating provenance.
+
+`PUT /api/admin/books/{id}` only changes supplied fields. Corrections to title,
+authors, description, language, imported series text, volume label, and the first
+edition's publication year protect those fields from automatic updates. An
+explicit null or empty string clears nullable text while preserving the manual
+intent; an empty author list is also protected. `useAutomaticMetadata` accepts
+field names (`title`, `authors`, `description`, `language`, `series`,
+`seriesNumber`, `publicationYear`, `cover`, `publisher`) and restores each
+selected field's saved automatic value, releasing its manual correction.
+Cover and publisher have provenance but no manual editor in this release.
+A field cannot be corrected and reset in the same request. The update, field
+ownership records, and search index commit together. Resetting imported series
+metadata does not remove an explicit local series link. Catalogue availability
+and a file's actual edition language remain separate from a corrected book
+language.
+
 Adult shelves are private: `user` shelf filters accept the caller's own ID,
 or an administrator's child profile ID. Only administrators may list child
 profiles, assign a child's shelf, and approve or decline another person's book
