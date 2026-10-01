@@ -11,6 +11,12 @@ export type ReleasePreview = components['schemas']['ReleaseView']
 
 export type SearchType = 'any' | 'title' | 'author' | 'isbn' | 'subject'
 
+export function localDiscoveryBookId(provider: string, providerKey: string): number | null {
+  if (provider !== 'local' || !/^local:[1-9]\d*$/.test(providerKey)) return null
+  const id = Number(providerKey.slice(6))
+  return Number.isSafeInteger(id) ? id : null
+}
+
 export function searchDiscover(query: string, type: SearchType) {
   return apiRoute('/api/discover/search', '/api/discover/search', { query: { q: query, type } })
 }

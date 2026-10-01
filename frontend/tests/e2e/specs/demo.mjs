@@ -26,6 +26,15 @@ export default async function demo(page, { base }) {
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
     if (path === '/api/auth/me') return json({ user: USER })
     if (path === '/api/demo') return json({ enabled: true })
+    if (path === '/api/profile/onboarding') return json({ onboarded: true, interests: [] })
+    if (path === '/api/home/spotlight') return json({ items: [], recommendations: [{
+      bookId: 77, title: BOOK.title, authors: BOOK.authors, source: 'household', ownership: 'household',
+      reasonType: 'household', reasonLabel: 'Matches your interests', cta: 'explore', subjects: [],
+    }] })
+    if (path === '/api/home/updates') return json({ library: [], ready: [], discoveries: [{
+      authorId: 1, title: BOOK.title, authors: BOOK.authors, provider: 'local', providerKey: 'local:77',
+    }] })
+    if (path === '/api/books') return json({ items: [], total: 1, page: 1, pageSize: 24, letters: [] })
     if (path === '/api/notifications') return json({ items: [], unread: 0, pendingRequests: 0, pendingRequestItems: [] })
     if (path === '/api/books/77/cover') return route.fulfill({ contentType: 'image/svg+xml', body: COVER })
     if (path === '/api/discover') return json({
@@ -61,6 +70,17 @@ export default async function demo(page, { base }) {
     if (path.startsWith('/api/delivery') || path.includes('/acquisitions')) realActions.push(path)
     return json([])
   })
+
+  await page.goto(base, { waitUntil: 'networkidle' })
+  for (const label of ['Picked for you books', 'Books from authors you follow']) {
+    const rail = page.getByRole('region', { name: label, exact: true })
+    await rail.waitFor()
+    expect(await rail.locator('img').getAttribute('src') === '/api/books/77/cover', 'sample recommendations use local covers')
+    expect(await rail.locator('a').getAttribute('href') === '/library/77', 'sample recommendations open a usable local book page')
+  }
+  await page.getByRole('region', { name: 'Picked for you books', exact: true }).getByRole('link').click()
+  await page.waitForURL(`${base}/library/77`)
+  await page.getByRole('button', { name: 'Get for my shelf', exact: true }).waitFor()
 
   await page.goto(`${base}/discover?q=Demo&type=author`, { waitUntil: 'networkidle' })
   const card = page.locator('article').filter({ has: page.getByRole('button', { name: 'Open details for Demo Book' }) })

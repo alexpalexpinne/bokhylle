@@ -13,6 +13,15 @@ and image files are unchanged; changes concern release metadata, alternate-scrip
 metadata, the colophon, and title-page markup. The credited creators and artwork
 are unchanged. The updated exact-file SHA-256 is recorded in `books.tsv`.
 
+Hosting in Finland was also reviewed on 2026-09-30 against the same 26 pinned
+EPUBs. Section 43 of the [Finnish Copyright Act](https://www.finlex.fi/en/legislation/translations/1961/eng/404)
+uses the end of the 70th year after the author's death, including the last
+surviving author for joint works. The previously reviewed source authors,
+illustrators, and artwork creators meet that cutoff. The EPUBs retain their
+source attribution and Standard Ebooks' CC0 notice for its own contributions.
+This extends the hosting review to Finland; it does not clear every visitor's
+jurisdiction or a changed edition.
+
 | Audience | Added edition | Source author | Artwork credited in EPUB |
 | --- | --- | --- | --- |
 | Adult | [Wuthering Heights](https://standardebooks.org/ebooks/emily-bronte/wuthering-heights) | Emily Brontë | George Frederic Watts |
@@ -28,3 +37,12 @@ are unchanged. The updated exact-file SHA-256 is recorded in `books.tsv`.
 The previous *Pride and Prejudice* EPUB was removed because it credited R. W. Chapman, who died in 1960, as editor of its source edition. Whether its editorial choices are protected in the EU is unresolved. *A Little Princess* was considered but omitted because its cover art is credited to Ethel Franklin Betts, who died in 1959. *The Great Gatsby* was omitted because its cover uses Francis Cugat's artwork. These are edition-specific concerns, not claims that the original novels themselves are protected.
 
 Keep the book's author and source attribution inside each EPUB. Do not present Standard Ebooks as endorsing Bokhylle. If an EPUB's checksum changes, inspect its metadata and artwork again before updating the pin.
+
+## README and website previews
+
+The main Home and library screenshots show these same pinned editions and their
+embedded covers in the isolated demo. The reader screenshots show *Dracula* by
+Bram Stoker. The README and website credit Standard Ebooks and link here for
+the edition review. This review applies to the selected editions and artwork;
+it does not cover other publishers' covers. Book text and artwork retain their
+own rights status, separate from Bokhylle's AGPL source license.

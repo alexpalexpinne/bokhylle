@@ -1,4 +1,5 @@
-// Capture README previews from the current app with fictional local data.
+// Capture detailed feature illustrations with fictional local data.
+// Home, library, and reader previews come from capture-website.mjs instead.
 // Start `pnpm -C frontend preview --host 127.0.0.1 --port 4173` first.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -187,9 +188,17 @@ function responseFor(url, adminPreview = false) {
   if (path === '/api/authors') return []
   if (path === '/api/collections') return []
   if (path === '/api/household/members') return { members: [] }
-  if (path === '/api/home/rails') return []
-  if (path === '/api/home/spotlight') return { items: spotlight, recommendations: [] }
-  if (path === '/api/home/updates') return { library: [], discoveries: [], ready: [] }
+  if (path === '/api/home/rails') return [
+    { key: 'shelf-adventure', title: 'Adventure', subtitle: 'Matches your interests', subject: 'adventure', books: books.slice(5, 10) },
+    { key: 'liked-adventure', title: 'Based on books you liked', subject: null, books: books.slice(12, 16) },
+  ]
+  if (path === '/api/home/spotlight') return { items: spotlight, recommendations: books.slice(5, 10).map((book) => ({
+    ...spotlight[0], bookId: book.id, title: book.title, authors: book.authors,
+    source: 'household', ownership: 'household', reasonLabel: 'Matches your interests',
+  })) }
+  if (path === '/api/home/updates') return { library: [], ready: [], discoveries: books.slice(12, 14).map((book) => ({
+    authorId: 1, title: book.title, authors: book.authors, provider: 'local', providerKey: `local:${book.id}`, year: null, coverId: null,
+  })) }
   if (path === '/api/notifications') return {
     items: [], unread: 0, pendingRequests: 0, pendingRequestItems: [],
   }
@@ -204,15 +213,12 @@ try {
   for (const [path, name, width, height, readyText] of [
     ['/login', 'sign-in-desktop.png', 1280, 800, 'Who’s reading?'],
     ['/login', 'sign-in-mobile.png', 390, 844, 'Who’s reading?'],
-    ['/library', 'library-desktop.png', 1440, 900, 'Where Maps End'],
-    ['/library', 'library-mobile.png', 390, 844, 'Where Maps End'],
     ['/library?category=comics', 'comics-desktop.png', 1440, 900, 'The Glass Compass'],
     ['/series/42', 'series-desktop.png', 1440, 900, 'The Glass Compass'],
     ['/library/review', 'import-review-desktop.png', 1440, 900, 'The Glass Compass · Volume 1'],
     ['/library/review', 'import-review-preview-desktop.png', 1440, 900, 'The Glass Compass · Volume 1'],
     ['/library/1', 'metadata-corrections-desktop.png', 1440, 1000, 'Where Maps End'],
     ['/library/1', 'metadata-corrections-mobile.png', 390, 844, 'Where Maps End'],
-    ['/', 'home-desktop.png', 1440, 900, 'Recently Added'],
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
     ['/settings/getting-books', 'acquisition-settings-desktop.png', 1440, 900, 'Import folder'],

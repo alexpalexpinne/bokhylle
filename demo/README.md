@@ -1,5 +1,8 @@
 # Public demo
 
+Try the hosted demo at [demo.bokhylle.com](https://demo.bokhylle.com). It resets
+daily at 04:00 UTC; visitor changes are disposable.
+
 The demo is a disposable Bokhylle installation with 26 sample EPUBs from
 Standard Ebooks. Visitors can enter as an adult or child without creating an
 account. It runs separately from a household installation and uses only
@@ -10,6 +13,13 @@ library, or downloads directory.**
 
 - Browse the shared sample library and keep a personal shelf. Each visitor gets
   a separate adult/child pair; they cannot see another visitor's changes.
+- Adult Home starts with **Picked for you**, **Based on books you liked**,
+  **From authors you follow**, and subject rails. Sample likes for *Dracula*
+  and *The Picture of Dorian Gray*, follows for Charles Dickens and Jane
+  Austen, and Gothic fiction/Adventure interests demonstrate personalisation.
+  Curated demo subjects supply the matching metadata; all suggestions and
+  covers come from the prepared samples. Likes, follows, and hidden subjects
+  are private to each visitor and can be changed without affecting anyone else.
 - Search the samples in Discover. **Get for my shelf** shows acquisition progress
   and adds a prepared book to the shelf. No outside source is contacted.
 - Read a sample EPUB in Bokhylle or download it to a reading app. Your browser

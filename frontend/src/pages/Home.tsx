@@ -20,7 +20,7 @@ import {
   setSubjectHidden,
 } from '../api/library'
 import { BookCard } from '../components/BookCard'
-import { discoverCoverUrl } from '../api/discover'
+import { discoverCoverUrl, localDiscoveryBookId } from '../api/discover'
 import { AuthorAvatar } from '../components/AuthorAvatar'
 import {
   type SpotlightItem,
@@ -308,6 +308,8 @@ export function Home() {
   const spotlight = view?.spotlight ?? []
   const recommendations = view?.recommendations ?? []
   const updates = view?.updates ?? null
+  // Spotlight features one book at a time. Its candidates still belong on
+  // their shelves, especially when a small shelf fits entirely in Spotlight.
   const recent = view?.recent ?? []
   // The endpoint merges browser and KOReader activity; never manufacture progress.
   const continueReading = (view?.continueReading ?? []).filter((item) => Number.isFinite(item.percentage) && item.percentage > 0 && item.percentage < 0.995)
@@ -317,13 +319,6 @@ export function Home() {
   const rails = view?.rails ?? []
   const householdBooks = view?.householdBooks ?? 0
   const loading = view === null
-  const recentBooks = recent.filter(
-    (book) => !spotlight.some((item) => item.bookId === book.id),
-  )
-  const rediscoveredBooks = highlights.filter(
-    (book) => !spotlight.some((item) => item.bookId === book.id),
-  )
-
   // A shelf can be empty while the household, follows, or the wizard's
   // taste signals still have something useful to show.
   const hasContent =
@@ -430,15 +425,15 @@ export function Home() {
           <ShelfRail label="Picked for you books">
             {recommendations.map((item) => (
               <Link
-                key={`${item.provider}-${item.providerKey}`}
-                to={`/discover?provider=${encodeURIComponent(item.provider ?? 'openlibrary')}&providerKey=${encodeURIComponent(item.providerKey ?? '')}`}
-                state={isChild ? undefined : { backgroundLocation: location }}
+                key={item.bookId ?? `${item.provider}-${item.providerKey}`}
+                to={item.bookId ? `/library/${item.bookId}` : `/discover?provider=${encodeURIComponent(item.provider ?? 'openlibrary')}&providerKey=${encodeURIComponent(item.providerKey ?? '')}`}
+                state={item.bookId || isChild ? undefined : { backgroundLocation: location }}
                 className="shelf-book group block"
               >
                 <ShelfBook
                   title={item.title}
                   authors={item.authors}
-                  cover={item.coverId ? discoverCoverUrl(item.coverId, item.title, item.provider ?? undefined) : null}
+                  cover={item.bookId ? coverUrl(item.bookId) : item.coverId ? discoverCoverUrl(item.coverId, item.title, item.provider ?? undefined) : null}
                 />
               </Link>
             ))}
@@ -463,21 +458,24 @@ export function Home() {
             />
           </div>
           <ShelfRail label="Books from authors you follow">
-            {updates.discoveries.map((item) => (
-              <Link
-                key={item.providerKey}
-                to={`/discover?provider=${encodeURIComponent(item.provider)}&providerKey=${encodeURIComponent(item.providerKey)}`}
-                state={{ backgroundLocation: location }}
-                className="shelf-book group block"
-              >
-                <ShelfBook
-                  title={item.title}
-                  authors={item.authors}
-                  cover={item.coverId ? discoverCoverUrl(item.coverId, item.title, item.provider) : null}
-                  context={item.year ? String(item.year) : undefined}
-                />
-              </Link>
-            ))}
+            {updates.discoveries.map((item) => {
+              const bookId = localDiscoveryBookId(item.provider, item.providerKey)
+              return (
+                <Link
+                  key={`${item.provider}-${item.providerKey}`}
+                  to={bookId ? `/library/${bookId}` : `/discover?provider=${encodeURIComponent(item.provider)}&providerKey=${encodeURIComponent(item.providerKey)}`}
+                  state={bookId ? undefined : { backgroundLocation: location }}
+                  className="shelf-book group block"
+                >
+                  <ShelfBook
+                    title={item.title}
+                    authors={item.authors}
+                    cover={bookId ? coverUrl(bookId) : item.coverId ? discoverCoverUrl(item.coverId, item.title, item.provider) : null}
+                    context={item.year ? String(item.year) : undefined}
+                  />
+                </Link>
+              )
+            })}
           </ShelfRail>
         </section>
       )}
@@ -514,15 +512,15 @@ export function Home() {
         </section>
       )}
 
-      {recentBooks.length > 0 && (
-        <BookRail title="Recently Added" books={recentBooks} seeAllHref="/library" appearance="shelf" />
+      {recent.length > 0 && (
+        <BookRail title="Recently Added" books={recent} seeAllHref="/library" appearance="shelf" />
       )}
 
-      {rediscoveredBooks.length > 0 && (
+      {highlights.length > 0 && (
         <BookRail
           title="Rediscover your library"
           subtitle="A few books already on your shelves, worth another look."
-          books={rediscoveredBooks.slice(0, 3)}
+          books={highlights.slice(0, 3)}
           seeAllHref="/library"
           appearance="shelf"
         />
@@ -534,9 +532,7 @@ export function Home() {
           appearance="shelf"
           title={rail.title}
           subtitle={rail.subtitle}
-          books={rail.books.filter(
-            (book) => !spotlight.some((item) => item.bookId === book.id),
-          )}
+          books={rail.books}
           seeAllHref={
             rail.subject ? `/library?subject=${encodeURIComponent(rail.subject)}` : '/library'
           }
