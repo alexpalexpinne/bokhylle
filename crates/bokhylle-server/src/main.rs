@@ -64,11 +64,10 @@ async fn main() {
     let scan_state = Arc::new(bokhylle_server::library::ScanState::default());
 
     let google_books_key = settings
-        .raw(bokhylle_server::settings::GOOGLE_BOOKS_API_KEY)
+        .get_string(bokhylle_server::settings::GOOGLE_BOOKS_API_KEY, "")
         .await
         .ok()
-        .flatten()
-        .and_then(|value| value.as_str().map(str::to_string));
+        .filter(|value| !value.is_empty());
     let metadata_choice = settings
         .get_string(bokhylle_server::settings::METADATA_PROVIDER, "automatic")
         .await
@@ -132,6 +131,11 @@ async fn main() {
         ratings.clone(),
     ));
 
+    let server = Arc::new(
+        bokhylle_server::server::ServerRuntime::capture(&settings, &paths)
+            .await
+            .expect("running server configuration"),
+    );
     let state = AppState {
         db: pool,
         settings,
@@ -149,6 +153,7 @@ async fn main() {
         pipeline: Arc::new(bokhylle_server::acquisition_pipeline::PipelineGuard::default()),
         imports: Arc::new(bokhylle_server::acquisition_pipeline::PipelineGuard::default()),
         demo: demo_mode.then(|| Arc::new(bokhylle_server::demo::DemoState::default())),
+        server,
     };
 
     match bokhylle_server::db::prune_metadata_cache(&state.db).await {
@@ -173,6 +178,7 @@ async fn main() {
         bokhylle_server::nzb_acquisition::spawn(state.clone());
         bokhylle_server::keep_looking::spawn_scheduler(state.clone());
         bokhylle_server::backup::spawn_scheduler(&state);
+        bokhylle_server::server::releases::spawn_scheduler(&state);
         bokhylle_server::import_pipeline::recover(&state).await;
         if let Err(error) = bokhylle_server::watch_folder::recover(&state).await {
             tracing::warn!(%error, "watch_folder.recovery_failed");

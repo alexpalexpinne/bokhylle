@@ -1,12 +1,12 @@
 import { expect } from '../support.mjs'
 
-const BOOKS = Array.from({ length: 5 }, (_, index) => ({
+const BOOKS = Array.from({ length: 6 }, (_, index) => ({
   id: 8800 + index, title: `The Small Shelf ${index + 1}`, authors: ['Test Author'],
   language: 'en', hasCover: false, hasDescription: true, addedAt: 1,
 }))
 
-async function mockSmallShelf(page, { demo = false, child = false, subject = false } = {}) {
-  const books = child ? BOOKS.slice(0, 1) : BOOKS
+async function mockSmallShelf(page, { demo = false, child = false, subject = false, bookCount = child ? 1 : 5 } = {}) {
+  const books = BOOKS.slice(0, bookCount)
   const requests = []
   await page.route('**/api/**', (route) => {
     const path = new URL(route.request().url()).pathname
@@ -22,7 +22,7 @@ async function mockSmallShelf(page, { demo = false, child = false, subject = fal
     else if (path === '/api/books') body = { items: books, total: books.length, page: 1, pageSize: 24, letters: [] }
     else if (path === '/api/books/recent' || path === '/api/books/highlights') body = books
     else if (path === '/api/home/spotlight') body = {
-      items: books.map((book) => ({
+      items: books.slice(0, 5).map((book) => ({
         ...book, bookId: book.id, source: 'shelf', ownership: 'shelf', reasonType: 'shelf',
         reasonLabel: 'From your shelf', cta: 'explore', subjects: [],
         blurb: 'A reader discovers a story among familiar books and finds a new place to begin.',
@@ -44,6 +44,8 @@ export default async function homeRails(page, { base }) {
     { demo: true, width: 1440 },
     { subject: true, width: 390 },
     { child: true, width: 390 },
+    { demo: true, child: true, bookCount: 6, width: 1440 },
+    { demo: true, child: true, bookCount: 6, width: 390 },
   ]) {
     await page.unroute('**/api/**')
     const { books, requests } = await mockSmallShelf(page, scenario)

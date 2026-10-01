@@ -6,7 +6,7 @@ Compose installation. These guides cover the next steps:
 | Guide | Use it for |
 | --- | --- |
 | [Getting started](getting-started.md) | First setup, books, profiles, readers, and optional integrations |
-| [Operations](operations.md) | Backups, restores, updates, and common checks |
+| [Operations](operations.md) | Server status, diagnostics, backups, restores, and updates |
 | [Security policy](../SECURITY.md) | Private vulnerability reporting and network exposure |
 | [Public demo](../demo/README.md) | Running the disposable sample installation |
 | [Public website](../website/README.md) | Previewing and hosting the static introduction |

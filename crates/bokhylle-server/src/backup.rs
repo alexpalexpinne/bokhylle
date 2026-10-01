@@ -12,6 +12,9 @@ use crate::AppState;
 use crate::error::AppError;
 use crate::settings;
 
+mod status;
+pub use status::{BackupStatus, recover, scheduler_tick_at, status_at};
+
 pub const INTERVAL_HOURS: &str = "backups.interval_hours";
 pub const KEEP: &str = "backups.keep";
 
@@ -188,7 +191,11 @@ pub fn prune(dir: &Path, keep: usize) -> Result<(), AppError> {
     let mut stamps = list(dir)?;
     while stamps.len() > keep.max(1) {
         let (stamp, _) = stamps.remove(0);
-        let _ = std::fs::remove_file(dir.join(format!("bokhylle-{stamp}.db")));
+        match std::fs::remove_file(dir.join(format!("bokhylle-{stamp}.db"))) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -199,10 +206,13 @@ pub fn latest(dir: &Path) -> Result<Option<(i64, u64)>, AppError> {
 
 fn list(dir: &Path) -> Result<Vec<(i64, u64)>, AppError> {
     let mut entries = Vec::new();
-    let Ok(read_dir) = std::fs::read_dir(dir) else {
-        return Ok(entries);
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(entries),
+        Err(error) => return Err(error.into()),
     };
-    for entry in read_dir.flatten() {
+    for entry in read_dir {
+        let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let Some(stamp) = name
@@ -212,7 +222,11 @@ fn list(dir: &Path) -> Result<Vec<(i64, u64)>, AppError> {
         else {
             continue;
         };
-        let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() {
+            continue;
+        }
+        let size = metadata.len();
         entries.push((stamp, size));
     }
     entries.sort_unstable();
@@ -222,42 +236,26 @@ fn list(dir: &Path) -> Result<Vec<(i64, u64)>, AppError> {
 pub fn spawn_scheduler(state: &AppState) {
     let state = state.clone();
     tokio::spawn(async move {
+        if let Err(error) = recover(&state).await {
+            tracing::warn!(%error, "backup.recovery.failed");
+        }
         loop {
-            if let Err(error) = scheduler_tick(&state).await {
+            let notified = state.server.backup_wakeup.notified();
+            if let Err(error) = scheduler_tick_at(&state, crate::server::now()).await {
                 tracing::warn!(%error, "backup.scheduled.failed");
             }
-            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            let delay = status_at(&state, crate::server::now())
+                .await
+                .ok()
+                .and_then(|status| status.next_scheduled_at)
+                .map(|at| at.saturating_sub(crate::server::now()).max(1) as u64)
+                .unwrap_or(300);
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
+                _ = notified => {},
+            }
         }
     });
-}
-
-async fn scheduler_tick(state: &AppState) -> Result<(), AppError> {
-    let hours = state.settings.get_float(INTERVAL_HOURS, 24.0).await?;
-    if hours <= 0.0 {
-        return Ok(());
-    }
-
-    let dir = state.paths.config_dir.join("backups");
-    let list_dir = dir.clone();
-    let recent = tokio::task::spawn_blocking(move || latest(&list_dir))
-        .await
-        .map_err(|error| AppError::Unavailable(error.to_string()))??;
-    let due = match recent {
-        Some((stamp, _)) => now_epoch() - stamp >= (hours * 3600.0) as i64,
-        None => true,
-    };
-    if !due {
-        return Ok(());
-    }
-
-    let path = create(&state.db, &dir, false).await?;
-    let keep = state.settings.get_int(KEEP, 7).await.unwrap_or(7).max(1) as usize;
-    tokio::task::spawn_blocking(move || prune(&dir, keep))
-        .await
-        .map_err(|error| AppError::Unavailable(error.to_string()))??;
-    tracing::info!(path = %path.display(), "backup.scheduled");
-
-    Ok(())
 }
 
 fn now_epoch() -> i64 {

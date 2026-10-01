@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        BOKHYLLE_BUILD_SHA: "${BOKHYLLE_BUILD_SHA:-}"
+        BOKHYLLE_BUILD_DIRTY: "${BOKHYLLE_BUILD_DIRTY:-}"
     image: bokhylle:local
     env_file:
       - path: .env
@@ -16,6 +19,7 @@ services:
       - BOKHYLLE_SCAN_ON_STARTUP
       - BOKHYLLE_PREFERRED_FORMAT
       - BOKHYLLE_PREFERRED_LANGUAGE
+      - BOKHYLLE_UPDATE_CHECKS
     user: "${BOKHYLLE_UID:-10001}:${BOKHYLLE_GID:-10001}"
     ports:
       - "${BOKHYLLE_PORT:-8080}:8080"

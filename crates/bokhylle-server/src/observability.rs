@@ -3,9 +3,79 @@ use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub const REDACTED: &str = "[redacted]";
 const MAX_LOG_LINES: usize = 500;
+
+#[derive(Clone, serde::Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticEvent {
+    pub at: i64,
+    pub severity: String,
+    pub component: String,
+    pub summary: String,
+}
+
+fn diagnostic_hub() -> &'static Mutex<VecDeque<DiagnosticEvent>> {
+    static HUB: OnceLock<Mutex<VecDeque<DiagnosticEvent>>> = OnceLock::new();
+    HUB.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+pub fn recent_errors() -> Vec<DiagnosticEvent> {
+    diagnostic_hub()
+        .lock()
+        .expect("diagnostic hub lock")
+        .iter()
+        .rev()
+        .cloned()
+        .collect()
+}
+
+struct DiagnosticLayer;
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for DiagnosticLayer {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        let metadata = event.metadata();
+        if !matches!(
+            *metadata.level(),
+            tracing::Level::WARN | tracing::Level::ERROR
+        ) {
+            return;
+        }
+        // Never visit message or event fields: paths, URLs, names and credentials
+        // belong in the local log viewer, not in exported diagnostics.
+        let target = metadata.target();
+        let component = if target.starts_with("bokhylle")
+            && target
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b':'))
+        {
+            target
+        } else {
+            "dependency"
+        };
+        let summary = if component.contains("backup") {
+            "Backup maintenance reported a problem"
+        } else if component.contains("server::releases") {
+            "Release checking reported a problem"
+        } else if component.contains("library") {
+            "Library processing reported a problem"
+        } else {
+            "An operation reported a problem; inspect local server logs for details"
+        };
+        let mut errors = diagnostic_hub().lock().expect("diagnostic hub lock");
+        if errors.len() == 50 {
+            errors.pop_front();
+        }
+        errors.push_back(DiagnosticEvent {
+            at: crate::server::now(),
+            severity: metadata.level().to_string().to_lowercase(),
+            component: component.into(),
+            summary: summary.into(),
+        });
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct LogHub {
@@ -119,17 +189,25 @@ pub fn init() {
     let ansi = std::io::IsTerminal::is_terminal(&std::io::stdout());
 
     if json {
-        tracing_subscriber::fmt()
-            .json()
-            .with_writer(writer)
-            .with_ansi(ansi)
-            .with_env_filter(filter)
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(DiagnosticLayer)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_writer(writer)
+                    .with_ansi(ansi),
+            )
             .init();
     } else {
-        tracing_subscriber::fmt()
-            .with_writer(writer)
-            .with_ansi(ansi)
-            .with_env_filter(filter)
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(DiagnosticLayer)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_ansi(ansi),
+            )
             .init();
     }
 }
@@ -178,7 +256,7 @@ impl LogCapture {
             .with_ansi(false)
             .with_max_level(tracing::Level::TRACE)
             .finish();
-        let guard = tracing::subscriber::set_default(subscriber);
+        let guard = tracing::subscriber::set_default(subscriber.with(DiagnosticLayer));
         Self {
             buffer,
             _guard: guard,

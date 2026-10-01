@@ -34,6 +34,13 @@ RUN set -eux; \
 FROM deps AS backend
 COPY crates ./crates
 COPY migrations ./migrations
+ARG BOKHYLLE_BUILD_SHA=""
+ARG BOKHYLLE_BUILD_DIRTY=""
+ARG BOKHYLLE_BUILD_TIME=""
+ENV BOKHYLLE_BUILD_SHA=$BOKHYLLE_BUILD_SHA \
+    BOKHYLLE_BUILD_DIRTY=$BOKHYLLE_BUILD_DIRTY \
+    BOKHYLLE_BUILD_TIME=$BOKHYLLE_BUILD_TIME \
+    BOKHYLLE_BUILD_INSTALLATION=docker
 RUN find crates -name '*.rs' -type f -exec touch {} + \
     && cargo build --locked --release -p bokhylle-server \
     && grep -qa "bokhylle server listening" target/release/bokhylle-server \

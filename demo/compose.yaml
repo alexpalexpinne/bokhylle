@@ -3,6 +3,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        BOKHYLLE_BUILD_SHA: "${BOKHYLLE_BUILD_SHA:-}"
+        BOKHYLLE_BUILD_DIRTY: "${BOKHYLLE_BUILD_DIRTY:-}"
     image: bokhylle-demo:local
     environment:
       BOKHYLLE_DEMO_MODE: "true"

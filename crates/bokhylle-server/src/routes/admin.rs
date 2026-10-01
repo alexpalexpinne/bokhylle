@@ -19,21 +19,6 @@ pub async fn watch_status(
 }
 
 #[derive(Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct LatestBackup {
-    created_at: i64,
-    size: u64,
-}
-
-#[derive(Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct BackupStatus {
-    interval_hours: f64,
-    keep: i64,
-    latest: Option<LatestBackup>,
-}
-
-#[derive(Serialize, schemars::JsonSchema)]
 pub struct RecentLogs {
     lines: Vec<String>,
 }
@@ -192,21 +177,10 @@ pub async fn import_job_start(
 pub async fn backup_status(
     _admin: AdminUser,
     State(state): State<AppState>,
-) -> Result<Json<BackupStatus>, AppError> {
-    let dir = state.paths.config_dir.join("backups");
-    let latest = tokio::task::spawn_blocking(move || crate::backup::latest(&dir))
-        .await
-        .map_err(|error| AppError::Unavailable(error.to_string()))??;
-    let interval = state
-        .settings
-        .get_float(crate::backup::INTERVAL_HOURS, 24.0)
-        .await?;
-    let keep = state.settings.get_int(crate::backup::KEEP, 7).await?;
-    Ok(Json(BackupStatus {
-        interval_hours: interval,
-        keep,
-        latest: latest.map(|(created_at, size)| LatestBackup { created_at, size }),
-    }))
+) -> Result<Json<crate::backup::BackupStatus>, AppError> {
+    Ok(Json(
+        crate::backup::status_at(&state, crate::server::now()).await?,
+    ))
 }
 
 pub async fn metadata_job_cancel(_admin: AdminUser) -> Result<StatusCode, AppError> {
@@ -1252,6 +1226,15 @@ pub async fn update_setting(
     settings::validate(&key, &body.value)?;
 
     state.settings.set(&key, &body.value).await?;
+    if matches!(
+        key.as_str(),
+        settings::BACKUP_INTERVAL_HOURS | settings::BACKUP_KEEP
+    ) {
+        state.server.backup_wakeup.notify_one();
+    }
+    if key == settings::UPDATE_CHECKS {
+        state.server.release_wakeup.notify_one();
+    }
     tracing::info!(key = %key, secret = settings::is_secret(&key), "settings.updated");
 
     if settings::is_secret(&key) {

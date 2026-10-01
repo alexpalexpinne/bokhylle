@@ -18,6 +18,7 @@ pub mod opds;
 pub mod registry;
 pub mod requests;
 pub mod responses;
+pub mod server;
 pub mod spotlight;
 
 use crate::error::AppError;

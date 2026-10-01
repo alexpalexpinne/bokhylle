@@ -17,6 +17,9 @@ export type Field = {
   placeholder?: string
   options?: { value: string; label: string }[]
   hint?: string
+  defaultValue?: string | number | boolean
+  min?: number
+  step?: number
 }
 
 export type Group = {
@@ -62,6 +65,21 @@ export const groups: Group[] = [
       },
       { key: 'library.preferred_format', label: 'Preferred format', kind: 'text' },
       { key: 'library.preferred_language', label: 'Preferred language', kind: 'text' },
+    ],
+  },
+  {
+    section: 'server',
+    title: 'Backups',
+    fields: [
+      { key: 'backups.interval_hours', label: 'Automatic backup interval (hours)', kind: 'number', defaultValue: 24, min: 0, step: 0.25, hint: '0 disables scheduled database backups.' },
+      { key: 'backups.keep', label: 'Backups to keep', kind: 'number', defaultValue: 7, min: 1, step: 1, hint: 'Retention is applied during the next backup attempt.' },
+    ],
+  },
+  {
+    section: 'server',
+    title: 'Updates',
+    fields: [
+      { key: 'updates.check_enabled', label: 'Check GitHub releases automatically', kind: 'boolean', defaultValue: true, hint: 'Checks once a day; retries after an hour if unavailable. Bokhylle continues working offline.' },
     ],
   },
   {

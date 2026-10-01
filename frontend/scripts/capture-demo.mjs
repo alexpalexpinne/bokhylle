@@ -22,7 +22,7 @@ export async function captureDemo(views = ['home', 'library', 'reader']) {
     const page = await context.newPage()
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto(base, { waitUntil: 'networkidle' })
-    await page.getByRole('button', { name: 'Enter as adult', exact: true }).click()
+    await page.getByRole('button', { name: 'Adult reader', exact: true }).click()
     await page.getByRole('link', { name: 'Library', exact: true }).waitFor()
 
     async function save(view, mobile = false) {

@@ -56,7 +56,7 @@
           },
           "events": {
             "items": {
-              "$ref": "#/components/schemas/DiagnosticEvent"
+              "$ref": "#/components/schemas/DiagnosticEvent2"
             },
             "type": "array"
           },
@@ -851,15 +851,70 @@
         ],
         "type": "object"
       },
+      "BackupEvent": {
+        "properties": {
+          "at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "at",
+          "summary"
+        ],
+        "type": "object"
+      },
       "BackupStatus": {
         "properties": {
           "intervalHours": {
             "format": "double",
             "type": "number"
           },
+          "inventoryError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "keep": {
             "format": "int64",
             "type": "integer"
+          },
+          "lastAttempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastFailure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackupEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastSuccess": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "latest": {
             "anyOf": [
@@ -870,12 +925,32 @@
                 "type": "null"
               }
             ]
+          },
+          "nextScheduledAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "schedulerEnabled": {
+            "type": "boolean"
           }
         },
         "required": [
           "intervalHours",
+          "inventoryError",
           "keep",
-          "latest"
+          "lastAttempt",
+          "lastFailure",
+          "lastSuccess",
+          "latest",
+          "nextScheduledAt",
+          "outcome",
+          "schedulerEnabled"
         ],
         "type": "object"
       },
@@ -1629,6 +1704,43 @@
           "format",
           "position",
           "sha256"
+        ],
+        "type": "object"
+      },
+      "BuildIdentity": {
+        "properties": {
+          "builtAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "commit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dirty": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "installation": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "builtAt",
+          "commit",
+          "dirty",
+          "installation",
+          "version"
         ],
         "type": "object"
       },
@@ -3214,6 +3326,30 @@
       },
       "DiagnosticEvent": {
         "properties": {
+          "at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "component": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "component",
+          "severity",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "DiagnosticEvent2": {
+        "properties": {
           "createdAt": {
             "format": "int64",
             "type": "integer"
@@ -3229,6 +3365,83 @@
           "createdAt",
           "detail",
           "event"
+        ],
+        "type": "object"
+      },
+      "Diagnostics": {
+        "properties": {
+          "backups": {
+            "$ref": "#/components/schemas/BackupStatus"
+          },
+          "build": {
+            "$ref": "#/components/schemas/BuildIdentity"
+          },
+          "databaseOk": {
+            "type": "boolean"
+          },
+          "formatVersion": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generatedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "integrations": {
+            "items": {
+              "$ref": "#/components/schemas/IntegrationConfiguration"
+            },
+            "type": "array"
+          },
+          "library": {
+            "$ref": "#/components/schemas/LibraryIntegritySummary"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "recentErrors": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticEvent"
+            },
+            "type": "array"
+          },
+          "restartRequired": {
+            "items": {
+              "$ref": "#/components/schemas/RestartChange"
+            },
+            "type": "array"
+          },
+          "startedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "storage": {
+            "items": {
+              "$ref": "#/components/schemas/StorageSummary"
+            },
+            "type": "array"
+          },
+          "uptimeSeconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backups",
+          "build",
+          "databaseOk",
+          "formatVersion",
+          "generatedAt",
+          "integrations",
+          "library",
+          "platform",
+          "recentErrors",
+          "restartRequired",
+          "startedAt",
+          "storage",
+          "uptimeSeconds"
         ],
         "type": "object"
       },
@@ -4350,6 +4563,21 @@
         ],
         "type": "object"
       },
+      "IntegrationConfiguration": {
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "name"
+        ],
+        "type": "object"
+      },
       "IntegrationStatus": {
         "properties": {
           "hardlinks": {
@@ -4564,6 +4792,41 @@
           "missingFileSamples",
           "missingFiles",
           "missingLanguages"
+        ],
+        "type": "object"
+      },
+      "LibraryIntegritySummary": {
+        "properties": {
+          "books": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "booksWithoutFiles": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "files": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "inaccessibleFiles": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "missingFiles": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "books",
+          "booksWithoutFiles",
+          "files",
+          "inaccessibleFiles",
+          "missingFiles"
         ],
         "type": "object"
       },
@@ -5906,6 +6169,21 @@
         },
         "type": "object"
       },
+      "RestartChange": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object"
+      },
       "ReviewCandidates": {
         "properties": {
           "candidates": {
@@ -6642,6 +6920,46 @@
         ],
         "type": "object"
       },
+      "ServerStatus": {
+        "properties": {
+          "build": {
+            "$ref": "#/components/schemas/BuildIdentity"
+          },
+          "databaseOk": {
+            "type": "boolean"
+          },
+          "restartRequired": {
+            "items": {
+              "$ref": "#/components/schemas/RestartChange"
+            },
+            "type": "array"
+          },
+          "startedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "storage": {
+            "items": {
+              "$ref": "#/components/schemas/StorageGroup"
+            },
+            "type": "array"
+          },
+          "uptimeSeconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "build",
+          "databaseOk",
+          "restartRequired",
+          "startedAt",
+          "storage",
+          "uptimeSeconds"
+        ],
+        "type": "object"
+      },
       "SetBookCompletion": {
         "properties": {
           "completed": {
@@ -6963,6 +7281,122 @@
         ],
         "type": "object"
       },
+      "StorageGroup": {
+        "properties": {
+          "availableBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/StorageLocation"
+            },
+            "type": "array"
+          },
+          "lowSpace": {
+            "type": "boolean"
+          },
+          "totalBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "availableBytes",
+          "error",
+          "locations",
+          "lowSpace",
+          "totalBytes"
+        ],
+        "type": "object"
+      },
+      "StorageLocation": {
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "writable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "error",
+          "label",
+          "path",
+          "writable"
+        ],
+        "type": "object"
+      },
+      "StorageSummary": {
+        "properties": {
+          "availableBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "capacityAvailable": {
+            "type": "boolean"
+          },
+          "locations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "lowSpace": {
+            "type": "boolean"
+          },
+          "totalBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "unwritableLocations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "availableBytes",
+          "capacityAvailable",
+          "locations",
+          "lowSpace",
+          "totalBytes",
+          "unwritableLocations"
+        ],
+        "type": "object"
+      },
       "SubjectFacet": {
         "properties": {
           "count": {
@@ -7253,6 +7687,73 @@
         },
         "required": [
           "value"
+        ],
+        "type": "object"
+      },
+      "UpdateState": {
+        "enum": [
+          "not_checked",
+          "update_available",
+          "up_to_date",
+          "newer_build",
+          "unavailable",
+          "no_release"
+        ],
+        "type": "string"
+      },
+      "UpdateStatus": {
+        "properties": {
+          "automaticChecks": {
+            "type": "boolean"
+          },
+          "checkedAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "currentVersion": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSuccessAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "latestVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "releaseUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/UpdateState"
+          }
+        },
+        "required": [
+          "automaticChecks",
+          "checkedAt",
+          "currentVersion",
+          "error",
+          "lastSuccessAt",
+          "latestVersion",
+          "releaseUrl",
+          "state"
         ],
         "type": "object"
       },
@@ -10683,6 +11184,282 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SeriesRecord"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/server": {
+      "get": {
+        "operationId": "get_admin_server",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatus"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/server/diagnostics": {
+      "get": {
+        "operationId": "get_admin_server_diagnostics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Diagnostics"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/server/restart": {
+      "get": {
+        "operationId": "get_admin_server_restart",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RestartChange"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/server/updates": {
+      "get": {
+        "operationId": "get_admin_server_updates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatus"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "admin"
+        ]
+      },
+      "post": {
+        "operationId": "post_admin_server_updates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatus"
                 }
               }
             },

@@ -644,6 +644,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_admin_server"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/server/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_admin_server_diagnostics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/server/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_admin_server_restart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/server/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_admin_server_updates"];
+        put?: never;
+        post: operations["post_admin_server_updates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/settings": {
         parameters: {
             query?: never;
@@ -2438,7 +2502,7 @@ export interface components {
         AcquisitionDiagnostics: {
             acquisition: components["schemas"]["DiagnosticAcquisition"];
             candidates: components["schemas"]["EvaluatedRelease"][];
-            events: components["schemas"]["DiagnosticEvent"][];
+            events: components["schemas"]["DiagnosticEvent2"][];
             providerState: components["schemas"]["ProviderDiagnostic"] | null;
         };
         /**
@@ -2642,12 +2706,25 @@ export interface components {
             /** Format: int64 */
             deliveryTargetId?: number | null;
         };
+        BackupEvent: {
+            /** Format: int64 */
+            at: number;
+            summary: string | null;
+        };
         BackupStatus: {
             /** Format: double */
             intervalHours: number;
+            inventoryError: string | null;
             /** Format: int64 */
             keep: number;
+            lastAttempt: components["schemas"]["BackupEvent"] | null;
+            lastFailure: components["schemas"]["BackupEvent"] | null;
+            lastSuccess: components["schemas"]["LatestBackup"] | null;
             latest: components["schemas"]["LatestBackup"] | null;
+            /** Format: int64 */
+            nextScheduledAt: number | null;
+            outcome: string;
+            schedulerEnabled: boolean;
         };
         BookCompletionState: {
             completed: boolean;
@@ -2831,6 +2908,14 @@ export interface components {
             format: string;
             position: components["schemas"]["BrowserPosition"] | null;
             sha256: string;
+        };
+        BuildIdentity: {
+            /** Format: int64 */
+            builtAt: number | null;
+            commit: string | null;
+            dirty: boolean | null;
+            installation: string;
+            version: string;
         };
         CandidateParams: {
             /** @default false */
@@ -3233,10 +3318,36 @@ export interface components {
         };
         DiagnosticEvent: {
             /** Format: int64 */
+            at: number;
+            component: string;
+            severity: string;
+            summary: string;
+        };
+        DiagnosticEvent2: {
+            /** Format: int64 */
             createdAt: number;
             /** @description Event details are an append-only journal of several event-specific shapes. */
             detail: unknown;
             event: string;
+        };
+        Diagnostics: {
+            backups: components["schemas"]["BackupStatus"];
+            build: components["schemas"]["BuildIdentity"];
+            databaseOk: boolean;
+            /** Format: uint32 */
+            formatVersion: number;
+            /** Format: int64 */
+            generatedAt: number;
+            integrations: components["schemas"]["IntegrationConfiguration"][];
+            library: components["schemas"]["LibraryIntegritySummary"];
+            platform: string;
+            recentErrors: components["schemas"]["DiagnosticEvent"][];
+            restartRequired: components["schemas"]["RestartChange"][];
+            /** Format: int64 */
+            startedAt: number;
+            storage: components["schemas"]["StorageSummary"][];
+            /** Format: uint64 */
+            uptimeSeconds: number;
         };
         DirectActivityItem: {
             /** Format: int64 */
@@ -3532,6 +3643,10 @@ export interface components {
             /** Format: int64 */
             startedAt: number | null;
         };
+        IntegrationConfiguration: {
+            configured: boolean;
+            name: string;
+        };
         IntegrationStatus: {
             hardlinks: components["schemas"]["HardlinkStatus"];
             library: components["schemas"]["LibraryStatus"];
@@ -3593,6 +3708,18 @@ export interface components {
             missingFiles: number;
             /** Format: int64 */
             missingLanguages: number;
+        };
+        LibraryIntegritySummary: {
+            /** Format: int64 */
+            books: number;
+            /** Format: int64 */
+            booksWithoutFiles: number;
+            /** Format: uint */
+            files: number;
+            /** Format: uint */
+            inaccessibleFiles: number;
+            /** Format: uint */
+            missingFiles: number;
         };
         LibraryStatus: {
             exists: boolean;
@@ -3911,6 +4038,10 @@ export interface components {
             q?: string | null;
             type?: string | null;
         };
+        RestartChange: {
+            key: string;
+            label: string;
+        };
         ReviewCandidates: {
             candidates: components["schemas"]["ReviewImportCandidate"][];
             contentPath: string;
@@ -4101,6 +4232,16 @@ export interface components {
             /** Format: int64 */
             volumeCount: number;
         };
+        ServerStatus: {
+            build: components["schemas"]["BuildIdentity"];
+            databaseOk: boolean;
+            restartRequired: components["schemas"]["RestartChange"][];
+            /** Format: int64 */
+            startedAt: number;
+            storage: components["schemas"]["StorageGroup"][];
+            /** Format: uint64 */
+            uptimeSeconds: number;
+        };
         SetBookCompletion: {
             completed: boolean;
         };
@@ -4174,6 +4315,31 @@ export interface components {
         SpotlightResponse: {
             items: components["schemas"]["SpotlightItem"][];
             recommendations: components["schemas"]["SpotlightItem"][];
+        };
+        StorageGroup: {
+            /** Format: uint64 */
+            availableBytes: number | null;
+            error: string | null;
+            locations: components["schemas"]["StorageLocation"][];
+            lowSpace: boolean;
+            /** Format: uint64 */
+            totalBytes: number | null;
+        };
+        StorageLocation: {
+            error: string | null;
+            label: string;
+            path: string;
+            writable: boolean;
+        };
+        StorageSummary: {
+            /** Format: uint64 */
+            availableBytes: number | null;
+            capacityAvailable: boolean;
+            locations: string[];
+            lowSpace: boolean;
+            /** Format: uint64 */
+            totalBytes: number | null;
+            unwritableLocations: string[];
         };
         SubjectFacet: {
             /** Format: int64 */
@@ -4251,6 +4417,20 @@ export interface components {
         };
         UpdateSetting: {
             value: unknown;
+        };
+        /** @enum {string} */
+        UpdateState: "not_checked" | "update_available" | "up_to_date" | "newer_build" | "unavailable" | "no_release";
+        UpdateStatus: {
+            automaticChecks: boolean;
+            /** Format: int64 */
+            checkedAt: number | null;
+            currentVersion: string;
+            error: string | null;
+            /** Format: int64 */
+            lastSuccessAt: number | null;
+            latestVersion: string | null;
+            releaseUrl: string | null;
+            state: components["schemas"]["UpdateState"];
         };
         UpdateUserInput: {
             /** @description Omitted preserves the mark; null restores initials. Does not remove a photo. */
@@ -6663,6 +6843,236 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesRecord"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_admin_server: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_admin_server_diagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Diagnostics"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_admin_server_restart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestartChange"][];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_admin_server_updates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    post_admin_server_updates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
                 };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */

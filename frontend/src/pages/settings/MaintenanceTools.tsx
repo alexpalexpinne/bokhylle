@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
 import {
-  type BackupStatus,
   type ImageJobStatus,
   type ImportJobStatus,
   type MetadataJobStatus,
   cancelMetadataJob,
-  fetchBackupStatus,
   fetchImageJob,
   fetchImportJob,
   fetchMetadataJob,
@@ -14,21 +12,19 @@ import {
   startImportJob,
   startMetadataJob,
 } from '../../api/maintenance'
-import { type IntegrityReport, fetchIntegrity, fetchLogs } from '../../api/users'
-import { Button, ButtonAnchor } from '../../components/ui/Button'
+import { type IntegrityReport, fetchIntegrity } from '../../api/users'
+import { Button } from '../../components/ui/Button'
 
 export function MaintenanceTools({
   kind,
 }: {
-  kind: 'library' | 'getting-books' | 'metadata' | 'server'
+  kind: 'library' | 'getting-books' | 'metadata'
 }) {
   const [integrity, setIntegrity] = useState<IntegrityReport | null>(null)
-  const [logs, setLogs] = useState<string[] | null>(null)
   const [imageJob, setImageJob] = useState<ImageJobStatus | null>(null)
   const [metadataJob, setMetadataJob] = useState<MetadataJobStatus | null>(null)
-  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [importJob, setImportJob] = useState<ImportJobStatus | null>(null)
-  const [busy, setBusy] = useState<'integrity' | 'logs' | 'images' | 'metadata' | 'imports' | null>(
+  const [busy, setBusy] = useState<'integrity' | 'images' | 'metadata' | 'imports' | null>(
     null,
   )
   const [error, setError] = useState<string | null>(null)
@@ -46,11 +42,6 @@ export function MaintenanceTools({
       fetchImportJob()
         .then(setImportJob)
         .catch((caught: unknown) => console.warn('settings.import_job_failed', caught))
-    }
-    if (kind === 'server') {
-      fetchBackupStatus()
-        .then(setBackupStatus)
-        .catch((caught: unknown) => console.warn('settings.backup_status_failed', caught))
     }
   }, [kind])
 
@@ -146,19 +137,6 @@ export function MaintenanceTools({
     }
   }
 
-  async function loadLogs() {
-    setBusy('logs')
-    setError(null)
-    try {
-      const data = await fetchLogs(300)
-      setLogs(data.lines)
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not load logs')
-    } finally {
-      setBusy(null)
-    }
-  }
-
   return (
     <section className="border-t border-line pt-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -168,31 +146,17 @@ export function MaintenanceTools({
               ? 'File integrity'
               : kind === 'getting-books'
                 ? 'Completed downloads'
-                : kind === 'metadata'
-                  ? 'Enrichment'
-                  : 'Maintenance'}
+                : 'Enrichment'}
           </h2>
           <p className="mt-0.5 text-xs text-ink-faint">
             {kind === 'library'
               ? 'Check that indexed files are still present.'
               : kind === 'getting-books'
                 ? 'Import completed downloads that have not entered the library yet.'
-                : kind === 'metadata'
-                  ? 'Refresh covers, authors, and missing book information.'
-                  : 'The backup contains configuration and metadata. Book files live separately in your library folder.'}
+                : 'Refresh covers, authors, and missing book information.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {kind === 'server' && (
-            <>
-              <ButtonAnchor href="/api/admin/backup" variant="secondary" size="sm">
-                Download database backup
-              </ButtonAnchor>
-              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void loadLogs()}>
-                {busy === 'logs' ? 'Loading…' : 'Show server logs'}
-              </Button>
-            </>
-          )}
           {kind === 'library' && (
             <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void runIntegrity()}>
               {busy === 'integrity' ? 'Checking…' : 'Check library'}
@@ -317,21 +281,6 @@ export function MaintenanceTools({
         </div>
       )}
 
-      {backupStatus && (
-        <p className="mt-4 text-xs text-ink-faint">
-          {backupStatus.intervalHours > 0
-            ? `Scheduled backups every ${backupStatus.intervalHours}h, keeping ${backupStatus.keep}`
-            : 'Scheduled backups are off'}
-          {backupStatus.latest &&
-            ` · last ${new Date(backupStatus.latest.createdAt * 1000).toLocaleString()}`}
-        </p>
-      )}
-
-      {logs && (
-        <pre className="mt-4 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-card bg-surface-2 px-4 py-3 font-mono text-xs leading-relaxed text-ink-soft">
-          {logs.length > 0 ? logs.join('\n') : 'No recent log lines captured.'}
-        </pre>
-      )}
     </section>
   )
 }
