@@ -10,7 +10,7 @@ The public project has three separate pieces:
 | --- | --- | --- |
 | Source | `github.com/alexpalexpinne/bokhylle` | Code, documentation, issues, and releases |
 | Docker image, when released | `ghcr.io/alexpalexpinne/bokhylle` | An installable server with the built web app |
-| Website and demo, when hosted | Separate HTTPS domains | The static introduction and an isolated preview |
+| Website and demo | [bokhylle.com](https://bokhylle.com) and [demo.bokhylle.com](https://demo.bokhylle.com) | The static introduction and an isolated preview |
 
 The website does not need an npm package. The React app ships inside the server
 image. People can also clone the source and build through Compose without
@@ -89,6 +89,47 @@ Users can select a published image through `compose.image.yaml`; the
 5. Monitor `https://<demo-domain>/api/health` and the website's HTTP status.
    Check sign-in, Get & Send, a file download, and the website links over the
    public HTTPS addresses. Check that distinct visitors get distinct shelves.
+
+### Cloudflare Tunnel on a private server
+
+An outbound Cloudflare Tunnel can serve both domains when the host does not
+accept public HTTP or HTTPS connections. Keep the demo and web proxy ports on
+loopback, and run a separate `cloudflared` connector on their Docker network.
+Pin all container images and mount the connector token from a restricted file;
+the server does not need the Cloudflare management API token. Revoking that API
+token does not revoke the connector's separate tunnel credential.
+
+Configure one tunnel ingress rule per hostname, pointing to the web proxy, and
+end with an `http_status:404` rule. Set each rule's `httpHostHeader` to its public
+hostname. Create proxied CNAME records for the website, `www`, and demo pointing
+to `<tunnel-id>.cfargotunnel.com`. Verify that the zone is **active** and the
+registrar delegates to its assigned Cloudflare nameservers; records in a pending
+zone do not switch public traffic. Preserve mail and other unrelated records,
+and save the previous DNS records before replacing any parking records.
+
+Cloudflare terminates public HTTPS and carries origin traffic through the
+encrypted tunnel. The origin proxy may use HTTP on the private Docker network.
+For a Caddy origin, use explicit `http://` site addresses and redirect requests
+whose Cloudflare `X-Forwarded-Proto` header is `http` to the public HTTPS URL.
+In the demo's `reverse_proxy` block, overwrite the application headers:
+
+```caddyfile
+header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+header_up X-Real-IP {http.request.header.CF-Connecting-IP}
+header_up X-Forwarded-Proto https
+header_up -Forwarded
+```
+
+Trust these Cloudflare headers only when the origin is reachable through the
+controlled tunnel. This preserves per-visitor demo limits while
+`BOKHYLLE_SECURE_COOKIES=true` and `BOKHYLLE_TRUSTED_PROXY=true` remain enabled.
+Check connector readiness at its private `/ready` metrics endpoint as well as
+public HTTPS health, cookies, redirects, and visitor isolation. Keep the daily
+reset scoped to the demo service so the website and connector stay online.
+
+See Cloudflare's [Tunnel setup](https://developers.cloudflare.com/tunnel/get-started/)
+and [HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
+documentation for the current configuration and header behavior.
 
 Publishing or changing the deployed website, demo, image, DNS, or repository
 settings requires maintainer approval.

@@ -16,6 +16,7 @@ import mobileChildSpec from './specs/mobile-child.mjs'
 import stabilitySpec from './specs/stability.mjs'
 import homeSheetSpec from './specs/home-sheet.mjs'
 import homeDesignSpec from './specs/home-design.mjs'
+import homeRailsSpec from './specs/home-rails.mjs'
 import profileAppearanceSpec from './specs/profile-appearance.mjs'
 import searchStatesSpec from './specs/search-states.mjs'
 import profileHelpSpec from './specs/profile-help.mjs'
@@ -75,6 +76,7 @@ const allSpecs = [
   { name: 'stability', run: stabilitySpec, auth: true },
   { name: 'home-sheet', run: homeSheetSpec, auth: false },
   { name: 'home-design', run: homeDesignSpec, auth: false },
+  { name: 'home-rails', run: homeRailsSpec, auth: false },
   { name: 'profile-appearance', run: profileAppearanceSpec, auth: false },
   { name: 'search-states', run: searchStatesSpec, auth: false },
   { name: 'profile-help', run: profileHelpSpec, auth: false },

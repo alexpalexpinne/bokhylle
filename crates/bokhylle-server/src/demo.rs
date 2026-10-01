@@ -21,6 +21,8 @@ use crate::notifications;
 use crate::settings;
 use crate::user_books;
 
+mod catalogue;
+
 const MARKER: &str = "bokhylle-demo-v1\n";
 const MAX_VISITORS: i64 = 500;
 const MAX_ENTRIES_PER_IP: usize = 5;
@@ -229,6 +231,7 @@ pub async fn enter(
         ));
     }
 
+    catalogue::seed(&state.db).await?;
     let suffix = Uuid::new_v4().simple().to_string();
     let credential = Uuid::new_v4().to_string();
     let adult = state
@@ -291,6 +294,8 @@ pub async fn enter(
     .bind(child.id)
     .execute(&state.db)
     .await?;
+
+    catalogue::seed_profile(&state.db, adult.id).await?;
 
     // Each visitor pair gets one real, local-only child request. This makes
     // the notification and its decision useful without contacting a provider.
@@ -776,6 +781,7 @@ fn allowed_mutation(method: &Method, path: &str) -> bool {
     if *method == Method::PUT {
         return is_browser_position_path(path)
             || is_browser_direction_path(path)
+            || path.starts_with("/api/home/subjects/")
             || (path.starts_with("/api/users/") && path.contains("/shelf/"))
             || path.starts_with("/api/books/")
                 && (path.ends_with("/shelf") || path.ends_with("/preference"));

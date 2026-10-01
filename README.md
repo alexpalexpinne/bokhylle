@@ -8,118 +8,56 @@
   <img src="https://img.shields.io/badge/status-public%20beta-56624a" alt="Public beta">
 </p>
 
-Bokhylle is a self-hosted library for a household's EPUB, PDF, and CBZ books. It keeps one shared collection while each person has their own shelf. Readers can discover titles, request books, and get files onto their devices. The name means *bookshelf* in Norwegian.
+Bokhylle is a self-hosted book library for your household. Keep your EPUB, PDF, and CBZ files in one shared collection, while each reader has a personal shelf. Discover your next book, read in the browser, or send it to your reading device.
 
-[Install it with Docker Compose](#start-with-docker-compose), [run the sample demo locally](demo/README.md), or browse the [website source](website/). The demo uses sample books and runs separately from a household installation.
+[Try the demo](https://demo.bokhylle.com) · [Install with Docker Compose](#start-with-docker-compose) · [Visit the website](https://bokhylle.com)
 
 <p align="center">
-  <img src="docs/media/library-desktop.png" alt="Bokhylle library on desktop, showing a shelf of books" width="100%">
+  <img src="docs/media/home-desktop.png" alt="Bokhylle Home in Paper, featuring Dracula and recommendations with the selected demo books' covers" width="100%">
 </p>
-<p align="center"><sub>Current Bokhylle UI with fictional books created for these screenshots.</sub></p>
 
-## What it does
+The previews show the isolated demo's selected classics and their covers from [Standard Ebooks](https://standardebooks.org). See the [edition and artwork rights review](demo/RIGHTS.md).
 
-- **Shared books, private shelves.** Keep one collection of files while each adult chooses books for a shelf only they can browse. New acquisitions enter the shared collection once; they do not appear on every shelf.
-- **Comics and manga by series.** Browse grouped volumes in reading order, mark them finished, and find the next volume on your shelf.
-- **Review imports together.** Administrators can review suggested publication types and series, preview changes, and accept or dismiss a batch. Corrections stay in place after rescanning.
-- **Child profiles.** Choose starting books and how a child finds new ones: assigned books only, search and ask, or explore and ask. Owned books stay restricted to their assigned shelf; public catalogue search is not age filtered, and requests need approval.
-- **Household sign-in.** Choose initials, a Bokhylle profile mark, or a personal photo; pick your profile, then enter a PIN or password. A username form remains available when needed.
-- **Discovery and requests.** Search titles, follow authors, request missing books, and track each request.
-- **Several ways to add books.** Import local files through a scan or watch folder, browse OPDS catalogues, or acquire a direct download. Optional torrent and Usenet services fit the same import workflow.
-- **Read in the browser or on your devices.** Open EPUB, PDF, and CBZ with saved progress and format-specific reading controls. Download a file, send it to an email-capable reader, or connect through OPDS and KOReader sync.
-- **Recovery and backups.** Imports verify files before placement, unfinished acquisitions can resume, and SQLite backups run on a schedule.
+## A library for everyone at home
+
+- **One collection, personal shelves.** Share book files without sharing everyone's reading list. Each adult chooses the books on their own private shelf.
+- **Discover something you want to read.** Home suggestions draw on your shelf, likes, reading interests, and followed authors. Search the household collection or the public catalogue, and request a missing book.
+- **Read wherever you prefer.** Open EPUB, PDF, and CBZ in the browser with saved progress. Download a file, send it to an email-capable reader, or connect a reading app through OPDS or KOReader sync.
+- **Give children their own shelves.** Adults choose their books and decide whether they can search or explore for more. Children read from their assigned shelves; requests need adult approval. Public catalogue search is not age filtered.
+- **Keep a useful catalogue.** Group comics and manga by series and reading order. Review imports and correct book details; your corrections survive later scans and metadata refreshes.
+- **Connect an AI assistant.** Use [MCP](#connect-an-assistant-with-mcp) to search books, explore your shelf, and get or send books through a compatible assistant.
 
 <details>
-<summary>Household sign-in and profile marks</summary>
+<summary>See the library and browser reader</summary>
 
-![Bokhylle sign-in with three fictional household profiles and bundled profile marks](docs/media/sign-in-desktop.png)
+<p align="center">
+  <img src="docs/media/library-desktop.png" alt="The demo's household library in Paper, showing selected classics with their edition covers" width="100%">
+</p>
 
-<img src="docs/media/sign-in-mobile.png" alt="Selecting a fictional child profile opens its PIN panel on a phone" width="390">
+<p align="center">
+  <img src="docs/media/reader-desktop.png" alt="Reading Dracula in the browser with Paper colors and EPUB display settings" width="100%">
+</p>
 
-<img src="docs/media/profile-marks-mobile.png" alt="Choosing an optional Bokhylle profile mark for any household reader" width="390">
+<p align="center">
+  <img src="docs/media/library-mobile.png" alt="The demo library on a phone" width="280">
+  <img src="docs/media/reader-mobile.png" alt="Reading Dracula in Paper on a phone" width="280">
+</p>
 
 </details>
 
-<details>
-<summary>Child setup and reading interests</summary>
+## Start with your books
 
-![Three child access choices in household settings](docs/media/child-access-desktop.png)
+Place books in your library directory and scan them, or use a watch folder for new files. Bokhylle runs as one Rust server serving the web app, with SQLite for the catalogue and user state. Your book files stay in the configured library directory.
 
-![Choosing fictional starting books for a child](docs/media/child-starting-books-desktop.png)
+You can add sources and readers as you need them: direct download links, OPDS catalogues, email delivery, or optional torrent and Usenet services. Setup and supported connections are covered in [Getting started](docs/getting-started.md).
 
-<img src="docs/media/reading-interests-mobile.png" alt="Searchable reading interests with suggestions and a custom topic" width="390">
+The [public demo](https://demo.bokhylle.com) lets you try adult and child views with 26 selected classics, without creating an account. Reading and shelves work with the prepared books; acquisition and delivery are simulated. Visitor changes are temporary. You can also [run the demo locally](demo/README.md).
 
-</details>
+## Connect an assistant with MCP
 
-<details>
-<summary>Comics &amp; Manga preview</summary>
+Bokhylle supports the **Model Context Protocol (MCP)**, so a compatible AI assistant can work with your library. Ask it to find a book, show your shelf, or check what you have started reading. With write access, it can also get or request books and send an available book to your configured reader.
 
-![Fictional comics grouped by series in the Bokhylle library](docs/media/comics-desktop.png)
-
-![Fictional manga series with finished volume and next reading suggestion](docs/media/series-desktop.png)
-
-</details>
-
-<details>
-<summary>Mobile library preview</summary>
-
-![Bokhylle library on a narrow phone screen, with fictional books](docs/media/library-mobile.png)
-
-</details>
-
-<details>
-<summary>Import review preview</summary>
-
-![Fictional books in Bokhylle's administrator import review](docs/media/import-review-desktop.png)
-
-![Preview of two fictional classification changes before saving](docs/media/import-review-preview-desktop.png)
-
-</details>
-
-<details>
-<summary>Browser reader preview</summary>
-
-![Bokhylle EPUB reader on a narrow phone screen, showing the fictional Where Maps End](docs/media/reader-mobile.png)
-
-</details>
-
-<details>
-<summary>Book catalogues and acquisition settings</summary>
-
-![Fictional OPDS catalogue with direct EPUB acquisition](docs/media/catalogues-desktop.png)
-
-![Optional acquisition connections and watch-folder status](docs/media/acquisition-settings-desktop.png)
-
-</details>
-
-<details>
-<summary>Home preview</summary>
-
-![Bokhylle Home with a featured book, recent books, and a rediscovery selection](docs/media/home-desktop.png)
-
-</details>
-
-<details>
-<summary>Metadata corrections preview</summary>
-
-![Fix details showing metadata sources and an explicit reset for manual corrections](docs/media/metadata-corrections-desktop.png)
-
-<img src="docs/media/metadata-corrections-mobile.png" alt="Editing fictional book details on a phone with a manual title correction" width="390">
-
-</details>
-
-## How it works
-
-One Rust server serves the web app and uses SQLite for metadata and user state; books remain in your configured library directory. You can start with local EPUB, PDF, or CBZ files alone.
-
-Home suggestions follow each profile's shelves and interests. Household books
-stay available through deliberate browsing and search. Administrators can correct
-book metadata without a later refresh undoing their edits; **Fix details** shows
-field origins and offers an explicit return to automatic metadata.
-
-Open Library supplies catalogue metadata. Adults can add a direct EPUB, PDF, or CBZ download link to a known book, or browse OPDS 1.x and 2.0 feeds configured by an administrator. An optional watch folder imports local EPUB, PDF, and CBZ files. Prowlarr or Torznab can find torrent releases for qBittorrent; Newznab can find Usenet releases for SABnzbd. Downloaded ZIP and RAR archives can be inspected for EPUB, PDF, and CBZ files. Configure only sources you are permitted to access.
-
-A compatible assistant can use the Model Context Protocol (MCP) integration for selected library and request actions. Its token is tied to a profile and follows that profile's permissions. See [Getting started](docs/getting-started.md#readers-and-assistants) for reader and assistant setup.
+Each connection uses a token tied to one profile. Choose read-only or read & write access; that profile's permissions and child access rules still apply. See [assistant setup](docs/getting-started.md#connect-an-assistant-with-mcp) to create a token and connect your client.
 
 ## Start with Docker Compose
 
@@ -150,9 +88,11 @@ To build from source, use `docker compose up -d --build`. For image updates, fol
 
 ## Project status
 
-Bokhylle is a **public beta**. Automated Rust and Chromium tests cover core flows, including a synthetic backup restore and accessibility checks. Test restores with your own config and library before relying on backups. Live Newznab/SABnzbd service compatibility, real reader and assistant clients, Firefox, Safari, screen readers, and more NAS setups still need hands-on validation. See [current limits](docs/getting-started.md#current-limits).
+Bokhylle is a **public beta**. Automated tests cover core library, permission, import, reading, and backup flows. Compatibility with physical readers, external services, browsers beyond Chromium, and more NAS setups still needs hands-on validation. Test a restore with your own config and library before relying on backups. See [current limits](docs/getting-started.md#current-limits).
 
-## Build and contribute
+## Documentation and contributions
+
+The [documentation index](docs/README.md) links setup, reader connections, household profiles, and maintenance guides. Start with [Getting started](docs/getting-started.md) after installation, and [Operations](docs/operations.md) for backups, restores, and updates.
 
 Development requires stable Rust with edition 2024 support, Node.js 24, pnpm 10, and make:
 
@@ -161,12 +101,8 @@ pnpm -C frontend install --frozen-lockfile
 make check
 ```
 
-The [contributing guide](CONTRIBUTING.md) covers local development, tests, and contribution licensing. [AGENTS.md](AGENTS.md) records the current architecture and important invariants; the [design principles](docs/design-principles.md) guide UI changes. Report vulnerabilities through [the security policy](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution licensing, [AGENTS.md](AGENTS.md) for architecture and invariants, and the [design principles](docs/design-principles.md) for UI work. The [OpenAPI contract](openapi.json) documents the HTTP API and is also served at `/openapi.json`; [API notes](docs/api.md) cover authentication and generated types. Report vulnerabilities through the [security policy](SECURITY.md).
 
-The HTTP JSON API has an [OpenAPI 3.1 contract](openapi.json), also served by each instance at `/openapi.json`. See [API contract notes](docs/api.md) for authentication, generated types, and coverage.
-
-Bokhylle's own source is licensed under [AGPL-3.0-only](LICENSE). This includes the network source-availability requirement for modified versions. Third-party dependencies and fonts keep their own licenses; see the [third-party notices](docs/third-party/README.md).
-
-Contributions use the same AGPL-3.0-only license, and contributors retain their copyright. No separate agreement or signature is required; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bokhylle means *bookshelf* in Norwegian. Its source is licensed under [AGPL-3.0-only](LICENSE), including the network source-availability requirement for modified versions. Contributions use the same license; contributors retain their copyright, with no separate agreement required. Dependencies, fonts, and sample books retain their own terms; see [third-party notices](docs/third-party/README.md) and the [demo rights review](demo/RIGHTS.md).
 
 Copyright © 2026 Bokhylle contributors.

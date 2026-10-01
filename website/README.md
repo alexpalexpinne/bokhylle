@@ -1,5 +1,8 @@
 # Public website
 
+The hosted website is [bokhylle.com](https://bokhylle.com), with the isolated
+demo at [demo.bokhylle.com](https://demo.bokhylle.com).
+
 This directory is Bokhylle's one-page introduction. It explains the product,
 shows the current app, and links to the source and a separate [sample demo](../demo/README.md).
 The site is plain HTML, CSS, and JavaScript with locally hosted fonts. It does
@@ -20,55 +23,49 @@ served from a public domain.
 
 ## Refresh the previews
 
-`assets/demo-library.png` and `assets/demo-library-mobile.png` show the adult
-view of the sample demo's household library. After building the current app and
-starting the local demo, run:
+Home, household library, and EPUB reader previews use the isolated demo's
+selected Standard Ebooks editions and their actual covers. The reader opens
+*Dracula* in **Paper**, matching the other public screenshots. Keep the
+[edition and artwork rights review](../demo/RIGHTS.md) with these assets.
+
+Build the frontend and start the [local demo](../demo/README.md#local-preview),
+then run from the repository root:
 
 ```sh
 pnpm -C frontend install --frozen-lockfile
+pnpm -C frontend build
 node frontend/scripts/capture-website.mjs
 ```
 
 The script requires Chrome and the frontend's installed dependencies. Set
-`BOKHYLLE_DEMO_BASE` if your demo is not at `http://127.0.0.1:8081`. It enters
-the demo as an adult and captures both screen sizes. Check the resulting images
-before committing them. Do not use a household installation for website images.
+`BOKHYLLE_DEMO_BASE` if the local demo is not at `http://127.0.0.1:8081`.
+It checks that demo mode is enabled before entering as an adult, waits for
+fonts and covers, and captures desktop and phone views. It updates both
+`assets/demo-{home,library,reader}*.png` and the matching files in
+`../docs/media/`, so the website and README show the same app and books.
+To refresh just the readers, run `node frontend/scripts/capture-reader.mjs`
+against the same demo.
 
-`assets/demo-reader.png` shows warm reading colors and display settings;
-`assets/demo-reader-mobile.png` shows the default EPUB reader. Both use the
-fictional *Where Maps End*. To refresh them and
-`../docs/media/reader-mobile.png`, build the frontend, start its local preview
-on port 4175, then run `node frontend/scripts/capture-reader.mjs`. The script
-generates a fictional EPUB and mocks the API. Never capture a household library.
+Check every resulting image before committing it. Keep Paper as the canonical
+public appearance. Use a local isolated demo; never point the capture at a
+household installation.
 
-The site uses the app's Paper palette and bookshelf mark. Keep
-`assets/bokhylle-icon.svg` in sync with
-`frontend/public/brand/bokhylle-icon.svg` when changing the brand.
-
-The catalogue previews use fictional titles from
-`node frontend/scripts/capture-docs.mjs`. With the frontend preview running,
-capture `docs/media/catalogues-desktop.png` and `catalogues-mobile.png`, then
-copy them to `assets/catalogues-desktop.png` and `catalogues-mobile.png`.
-The public demo keeps external acquisition disabled.
-
-The household sign-in previews use fictional profiles and illustrated portraits.
-With the built frontend preview running, run:
+The household sign-in preview uses fictional profiles and bundled profile marks.
+The demo has a separate adult/child entry screen, so sign-in is captured with a
+mocked API. After building the frontend, start its preview on port 4173 and run:
 
 ```sh
 BOKHYLLE_DOCS_SELECT=sign-in-desktop.png,sign-in-mobile.png node frontend/scripts/capture-docs.mjs
 cp docs/media/sign-in-{desktop,mobile}.png website/assets/
 ```
 
-The mobile image shows the selected child's PIN panel. The public demo keeps
-its separate adult/child entry screen rather than requiring a password.
+Other detailed feature illustrations in the docs also use fictional data from
+`capture-docs.mjs`. That script leaves the demo-based Home, library, and reader
+assets alone.
 
-Metadata correction previews also use the fictional catalogue. With the built
-frontend preview running, refresh them with:
-
-```sh
-BOKHYLLE_DOCS_SELECT=metadata-corrections-desktop.png,metadata-corrections-mobile.png node frontend/scripts/capture-docs.mjs
-cp docs/media/metadata-corrections-{desktop,mobile}.png website/assets/
-```
+The site uses the app's Paper palette and bookshelf mark. Keep
+`assets/bokhylle-icon.svg` in sync with
+`frontend/public/brand/bokhylle-icon.svg` when changing the brand.
 
 ## Publish the static site
 

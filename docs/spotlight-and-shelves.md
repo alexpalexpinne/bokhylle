@@ -69,6 +69,13 @@ language.
 Continue reading appears for unfinished books reported by browser or KOReader progress
 sync.
 
+Spotlight candidates remain in Recently Added, Rediscover your library, and
+subject or child shelf rails. Featuring a book does not remove it from its
+shelf; even a small shelf can show its books below Spotlight. Empty sections
+remain hidden. Subject rails require at least three eligible books with a
+shared informative subject; books without subject metadata still appear in
+the shelf's recent and rediscovery rails.
+
 ## Personal recommendations
 
 Household ownership alone does not qualify a book for adult Home rails or
@@ -78,6 +85,26 @@ the profile deliberately shelved, requested, or received on its reader. Generic
 catalogue tags such as "fiction" do not establish inferred interests. Bulk claiming books
 does not make every subject a taste signal. Child assignments and another
 profile's likes never establish adult affinity.
+
+Picked for you uses explicit interests and taste derived from likes, requests,
+successful reader sends, deliberate shelf additions, and followed authors.
+Spotlight's taste seeds weight likes at 5, requested/sent shelf entries at 3,
+and manual additions at 1; explicit interests and followed authors also supply
+seeds. Local subject rails rank likes at 5, requests at 3, and successful
+deliveries at 1. Personal affinity selects candidates; available household
+copies determine whether there are enough books for a useful local rail.
+
+Marking a book finished adds no recommendation weight. Its existing like,
+request, send, or deliberate shelf-addition signals remain. Completion is
+engagement, not an explicit preference, and does not exclude the book from
+recommendations.
+
+The isolated demo starts adult visitors with two sample likes, two author
+follows, and reading interests. Curated subjects on the prepared EPUBs allow
+the normal local recommendation rules to produce useful rails. Demo Picked
+for you and followed-author discoveries use those sample copies, with local
+covers and book links; they never query an external catalogue. Child profiles
+retain their assigned shelves and receive none of the adult's seeded taste.
 
 Hidden subjects and "not for me" exclude local recommendation candidates,
 including backfill candidates. Sparse profiles can choose reading interests

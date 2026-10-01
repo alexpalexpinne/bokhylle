@@ -39,19 +39,25 @@ type-check, tests and the production build).
 
 ## README screenshots
 
-The root README uses fictional books and generated covers so no household data
-appears in the repository. Build and preview the current frontend, then capture
-the desktop and phone library and desktop Home views in another terminal:
+The root README and website use the isolated demo's selected Standard Ebooks
+editions and their actual covers. Build the current frontend, start the
+[local demo](../demo/README.md#local-preview), and capture Home, library, and
+reader views at desktop and phone sizes:
 
 ```sh
 pnpm -C frontend build
-pnpm -C frontend preview --host 127.0.0.1 --port 4173 --strictPort
+node frontend/scripts/capture-website.mjs
 ```
 
-```sh
-node frontend/scripts/capture-docs.mjs
-```
+Set `BOKHYLLE_DEMO_BASE` if the local demo is not at `http://127.0.0.1:8081`.
+The script requires Chrome, checks that demo mode is enabled, and updates
+matching images in `docs/media/` and `website/assets/`. Reader previews use
+**Paper**. Inspect the images before committing them; never capture a household
+installation. See [website previews](../website/README.md#refresh-the-previews)
+and the [edition rights review](../demo/RIGHTS.md).
 
-Set `BOKHYLLE_DOCS_BASE` if the preview uses a different address. The script
-requires Chrome and writes to `docs/media/`. Inspect the images before committing
-them, especially after changing Home or Library layout.
+Detailed feature illustrations still use fictional data from
+`node frontend/scripts/capture-docs.mjs`, with the built frontend preview
+running on port 4173. Set `BOKHYLLE_DOCS_BASE` to change that address or
+`BOKHYLLE_DOCS_SELECT` to select comma-separated image filenames. These captures
+leave the demo-based Home, library, and reader previews alone.

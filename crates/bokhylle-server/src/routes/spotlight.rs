@@ -617,6 +617,20 @@ pub async fn spotlight(
         Vec::new()
     };
 
+    // Demo suggestions use eligible, unshelved sample copies and the normal
+    // personal filters. No external catalogue is consulted in demo mode.
+    let mut recommendations = if discover_enabled && state.demo.is_some() {
+        household_rows
+            .iter()
+            .cloned()
+            .map(|row| {
+                let reason = reason_for("household", &taste, row.10, row.11);
+                slide(row, "household", "household", reason)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut items: Vec<SpotlightItem> = Vec::new();
     let mut shelf_queue = shelf_rows.into_iter();
     let mut household_queue = household_rows.into_iter();
@@ -630,8 +644,7 @@ pub async fn spotlight(
         items.push(slide(row, "household", "household", reason));
     }
 
-    let mut recommendations = Vec::new();
-    if discover_enabled {
+    if discover_enabled && state.demo.is_none() {
         let excluded_keys: HashSet<(String, String)> = if child {
             sqlx::query_as(
                 "SELECT DISTINCT ids.provider, ids.provider_key

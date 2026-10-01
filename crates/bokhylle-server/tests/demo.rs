@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
+use bokhylle_metadata::{MetadataResult, testing::FakeMetadataProvider};
 use bokhylle_server::app;
 use bokhylle_server::auth::Role;
 use bokhylle_server::demo::{DemoState, validate_installation};
@@ -48,6 +49,239 @@ async fn get_json(router: &axum::Router, path: &str, session: &str) -> serde_jso
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
+    let provider = Arc::new(FakeMetadataProvider::default());
+    provider.set_failing(true);
+    let test = common::test_app_with_metadata(provider.clone()).await;
+    let mut ids = std::collections::HashMap::new();
+    for (title, author) in [
+        ("Dracula", "Bram Stoker"),
+        ("The Picture of Dorian Gray", "Oscar Wilde"),
+        ("Frankenstein", "Mary Shelley"),
+        ("Jane Eyre", "Charlotte Brontë"),
+        ("Wuthering Heights", "Emily Brontë"),
+        ("A Christmas Carol", "Charles Dickens"),
+        ("Great Expectations", "Charles Dickens"),
+        ("Emma", "Jane Austen"),
+        ("Persuasion", "Jane Austen"),
+        ("Sense and Sensibility", "Jane Austen"),
+        ("Treasure Island", "Robert Louis Stevenson"),
+        ("The Secret Garden", "Frances Hodgson Burnett"),
+        ("An unrelated sample", "Test Author"),
+    ] {
+        let metadata = MetadataResult {
+            provider: "fake".into(), provider_key: title.into(), title: title.into(),
+            authors: vec![author.into()], language: Some("en".into()),
+            description: Some("This isolated test description supplies enough fictional copy for the Spotlight excerpt. A reader finds a story among familiar books and discovers an unexpected place to begin.".into()),
+            ..Default::default()
+        };
+        let id = bokhylle_server::library::import_metadata::upsert_book_from_metadata(
+            &test.state.db,
+            &metadata,
+        )
+        .await
+        .unwrap();
+        let edition: i64 = sqlx::query_scalar("SELECT id FROM editions WHERE book_id = ?")
+            .bind(id)
+            .fetch_one(&test.state.db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO book_files (edition_id, path, format, size, sha256) VALUES (?, ?, 'epub', 1, ?)")
+            .bind(edition).bind(format!("demo-{id}.epub")).bind(format!("demo-{id}"))
+            .execute(&test.state.db).await.unwrap();
+        ids.insert(title, id);
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM book_subjects")
+            .fetch_one(&test.state.db)
+            .await
+            .unwrap(),
+        0
+    );
+    let mut state = test.state.clone();
+    state.demo = Some(Arc::new(DemoState::default()));
+    let router = app(state.clone());
+    let response = enter(&router, "adult").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = cookie(&response);
+    let user = get_json(&router, "/api/auth/me", &first).await;
+    let user_id = user["user"]["id"].as_i64().unwrap();
+    let rails = get_json(&router, "/api/home/rails", &first).await;
+    let liked = rails
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rail| rail["title"] == "Based on books you liked")
+        .expect("likes produce a local rail");
+    assert!(liked["books"].as_array().unwrap().len() >= 3);
+    assert!(
+        rails
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rail| rail["subject"] == "gothic fiction")
+    );
+    let spotlight = get_json(&router, "/api/home/spotlight", &first).await;
+    assert!(!spotlight["recommendations"].as_array().unwrap().is_empty());
+    for item in spotlight["recommendations"].as_array().unwrap() {
+        let id = item["bookId"].as_i64().unwrap();
+        assert_eq!(item["cta"], "explore");
+        assert!(
+            !bokhylle_server::user_books::contains(&state.db, user_id, id)
+                .await
+                .unwrap()
+        );
+    }
+    let updates = get_json(&router, "/api/home/updates", &first).await;
+    assert_eq!(updates["discoveries"].as_array().unwrap().len(), 4);
+    assert!(
+        updates["discoveries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["provider"] == "local")
+    );
+    assert_eq!(
+        provider.calls(),
+        0,
+        "demo Home never contacts an external provider"
+    );
+
+    // Completion adds no taste weight and does not erase the seeded like.
+    sqlx::query("INSERT INTO user_book_completions (user_id, book_id) VALUES (?, ?)")
+        .bind(user_id)
+        .bind(ids["Dracula"])
+        .execute(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(get_json(&router, "/api/home/rails", &first).await, rails);
+    assert_eq!(
+        get_json(&router, "/api/home/spotlight", &first).await,
+        spotlight
+    );
+
+    // A new visitor must not restore this visitor's removed like or follow.
+    bokhylle_server::user_books::set_preference(&state.db, user_id, ids["Dracula"], None)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM author_follows WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    let second = cookie(&enter(&router, "adult").await);
+    assert_eq!(
+        bokhylle_server::user_books::preference(&state.db, user_id, ids["Dracula"])
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(
+        bokhylle_server::follows::followed_authors(&state.db, user_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        get_json(&router, "/api/home/updates", &second).await["discoveries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM book_subjects WHERE book_id = ?")
+            .bind(ids["An unrelated sample"])
+            .fetch_one(&state.db)
+            .await
+            .unwrap(),
+        0
+    );
+
+    let hidden = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/home/subjects/gothic%20fiction")
+                .header(header::COOKIE, &first)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"hidden":true}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(hidden.status(), StatusCode::NO_CONTENT);
+    assert!(
+        !get_json(&router, "/api/home/rails", &first)
+            .await
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rail| rail["subject"] == "gothic fiction")
+    );
+    assert!(
+        get_json(&router, "/api/home/rails", &second)
+            .await
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|rail| rail["subject"] == "gothic fiction")
+    );
+
+    let switched = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/demo/switch")
+                .header(header::COOKIE, &first)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let child_cookie = cookie(&switched);
+    let child = get_json(&router, "/api/auth/me", &child_cookie).await;
+    let child_id = child["user"]["id"].as_i64().unwrap();
+    assert!(
+        bokhylle_server::follows::followed_authors(&state.db, child_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM user_books WHERE user_id = ? AND preference = 'liked'"
+        )
+        .bind(child_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap(),
+        0
+    );
+    let child_spotlight = get_json(&router, "/api/home/spotlight", &child_cookie).await;
+    assert!(
+        child_spotlight["recommendations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    for item in child_spotlight["items"].as_array().unwrap() {
+        assert!(
+            bokhylle_server::user_books::contains(
+                &state.db,
+                child_id,
+                item["bookId"].as_i64().unwrap()
+            )
+            .await
+            .unwrap()
+        );
+    }
+    assert_eq!(provider.calls(), 0);
 }
 
 #[tokio::test]

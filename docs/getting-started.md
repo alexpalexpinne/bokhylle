@@ -104,6 +104,12 @@ Your deliberate household searches still include books outside your shelf.
 
 Home shows a book spotlight, **Picked for you**, **From authors you follow**, **Continue reading**, **Recently Added**, **Rediscover your library**, subject rows, **Because you requested…**, **Based on books you liked**, collections, and authors when there is content for them. Subject and taste rows use books already in the library; **Picked for you** can suggest books from the catalogue. The hero uses familiar wording such as **Staff picks**, without the catalogue provider's name.
 
+Picked for you uses the overall taste profile: selected interests, likes,
+requests, successful reader sends, deliberate shelf additions, and followed
+authors. Marking a book finished adds no recommendation weight, but its
+existing taste signals remain. Local personalised rails need at least three
+suitable books; Continue reading and other shelf rows can show fewer.
+
 You can download an available EPUB or PDF repeatedly without adding another library copy or changing shelf membership. **Get** shares an active acquisition for the same book and accepted-language variant. The finished file enters the shared library once, while only the requester gains a shelf entry automatically. Children receive only books an administrator assigns or approves.
 
 Author pages can show a short biography and dates from Open Library when the author has a known Open Library ID or an exact name match can be resolved. The source is linked on the page. These optional details are cached and may be absent; the local books and follow controls remain available if Open Library is slow or unavailable. Child profiles cannot open author pages.
@@ -175,7 +181,36 @@ Configure SMTP in Settings → Delivery if you want email delivery. Adults add a
 
 Adults can change their profile picture from Profile; children can do so from My settings. Both offer ten Bokhylle profile marks: fox, owl, cat, bear, whale, book, tree, mountain, moon, and leaf. Initials remain the default; no mark is assigned automatically. An administrator can optionally choose a mark when creating or editing any household account. Marks are the same for adults and children. A personal photo takes precedence, and removing it restores the chosen mark or initials. Either page also accepts a PNG, JPEG, or WebP image up to 1 MB by choosing or dragging it in. My settings also lets a child choose the Paper/Ink app theme and EPUB text size for the current browser. The account menu has an in-app Help page for finding books, understanding personal and household shelves, and setting up readers. Profile Overview shows personal shelf, followed-author, liked-book, and sent-book counts. Sent books are distinct books successfully delivered by that profile; repeat sends of one book count once. Reader setup has one Add reader action beside My readers when readers exist, or inside the empty state when none exist. If a page's assets change while Bokhylle is open, the app refreshes once to load the new build and shows a recovery page if loading still fails.
 
-An assistant with a write-enabled agent token can use `search_books` with `scope: "catalogue"`, then `add_catalogue_book` with the returned `provider` and `providerKey` to start an acquisition for an adult profile allowed to add shared books. Existing local books still use `add_book` with `bookId`. Child profiles and adults without acquisition permission can use `request_book` for a catalogue result; administrators decide those requests. `add_catalogue_book` accepts optional `preferredFormat`, `preferredLanguage`, and `sendToReader` values. The response includes `bookId`, acquisition `id`, `status`, and `duplicate`.
+## Connect an assistant with MCP
+
+Bokhylle exposes a Model Context Protocol (MCP) server at `/mcp`. Use an
+assistant client that supports Streamable HTTP with bearer-token authentication.
+To connect an adult profile:
+
+1. Open **Profile → Integrations**, name the connection under **AI & integrations**, and choose
+   **Read only** or **Read & write**, then select **Create token**.
+2. Copy the token while it is displayed; it is shown only once.
+3. Add your instance's MCP URL (for example, `https://books.example.com/mcp`)
+   to your assistant client and supply the token as its bearer credential.
+
+Read-only connections can search the library or public catalogue, inspect books
+and reading progress, list the profile's shelf, and view requests. Read & write
+connections can also get or request books and send available books to a
+configured reader. Acquisition and delivery need the same configured sources
+and reader setup as the web app. Every tool follows the token's profile
+permissions, including child shelf restrictions and request approval. Revoke a
+connection from **AI & integrations** when you no longer use it. The public
+demo disables MCP.
+
+For client integrations, `search_books` with `scope: "catalogue"` returns
+`provider` and `providerKey` values that `add_catalogue_book` can use to start
+an acquisition for an adult profile allowed to add shared books. Existing local
+books use `add_book` with `bookId`. Child profiles and adults without acquisition
+permission can use `request_book` for a catalogue result; administrators decide
+those requests. `add_catalogue_book` accepts optional `preferredFormat`,
+`preferredLanguage`, and `sendToReader` values. Its response includes `bookId`,
+acquisition `id`, `status`, and `duplicate`. These actions require a write-enabled
+agent token.
 
 ## Child profiles
 
