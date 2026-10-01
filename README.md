@@ -10,7 +10,9 @@
 
 Bokhylle is a self-hosted book library for your household. Keep your EPUB, PDF, and CBZ files in one shared collection, while each reader has a personal shelf. Discover your next book, read in the browser, or send it to your reading device.
 
-[Try the demo](https://demo.bokhylle.com) · [Install with Docker Compose](#start-with-docker-compose) · [Visit the website](https://bokhylle.com)
+<p align="center">
+  <a href="https://demo.bokhylle.com">Try the demo</a> · <a href="#start-with-docker-compose">Install with Docker Compose</a> · <a href="https://bokhylle.com">Visit the website</a>
+</p>
 
 <p align="center">
   <img src="docs/media/home-desktop.png" alt="Bokhylle Home in Paper, featuring Dracula and recommendations with the selected demo books' covers" width="100%">
