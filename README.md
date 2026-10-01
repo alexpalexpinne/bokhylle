@@ -84,7 +84,7 @@ docker compose -f compose.yaml -f compose.image.yaml up -d --no-build bokhylle
 
 Open [localhost:8080](http://localhost:8080) on the host, sign in as the administrator, place EPUB, PDF, or CBZ files in `data/library`, and run **Scan library** from Settings → Library. You can add the optional acquisition services later.
 
-The Compose defaults are intended for a trusted local network. For access outside your LAN, use an HTTPS reverse proxy and set `BOKHYLLE_SECURE_COOKIES=true`. See [Getting started](docs/getting-started.md) for volume permissions, integrations, and network setup, and [Operations](docs/operations.md) for backups, restores, and updates. The [documentation index](docs/README.md) links the other guides.
+The Compose defaults are intended for a trusted local network. For access outside your LAN, use an HTTPS reverse proxy and set `BOKHYLLE_SECURE_COOKIES=true`. See [Getting started](docs/getting-started.md) for volume permissions, integrations, and network setup, and [Operations](docs/operations.md) for backups, restores, and updates. Administrators can use **Settings → Server** to check build and storage health, configure database backups, see available releases, and copy diagnostics. The [documentation index](docs/README.md) links the other guides.
 
 To build from source, use `docker compose up -d --build`. For image updates, follow [the image overlay instructions](docs/operations.md#published-image). Optional Jackett and SABnzbd examples are in [Getting started](docs/getting-started.md#optional-jackett-and-sabnzbd-containers).
 

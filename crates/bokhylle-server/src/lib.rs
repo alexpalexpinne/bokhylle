@@ -36,6 +36,7 @@ pub mod reader_tokens;
 pub mod remote_http;
 mod routes;
 pub use routes::image_cache::prune as prune_image_cache;
+pub mod server;
 pub mod services;
 pub mod settings;
 pub mod updates;
@@ -74,6 +75,7 @@ pub struct AppState {
     pub pipeline: Arc<PipelineGuard>,
     pub imports: Arc<PipelineGuard>,
     pub demo: Option<Arc<demo::DemoState>>,
+    pub server: Arc<server::ServerRuntime>,
 }
 
 pub fn app(state: AppState) -> Router {

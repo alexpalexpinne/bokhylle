@@ -76,7 +76,7 @@ export function Layout() {
         </div>
       </header>
 
-      {demo && <div className="border-b border-line bg-surface-2 px-4 py-2 text-center text-xs text-ink-muted">Public demo · Get and Send use sample books · No outside download or email · Changes may reset at any time</div>}
+      {demo && <div role="region" aria-label="Public demo" className="border-b border-line bg-surface-2 px-4 py-2 text-center text-xs text-ink-muted">Public demo · Get and Send use sample books · No outside download or email · Changes may reset at any time</div>}
 
       <main className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
         <Outlet />

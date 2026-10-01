@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
 import { signInProfiles } from './sign-in-preview.mjs'
+import { serverPreview } from './server-preview.mjs'
 
 const base = process.env.BOKHYLLE_DOCS_BASE ?? 'http://127.0.0.1:4173'
 const output = fileURLToPath(new URL('../../docs/media/', import.meta.url))
@@ -97,6 +98,7 @@ const user = {
   notificationEmail: null, emailNotifications: false,
   canAcquire: true, avatarPreset: 'book', avatarVersion: null,
 }
+const serverState = serverPreview()
 
 function responseFor(url, adminPreview = false) {
   const path = url.pathname
@@ -119,6 +121,10 @@ function responseFor(url, adminPreview = false) {
     settings: { 'imports.watch_enabled': true, 'imports.watch_folder': '/config/ingest' },
     envOverrides: {}, secretsConfigured: {},
   }
+  if (path === '/api/admin/server') return serverState.server
+  if (path === '/api/admin/server/restart') return []
+  if (path === '/api/admin/maintenance/backups') return serverState.backups
+  if (path === '/api/admin/server/updates') return serverState.updates
   if (path === '/api/admin/integrations/status') {
     const unused = { configured: false, ok: false, version: null, error: null }
     return {
@@ -222,6 +228,8 @@ try {
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
     ['/settings/getting-books', 'acquisition-settings-desktop.png', 1440, 900, 'Import folder'],
+    ['/settings/server', 'server-desktop.png', 1440, 1000, 'Diagnostics'],
+    ['/settings/server', 'server-mobile.png', 390, 844, 'Diagnostics'],
     ['/profile', 'profile-marks-mobile.png', 390, 844, 'My profile'],
     ['/settings/household', 'child-access-desktop.png', 1280, 900, 'Household users'],
     ['/settings/household', 'child-starting-books-desktop.png', 1280, 900, 'Household users'],
@@ -323,7 +331,7 @@ try {
       await page.getByRole('button', { name: 'Fix details', exact: true }).click()
       await page.getByRole('dialog', { name: 'Fix details', exact: true }).waitFor()
     }
-    await page.screenshot({ path: join(output, name), fullPage: path === '/' || path === '/series/42' || path.startsWith('/settings') || (reviewPreview && name !== 'import-review-preview-desktop.png') })
+    await page.screenshot({ path: join(output, name), fullPage: name !== 'server-mobile.png' && (path === '/' || path === '/series/42' || path.startsWith('/settings') || (reviewPreview && name !== 'import-review-preview-desktop.png')) })
     await page.close()
   }
 } finally {

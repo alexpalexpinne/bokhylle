@@ -80,7 +80,7 @@ def main():
             def create():
                 name = "bokhylle-image-check-" + uuid.uuid4().hex[:12]
                 owned = [name + "-" + part for part in ("config", "library", "downloads")]
-                command = ["create", "--name", name, "--publish", "127.0.0.1::8080", "--env", "BOKHYLLE_ADMIN_PASSWORD=" + PASSWORD, "--env", "BOKHYLLE_SCAN_ON_STARTUP=false"]
+                command = ["create", "--name", name, "--publish", "127.0.0.1::8080", "--env", "BOKHYLLE_ADMIN_PASSWORD=" + PASSWORD, "--env", "BOKHYLLE_SCAN_ON_STARTUP=false", "--env", "BOKHYLLE_UPDATE_CHECKS=false"]
                 for volume, mount in zip(owned, ("/config", "/library", "/downloads")):
                     command += ["--mount", f"type=volume,src={volume},dst={mount}"]
                 docker(*command, args.image)
@@ -98,6 +98,16 @@ def main():
             request(client, base, "/api/auth/me")
             request(client, base, "/api/health")
             assert b"/assets/" in request(client, base, "/"), "built frontend is missing"
+            server_status = json.loads(request(client, base, "/api/admin/server"))
+            assert server_status["build"]["installation"] == "docker", "image build identity is missing"
+            assert server_status["build"]["builtAt"] > 0
+            assert server_status["databaseOk"] and not server_status["restartRequired"]
+            updates = json.loads(request(client, base, "/api/admin/server/updates"))
+            assert updates["automaticChecks"] is False and updates["state"] == "not_checked"
+            diagnostics = request(client, base, "/api/admin/server/diagnostics")
+            assert json.loads(diagnostics)["formatVersion"] == 1
+            assert PASSWORD.encode() not in diagnostics
+            assert not any(private in diagnostics for private in (b'"path":', b'"username":', b'"url":'))
             docker("exec", name, "mkdir", "-p", "/config/ingest")
             docker("cp", str(fixture), name + ":/config/ingest/" + fixture.name)
             docker("exec", "--user", "0", name, "chown", "10001:10001", "/config/ingest/" + fixture.name)
@@ -148,7 +158,7 @@ def main():
             docker("cp", restored + ":" + saved_path, str(retrieved))
             assert hashlib.sha256(retrieved.read_bytes()).hexdigest() == digest
             request(restored_client, restored_base, "/api/health")
-            print("Image verified: fresh install, assets, filename import, restart, database/library restore, non-root runtime")
+            print("Image verified: fresh install, assets, server administration, diagnostics, filename import, restart, database/library restore, non-root runtime")
     except Exception:
         for name in containers:
             print(docker("logs", name)[-8000:])

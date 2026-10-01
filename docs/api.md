@@ -197,7 +197,27 @@ the async runtime, at most two at a time, with a 1 MB input cap, 4096-pixel
 dimension limits, and a 64 MB allocation limit. No additional profile details
 or original image bytes are exposed by the thumbnail endpoint.
 
-## Updating the contract
+## Server administration
+
+Server administration is restricted to administrators:
+
+- `GET /api/admin/server` returns build identity, uptime, database responsiveness,
+  effective restart notices, and storage grouped by filesystem.
+- `GET /api/admin/server/restart` returns only the startup settings that differ
+  from the running configuration, without reading storage or exporting values.
+- `GET /api/admin/maintenance/backups` includes persisted backup attempts,
+  successes, failures, inventory availability, and the next scheduled attempt.
+  `backups.interval_hours` and `backups.keep` are changed through the settings API.
+- `GET /api/admin/server/diagnostics` generates the allowlisted structured report
+  described in [Operations](operations.md#server-administration). Raw logs remain
+  separate at `GET /api/admin/logs`.
+- `GET /api/admin/server/updates` reads the persisted stable-release cache;
+  `POST` checks GitHub subject to a one-minute minimum interval. Offline and
+  failed checks retain the last known release and report `unavailable`. Scheduled
+  checks follow `updates.check_enabled`, with `BOKHYLLE_UPDATE_CHECKS` taking
+  precedence. These routes do not update or restart the installation.
+
+## Regenerating the contract
 
 After changing HTTP routes or their data shapes, run:
 

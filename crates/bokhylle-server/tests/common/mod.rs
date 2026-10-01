@@ -209,6 +209,11 @@ async fn build(options: BuildOptions) -> TestApp {
         ratings.clone(),
     ));
 
+    let server = Arc::new(
+        bokhylle_server::server::ServerRuntime::capture(&settings, &paths)
+            .await
+            .expect("server runtime"),
+    );
     let state = AppState {
         db: pool.clone(),
         settings,
@@ -223,6 +228,7 @@ async fn build(options: BuildOptions) -> TestApp {
         pipeline: Arc::new(bokhylle_server::acquisition_pipeline::PipelineGuard::default()),
         imports: Arc::new(bokhylle_server::acquisition_pipeline::PipelineGuard::default()),
         demo: None,
+        server,
     };
 
     TestApp {

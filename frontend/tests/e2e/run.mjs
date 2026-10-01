@@ -6,6 +6,7 @@ import sessionExpirySpec from './specs/session-expiry.mjs'
 import themeSpec from './specs/theme.mjs'
 import discoverSpec from './specs/discover.mjs'
 import settingsSpec from './specs/settings.mjs'
+import serverAdministrationSpec from './specs/server-administration.mjs'
 import requestsSpec from './specs/requests.mjs'
 import activitySpec from './specs/activity.mjs'
 import librarySpec from './specs/library.mjs'
@@ -26,6 +27,7 @@ import childSetupSpec from './specs/child-setup.mjs'
 import profileMarksSpec from './specs/profile-marks.mjs'
 import bookDetailSpec from './specs/book-detail.mjs'
 import demoSpec from './specs/demo.mjs'
+import demoEntrySpec from './specs/demo-entry.mjs'
 import discoverDeepLinkSpec from './specs/discover-deep-link.mjs'
 import classificationReviewSpec from './specs/classification-review.mjs'
 import seriesProgressSpec from './specs/series-progress.mjs'
@@ -65,6 +67,7 @@ const allSpecs = [
   { name: 'theme', run: themeSpec, auth: false },
   { name: 'discover', run: discoverSpec, auth: true },
   { name: 'settings', run: settingsSpec, auth: true },
+  { name: 'server-administration', run: serverAdministrationSpec, auth: false },
   { name: 'catalogues', run: cataloguesSpec, auth: true },
   { name: 'requests', run: requestsSpec, auth: true },
   { name: 'activity', run: activitySpec, auth: true },
@@ -86,6 +89,7 @@ const allSpecs = [
   { name: 'profile-marks', run: profileMarksSpec, auth: false },
   { name: 'book-detail', run: bookDetailSpec, auth: false },
   { name: 'demo', run: demoSpec, auth: false },
+  { name: 'demo-entry', run: demoEntrySpec, auth: false },
   { name: 'discover-deep-link', run: discoverDeepLinkSpec, auth: false },
   { name: 'classification-review', run: classificationReviewSpec, auth: false },
   { name: 'series-progress', run: seriesProgressSpec, auth: false },

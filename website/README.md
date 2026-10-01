@@ -51,8 +51,10 @@ public appearance. Use a local isolated demo; never point the capture at a
 household installation.
 
 The household sign-in preview uses fictional profiles and bundled profile marks.
-The demo has a separate adult/child entry screen, so sign-in is captured with a
-mocked API. After building the frontend, start its preview on port 4173 and run:
+The demo uses the same **Who’s reading?** picker with adult and child choices and
+no password. The household preview uses a mocked API to show named profiles and
+their chosen marks. After building the frontend, start its preview on port 4173
+and run:
 
 ```sh
 BOKHYLLE_DOCS_SELECT=sign-in-desktop.png,sign-in-mobile.png node frontend/scripts/capture-docs.mjs

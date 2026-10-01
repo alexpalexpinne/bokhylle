@@ -3,10 +3,15 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { type AuthMode, type LoginUser, fetchLoginUsers } from '../api/auth'
 import { BrandLockup } from '../components/BrandLockup'
-import { ProfileAvatar } from '../components/ProfileAvatar'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../auth/useAuth'
+import { LoginProfileButton } from './login/LoginProfileButton'
 import { loginMotion, useLoginMotion } from './login/useLoginMotion'
+
+const demoProfiles = [
+  { kind: 'adult', username: 'demo-adult', displayName: 'Adult reader', avatarUrl: null, avatarPreset: null },
+  { kind: 'child', username: 'demo-child', displayName: 'Child reader', avatarUrl: null, avatarPreset: null },
+] as const
 
 export function Login() {
   const { user, loading, login, demo, enterDemo } = useAuth()
@@ -119,6 +124,7 @@ export function Login() {
   }
 
   async function enter(profile: 'adult' | 'child') {
+    if (submitting) return
     setSubmitting(true)
     setError(null)
     try {
@@ -133,21 +139,23 @@ export function Login() {
 
   return (
     <main ref={mainRef} className="flex min-h-dvh flex-col items-center justify-center px-6 py-12" style={motion.layoutStyle}>
-      <div ref={contentRef} className={`w-full ${demo ? 'max-w-sm' : 'max-w-xl'}`}>
+      <div ref={contentRef} className="w-full max-w-xl">
         <div className="flex flex-col items-center text-center">
           <BrandLockup large stacked />
           {demo && <p className="mt-5 font-sans text-[11px] font-medium uppercase tracking-[0.24em] text-ink-muted">Public demo</p>}
-          <h1 className="mt-8 font-display text-hero text-ink">{demo ? 'Come in and browse' : formOpen ? 'Sign in' : 'Who’s reading?'}</h1>
+          <h1 className="mt-8 font-display text-hero text-ink">{formOpen ? 'Sign in' : 'Who’s reading?'}</h1>
         </div>
         {demo ? (
-          <div className="mt-9 border-t border-line pt-5">
-            <p className="mb-4 text-sm text-ink-muted">Explore a sample household library. Enter as an adult to see a child book request in Notifications. Changes may reset at any time.</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button variant="primary" disabled={submitting} onClick={() => void enter('adult')}>Enter as adult</Button>
-              <Button variant="secondary" disabled={submitting} onClick={() => void enter('child')}>Enter as child</Button>
+          <>
+            <div role="group" aria-label="Household profiles" aria-busy={submitting} className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-5">
+              {demoProfiles.map((profile) => (
+                <LoginProfileButton key={profile.kind} profile={profile} style={{ width: '7rem' }} disabled={submitting} onClick={() => void enter(profile.kind)} />
+              ))}
             </div>
-            {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
-          </div>
+            {submitting && <p role="status" className="sr-only">Opening your shelf…</p>}
+            <p className="mx-auto mt-8 max-w-sm border-t border-line pt-5 text-center text-sm text-ink-muted">Explore a sample household library. Choose a profile to start; no password is needed. Changes may reset at any time.</p>
+            {error && <p role="alert" className="mt-4 text-center text-sm text-danger">{error}</p>}
+          </>
         ) : (
           <>
             {profilesLoading ? (
@@ -162,29 +170,19 @@ export function Login() {
                 style={{ height: selected ? motion.profileHeight : undefined, transitionDuration: `${loginMotion.slideMs}ms` }}
               >
                 {users.map((profile) => (
-                  <button
+                  <LoginProfileButton
                     key={profile.username}
-                    type="button"
+                    profile={profile}
+                    selected={selected === profile}
                     hidden={selected !== null && selected !== profile && motion.stage !== 'fading'}
                     aria-hidden={selected !== null && selected !== profile ? true : undefined}
                     inert={selected !== null && selected !== profile}
-                    data-profile-username={profile.username}
                     aria-pressed={selected === profile}
                     aria-expanded={selected === profile}
                     aria-controls="sign-in-panel"
                     disabled={submitting}
                     onClick={(event) => choose(profile, event.currentTarget)}
-                    className={selected !== null && selected !== profile && motion.stage !== 'fading' ? 'hidden' : 'group flex w-24 flex-col items-center gap-3 rounded-[3px] py-1 text-center disabled:opacity-60 sm:w-28'}
-                  >
-                    <ProfileAvatar
-                      user={profile}
-                      src={profile.avatarUrl}
-                      className={`h-20 w-20 text-3xl ring-2 ring-offset-4 ring-offset-canvas transition-[box-shadow] ${selected === profile ? 'ring-accent' : 'ring-transparent group-hover:ring-line'}`}
-                    />
-                    <span className={`w-full break-words font-display text-lg leading-snug transition-colors ${selected === profile ? 'text-accent' : 'text-ink group-hover:text-accent'}`}>
-                      {profile.displayName || profile.username}
-                    </span>
-                  </button>
+                  />
                 ))}
               </div>
             )}

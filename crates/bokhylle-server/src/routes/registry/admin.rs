@@ -4,6 +4,22 @@ use aide::axum::ApiRouter;
 pub(super) fn router() -> ApiRouter<AppState> {
     ApiRouter::new()
         .api_route(
+            "/api/admin/server",
+            aide::axum::routing::get(routes::server::status),
+        )
+        .api_route(
+            "/api/admin/server/restart",
+            aide::axum::routing::get(routes::server::restart),
+        )
+        .api_route(
+            "/api/admin/server/diagnostics",
+            aide::axum::routing::get(routes::server::diagnostics),
+        )
+        .api_route(
+            "/api/admin/server/updates",
+            aide::axum::routing::get(routes::server::updates).post(routes::server::check_updates),
+        )
+        .api_route(
             "/api/admin/users",
             aide::axum::routing::get(routes::admin::list_users).post(routes::admin::create_user),
         )

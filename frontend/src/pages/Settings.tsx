@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { PageHeader } from '../components/ui/PageHeader'
 import { SettingsFields } from './settings/SettingsFields'
@@ -10,6 +11,8 @@ import {
   WatchFolderStatus,
 } from './settings/HealthPanels'
 import { MaintenanceTools } from './settings/MaintenanceTools'
+import { ServerSettings } from './settings/ServerSettings'
+import { RestartNotice } from './settings/RestartNotice'
 
 const sections: { id: SettingsSection; label: string; description: string }[] = [
   { id: 'overview', label: 'Overview', description: 'The state of your library and connected services.' },
@@ -18,12 +21,14 @@ const sections: { id: SettingsSection; label: string; description: string }[] = 
   { id: 'getting-books', label: 'Getting books', description: 'Sources, download clients, imports, and retries.' },
   { id: 'metadata', label: 'Metadata', description: 'Book information, ratings, and enrichment.' },
   { id: 'delivery', label: 'Delivery', description: 'Email books to readers.' },
-  { id: 'server', label: 'Server', description: 'Security, backups, and diagnostics.' },
+  { id: 'server', label: 'Server', description: 'Build, storage, backups, updates, and diagnostics.' },
 ]
 
 export function Settings() {
   const navigate = useNavigate()
   const { section, connection } = useParams()
+  const [revision, setRevision] = useState(0)
+  const settingsSaved = () => setRevision((value) => value + 1)
   const active = sections.find((item) => item.id === (section ?? 'overview'))
   if (!active || (connection && active.id !== 'getting-books')) {
     return <Navigate to="/settings" replace />
@@ -84,23 +89,25 @@ export function Settings() {
           ))}
         </nav>
         <div className="min-w-0 space-y-10">
+          <RestartNotice revision={`${section}/${connection}/${revision}`} />
           {active.id === 'overview' && <SettingsOverview />}
           {active.id === 'household' && <HouseholdUsers />}
           {active.id === 'library' && (
             <>
               <LibraryHealthPanel />
-              <SettingsFields key="library" groups={sectionGroups} />
+              <SettingsFields key="library" groups={sectionGroups} onSaved={settingsSaved} />
               <MaintenanceTools kind="library" />
             </>
           )}
           {active.id === 'getting-books' && (
             connectionGroup ? (
-              <SettingsFields key={connection} groups={[connectionGroup]} />
+              <SettingsFields key={connection} groups={[connectionGroup]} onSaved={settingsSaved} />
             ) : (
               <>
                 <GettingBooksConnections />
                 <SettingsFields
                   key="getting-books"
+                  onSaved={settingsSaved}
                   groups={sectionGroups.filter(
                     (group) => !Object.values(connectionTitles).includes(group.title),
                   )}
@@ -112,7 +119,7 @@ export function Settings() {
           )}
           {active.id === 'metadata' && (
             <>
-              <SettingsFields key="metadata" groups={sectionGroups} />
+              <SettingsFields key="metadata" groups={sectionGroups} onSaved={settingsSaved} />
               <MaintenanceTools kind="metadata" />
             </>
           )}
@@ -124,14 +131,11 @@ export function Settings() {
                 Set up a child&apos;s reader from <Link to="/settings/household" className="text-accent underline hover:text-accent-strong">Household</Link>.
                 The Kindle address below is a household fallback.
               </p>
-              <SettingsFields key="delivery" groups={sectionGroups} />
+              <SettingsFields key="delivery" groups={sectionGroups} onSaved={settingsSaved} />
             </>
           )}
           {active.id === 'server' && (
-            <>
-              <SettingsFields key="server" groups={sectionGroups} />
-              <MaintenanceTools kind="server" />
-            </>
+            <ServerSettings groups={sectionGroups} onSaved={settingsSaved} />
           )}
         </div>
       </div>

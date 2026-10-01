@@ -41,6 +41,7 @@ roxmltree = "0.21.1"
 url = "2.5.8"
 aide = { version = "0.15.1", features = ["axum", "axum-json", "axum-query", "http"] }
 schemars = "0.9"
+semver = "1"
 
 [dev-dependencies]
 rmcp = { version = "3.4.0", features = ["client", "transport-streamable-http-client-reqwest"] }

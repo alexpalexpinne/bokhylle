@@ -4,8 +4,10 @@ Try the hosted demo at [demo.bokhylle.com](https://demo.bokhylle.com). It resets
 daily at 04:00 UTC; visitor changes are disposable.
 
 The demo is a disposable Bokhylle installation with 26 sample EPUBs from
-Standard Ebooks. Visitors can enter as an adult or child without creating an
-account. It runs separately from a household installation and uses only
+Standard Ebooks. New visitors start at **Who’s reading?**, the household profile
+picker. Choose **Adult reader** or **Child reader** to enter directly, without a
+PIN, password, or account setup. Returning visitors resume their current profile.
+It runs separately from a household installation and uses only
 `demo/data/`, which Git ignores. **Never point it at a household's config,
 library, or downloads directory.**
 
@@ -13,6 +15,9 @@ library, or downloads directory.**
 
 - Browse the shared sample library and keep a personal shelf. Each visitor gets
   a separate adult/child pair; they cannot see another visitor's changes.
+- Child Home starts with six assigned books in **Recently Added** and **My shelf**,
+  plus three in **Rediscover your library**. Featuring a book in Spotlight also
+  leaves it available in these rails.
 - Adult Home starts with **Picked for you**, **Based on books you liked**,
   **From authors you follow**, and subject rails. Sample likes for *Dracula*
   and *The Picture of Dorian Gray*, follows for Charles Dickens and Jane

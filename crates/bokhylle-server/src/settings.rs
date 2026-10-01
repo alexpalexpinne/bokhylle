@@ -46,6 +46,7 @@ pub const SCAN_INTERVAL_HOURS: &str = "library.scan_interval_hours";
 pub const AMAZON_DOMAIN: &str = "delivery.amazon_domain";
 pub const BACKUP_INTERVAL_HOURS: &str = "backups.interval_hours";
 pub const BACKUP_KEEP: &str = "backups.keep";
+pub const UPDATE_CHECKS: &str = "updates.check_enabled";
 pub const RETRIES_ENABLED: &str = "retries.enabled";
 pub const RETRIES_MAX_DAYS: &str = "retries.max_days";
 
@@ -60,7 +61,7 @@ pub const SECRET_KEYS: [&str; 8] = [
     GOOGLE_BOOKS_API_KEY,
 ];
 
-pub const KNOWN_KEYS: [&str; 45] = [
+pub const KNOWN_KEYS: [&str; 46] = [
     LIBRARY_ROOT,
     DOWNLOADS_DIR,
     SCAN_ON_STARTUP,
@@ -104,6 +105,7 @@ pub const KNOWN_KEYS: [&str; 45] = [
     AMAZON_DOMAIN,
     BACKUP_INTERVAL_HOURS,
     BACKUP_KEEP,
+    UPDATE_CHECKS,
     RETRIES_ENABLED,
     RETRIES_MAX_DAYS,
 ];
@@ -207,7 +209,7 @@ pub fn validate(key: &str, value: &Value) -> Result<(), AppError> {
         ]),
         SMTP_TLS => want_one_of(&["starttls", "tls", "none"]),
         IMPORT_STRATEGY => want_one_of(&["hardlink", "move", "copy"]),
-        SCAN_ON_STARTUP | SECURE_COOKIES | TRUSTED_PROXY | CLEANUP_DOWNLOADS | WATCH_ENABLED | RETRIES_ENABLED => {
+        SCAN_ON_STARTUP | SECURE_COOKIES | TRUSTED_PROXY | CLEANUP_DOWNLOADS | WATCH_ENABLED | RETRIES_ENABLED | UPDATE_CHECKS => {
             want_bool()
         }
         SMTP_PORT => want_int(1, 65535),
@@ -376,6 +378,7 @@ pub fn env_var_for(key: &str) -> Option<&'static str> {
         SMTP_USERNAME => Some("BOKHYLLE_SMTP_USERNAME"),
         SMTP_PASSWORD => Some("BOKHYLLE_SMTP_PASSWORD"),
         GOOGLE_BOOKS_API_KEY => Some("BOKHYLLE_GOOGLE_BOOKS_API_KEY"),
+        UPDATE_CHECKS => Some("BOKHYLLE_UPDATE_CHECKS"),
         SMTP_FROM => Some("BOKHYLLE_SMTP_FROM"),
         SMTP_TLS => Some("BOKHYLLE_SMTP_TLS"),
         KINDLE_ADDRESS => Some("BOKHYLLE_KINDLE_ADDRESS"),

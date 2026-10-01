@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { useBeforeUnload, useBlocker } from 'react-router-dom'
 import { ApiError } from '../../api/client'
 import { type ConnectionTest, fetchAdminSettings, updateSetting } from '../../api/settings'
@@ -11,9 +11,11 @@ type Edits = Record<string, string | boolean>
 export function SettingsFields({
   groups,
   onSaved,
+  details,
 }: {
   groups: Group[]
   onSaved?: () => void
+  details?: Record<string, ReactNode>
 }) {
   const [values, setValues] = useState<Record<string, unknown>>({})
   const [envOverrides, setEnvOverrides] = useState<Record<string, string>>({})
@@ -52,9 +54,9 @@ export function SettingsFields({
       return edits[field.key]
     }
     if (field.kind === 'boolean') {
-      return Boolean(values[field.key] ?? false)
+      return Boolean(values[field.key] ?? field.defaultValue ?? false)
     }
-    const current = values[field.key]
+    const current = values[field.key] ?? field.defaultValue
     if (current === undefined || current === null) {
       return ''
     }
@@ -64,7 +66,7 @@ export function SettingsFields({
   function setField(field: Field, value: string | boolean) {
     setEdits((current) => {
       const next = { ...current }
-      const original = values[field.key]
+      const original = values[field.key] ?? field.defaultValue
       const originalValue =
         field.kind === 'boolean'
           ? Boolean(original ?? false)
@@ -111,6 +113,7 @@ export function SettingsFields({
       // Settings are written one key at a time: a failure can leave the
       // server partially updated, so reload the persisted values and say so.
       const reloaded = await load()
+      if (reloaded) onSaved?.()
       setError(
         `${
           caught instanceof ApiError ? caught.message : 'Could not save settings'
@@ -200,6 +203,7 @@ export function SettingsFields({
                 )}
               </div>
 
+              {details?.[group.title] && <div className="mt-5">{details[group.title]}</div>}
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 {group.fields.map((field) => (
                   <label key={field.key} className="block">
@@ -240,6 +244,8 @@ export function SettingsFields({
                     ) : (
                       <input
                         type={field.kind === 'number' ? 'number' : 'text'}
+                        min={field.min}
+                        step={field.step}
                         value={String(valueOf(field))}
                         placeholder={
                           field.kind === 'secret' && secretsConfigured[field.key]
