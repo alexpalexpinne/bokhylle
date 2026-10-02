@@ -204,6 +204,9 @@ async fn load_evaluated(
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateAcquisition {
+    /// Overrides the profile default for this new acquisition only.
+    pub ask_before_download: Option<bool>,
+    pub sharing: Option<crate::services::sharing::BookSharing>,
     pub preferred_format: Option<String>,
     pub preferred_language: Option<String>,
     pub send_to_reader: Option<bool>,
@@ -226,6 +229,8 @@ pub async fn create(
         return Err(AppError::NotFound("book not found".to_string()));
     }
 
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
+    crate::services::sharing::choose(&state.db, user.id, book_id, body.sharing).await?;
     let (profile_languages, profile_format) =
         crate::updates::user_preferences(&state, user.id).await?;
     // An explicitly chosen per-request language narrows the policy to it;
@@ -244,7 +249,8 @@ pub async fn create(
         preferred_format,
         languages,
         body.send_to_reader.unwrap_or(false),
-        user.acquisition_mode == "ask",
+        body.ask_before_download
+            .unwrap_or(user.acquisition_mode == "ask"),
     )
     .await?;
 
@@ -262,6 +268,7 @@ pub async fn create(
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateHttpAcquisition {
+    pub sharing: Option<crate::services::sharing::BookSharing>,
     pub url: String,
     pub format: Option<String>,
     pub send_to_reader: Option<bool>,
@@ -273,6 +280,10 @@ pub async fn create_http(
     Path(book_id): Path<i64>,
     Json(body): Json<CreateHttpAcquisition>,
 ) -> Result<StatusJson<AcquisitionStart, 202>, AppError> {
+    if !crate::auth::can_acquire(&state.db, &user).await? {
+        return Err(AppError::Forbidden);
+    }
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     let url = crate::remote_http::parse_url(&body.url)?;
     let format = body.format.or_else(|| {
         url.path_segments()
@@ -280,6 +291,7 @@ pub async fn create_http(
             .and_then(|filename| filename.rsplit_once('.').map(|(_, ext)| ext.to_string()))
     });
     let format = format.unwrap_or_default().to_ascii_lowercase();
+    crate::services::sharing::choose(&state.db, user.id, book_id, body.sharing).await?;
     let (acquisition, duplicate) = start_http(
         &state,
         &user,

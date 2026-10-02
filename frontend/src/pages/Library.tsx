@@ -13,6 +13,7 @@ import {
   fetchBooks,
   searchBooks,
   setAuthorFollow,
+  setBooksSharing,
 } from '../api/library'
 import { type CollectionSummary, fetchCollections } from '../api/collections'
 import { type HouseholdMember, fetchHouseholdMembers } from '../api/users'
@@ -97,6 +98,10 @@ export function Library() {
   const [authorsResult, setAuthorsResult] = useState<AuthorsResult | null>(null)
   const [followError, setFollowError] = useState<string | null>(null)
   const claimMutation = useMutation()
+  const sharingMutation = useMutation()
+  const [selectingBooks, setSelectingBooks] = useState(false)
+  const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set())
+  const [sharingNotice, setSharingNotice] = useState<string | null>(null)
   const [facets, setFacets] = useState<BookFacets | null>(null)
   const [collections, setCollections] = useState<CollectionSummary[]>([])
   const [mine, setMine] = useState(() => searchParams.get('scope') !== 'household')
@@ -430,7 +435,7 @@ export function Library() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, loadingMore, appended.length, sort, mine, category, format, language, series, subject, collection, letter, missing])
   const filtersActive = Boolean(format || language || series || subject || collection || missing)
-  const groupedComics = mode === 'books' && category === 'comics' && !trimmedQuery && !filtersActive && !letter
+  const groupedComics = mode === 'books' && category === 'comics' && !trimmedQuery && !filtersActive && !letter && !selectingBooks
   const hasComics = facets?.publicationKinds?.some((item) => (item.value === 'comic' || item.value === 'manga') && item.count > 0) ?? false
   const hasBooks = facets?.publicationKinds?.some((item) => (item.value === 'book' || item.value === 'unknown') && item.count > 0) ?? false
   const isEmptyShelf = booksLoaded && !trimmedQuery && !filtersActive && total === 0
@@ -851,6 +856,19 @@ export function Library() {
       )}
 
       <div className="mt-8">
+        {mode === 'books' && mine && !member && !isChild && !demo && <div className="mb-6 space-y-3 border-y border-line py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="ghost" size="sm" disabled={!!sharingMutation.busyKey} onClick={() => { setSelectingBooks((current) => !current); setSelectedBookIds(new Set()); setSharingNotice(null) }}>{selectingBooks ? 'Done selecting' : 'Select books'}</Button>
+            {selectingBooks && <>
+              <span className="text-xs text-ink-muted">{selectedBookIds.size} selected</span>
+              <Button variant="ghost" size="sm" disabled={!!sharingMutation.busyKey} onClick={() => setSelectedBookIds(new Set(displayedBooks.map((book) => book.id)))}>Select visible books</Button>
+              {(['private', 'shared'] as const).map((sharing) => <Button key={sharing} size="sm" disabled={!selectedBookIds.size || !!sharingMutation.busyKey} onClick={() => void sharingMutation.run(sharing, () => setBooksSharing([...selectedBookIds], sharing), 'Could not update sharing', () => { setSelectedBookIds(new Set()); setReload((current) => current + 1); setSharingNotice(`Selected books are now ${sharing}. Other readers keep their access.`) })}>{sharingMutation.busyKey === sharing ? 'Saving…' : sharing === 'private' ? 'Make private' : 'Share with household'}</Button>)}
+            </>}
+          </div>
+          {selectingBooks && <p className="text-xs text-ink-muted">Change your sharing for selected books. Your personal shelf stays private.</p>}
+          {sharingNotice && <p role="status" className="text-sm text-ink-soft">{sharingNotice}</p>}
+          {sharingMutation.error && <p role="alert" className="text-sm text-danger">{sharingMutation.error}</p>}
+        </div>}
         {mode === 'books' ? groupedComics ? (
           <ComicShelf mine={mine} user={member ?? undefined} sort={sort === 'title' ? 'title' : 'recent'} />
         ) : (
@@ -864,6 +882,8 @@ export function Library() {
             {(!booksLoading || displayedBooks.length > 0) && (
             <BookGrid
               books={displayedBooks}
+              selectedIds={selectedBookIds}
+              onSelect={selectingBooks && mine && !member && !isChild ? (bookId, selected) => setSelectedBookIds((current) => { const next = new Set(current); if (selected) next.add(bookId); else next.delete(bookId); return next }) : undefined}
               appearance="shelf"
               letterFor={letterForBook}
               className={booksLoading ? 'opacity-60 transition-opacity' : undefined}

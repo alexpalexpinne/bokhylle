@@ -24,12 +24,9 @@ pub async fn add(
     book_id: i64,
     source: &str,
 ) -> Result<(), AppError> {
-    sqlx::query(ADD_SQL)
-        .bind(user_id)
-        .bind(book_id)
-        .bind(source)
-        .execute(pool)
-        .await?;
+    let mut tx = pool.begin().await?;
+    add_tx(&mut tx, user_id, book_id, source).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -41,6 +38,10 @@ pub async fn add_tx(
     book_id: i64,
     source: &str,
 ) -> Result<(), AppError> {
+    if matches!(source, "manual" | "claimed" | "sent" | "agent") {
+        crate::services::sharing::require_access_tx(tx, user_id, book_id).await?;
+    }
+    crate::services::sharing::grant_tx(tx, user_id, book_id).await?;
     sqlx::query(ADD_SQL)
         .bind(user_id)
         .bind(book_id)
@@ -82,30 +83,18 @@ pub async fn contains(pool: &SqlitePool, user_id: i64, book_id: i64) -> Result<b
 
 /// Claims every household book for a user (the "add all to my shelf" action).
 pub async fn claim_all(pool: &SqlitePool, user_id: i64) -> Result<u64, AppError> {
-    let result = sqlx::query(
-        "INSERT INTO user_books (user_id, book_id, source, on_shelf)
-         SELECT ?, b.id, 'claimed', 1
-         FROM books b
-         WHERE EXISTS (
-             SELECT 1 FROM book_files f
-             JOIN editions e ON e.id = f.edition_id
-             WHERE e.book_id = b.id
-         )
-         ON CONFLICT(user_id, book_id) DO UPDATE SET
-             on_shelf = 1,
-             added_at = CASE
-                 WHEN user_books.on_shelf = 0 THEN unixepoch()
-                 ELSE user_books.added_at
-             END,
-             source = CASE
-                 WHEN user_books.on_shelf = 0 THEN excluded.source
-                 ELSE user_books.source
-             END",
-    )
-    .bind(user_id)
-    .execute(pool)
-    .await?;
-    Ok(result.rows_affected())
+    let mut tx = pool.begin().await?;
+    let visibility = crate::services::sharing::predicate("b.id", user_id);
+    let sql = format!("SELECT b.id FROM books b WHERE {visibility}
+        AND EXISTS(SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id WHERE e.book_id = b.id)");
+    let ids: Vec<i64> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .fetch_all(&mut *tx)
+        .await?;
+    for id in &ids {
+        add_tx(&mut tx, user_id, *id, "claimed").await?;
+    }
+    tx.commit().await?;
+    Ok(ids.len() as u64)
 }
 
 pub async fn set_preference(

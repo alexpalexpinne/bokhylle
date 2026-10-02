@@ -1,3 +1,4 @@
+import { BookSharingChoice, type BookSharing } from '../components/BookSharingChoice'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -102,7 +103,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [preferredFormat, setPreferredFormat] = useState<SheetFormat>('any')
   const { user, demo } = useAuth()
-  const isAdmin = user?.role === 'admin'
+  const [sharingOverride, setSharingOverride] = useState<BookSharing | null>(null)
+  const canChooseVersion = user?.profileType !== 'child' && (user?.role === 'admin' || user?.canAcquire !== false)
   const [hasReader, setHasReader] = useState<boolean | null>(null)
   const [householdReader, setHouseholdReader] = useState<string | null>(null)
   const [releases, setReleases] = useState<ReleasePreview[] | null>(null)
@@ -111,7 +113,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   const [formatOpen, setFormatOpen] = useState(false)
   const [ownedDetail, setOwnedDetail] = useState<BookDetailData | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
-  const [sending, setSending] = useState<'library' | 'reader' | null>(null)
+  const [sending, setSending] = useState<'library' | 'reader' | 'version' | null>(null)
   const [externalLikedId, setExternalLikedId] = useState<number | null>(null)
   const [demoSendBook, setDemoSendBook] = useState<{ id: number; title: string } | null>(null)
   const navigate = useNavigate()
@@ -267,6 +269,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   }
 
   function openDetail(item: DiscoveryResult) {
+    setSharingOverride(null)
     setSelected(item)
     setHasReader(null)
     setDetail(null)
@@ -388,8 +391,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
 
   async function add(
     item: DiscoveryResult,
-    options: { preferredFormat?: string; sendToReader?: boolean } = {},
-    action: 'quick' | 'library' | 'reader' = 'quick',
+    options: { preferredFormat?: string; sendToReader?: boolean; sharing?: BookSharing; askBeforeDownload?: boolean } = {},
+    action: 'quick' | 'library' | 'reader' | 'version' = 'quick',
   ) {
     if (adding === item.providerKey || sending !== null || item.status === 'DOWNLOADING') return
     if (action === 'quick') {
@@ -401,7 +404,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
 
     try {
       if (!demo && user?.canAcquire === false) {
-        const requested = await createBookRequest(item.provider, item.providerKey)
+        const requested = await createBookRequest(item.provider, item.providerKey, action === 'quick' ? undefined : sharingOverride ?? user?.defaultBookSharing ?? 'shared')
         setNotice(requested.duplicate
           ? `You already asked for "${item.title}".`
           : `Asked for "${item.title}" — an administrator can approve it.`)
@@ -410,20 +413,24 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
       }
       // A book Bokhylle already knows is acquired by id, so no provider
       // resolution is needed (including local-only entries).
+      options = { ...options, sharing: action === 'quick' ? undefined : sharingOverride ?? user?.defaultBookSharing ?? 'shared' }
       let status: AcquisitionStatus
       let duplicate = false
       const title = item.title.trim() || detail?.title.trim() || ownedDetail?.title.trim()
       const bookLabel = title ? `"${title}"` : 'the book'
       let ownedBookId = item.ownedBookId
+      let acquisitionId: string
       if (item.ownedBookId) {
         const created = await createAcquisitionForBook(item.ownedBookId, options)
         status = created.status
         duplicate = created.duplicate
+        acquisitionId = created.id
       } else {
         const created = await createAcquisitionFromDiscovery(item.provider, item.providerKey, options)
         status = created.status
         duplicate = created.duplicate
         ownedBookId = created.bookId
+        acquisitionId = created.id
       }
       patchResult(item.provider, item.providerKey, {
         status: discoveryStatusFromAcquisition(status),
@@ -436,6 +443,10 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
             ? `On its way — ${bookLabel} will be emailed to your reader when it is ready.`
             : `Getting ${bookLabel} — it will appear on your shelf.`,
       )
+      if (options.askBeforeDownload ?? (user?.acquisitionMode === 'ask')) {
+        navigate(`/activity?choose=${encodeURIComponent(acquisitionId)}`)
+        return
+      }
       if (!detailOnly) setSelected(null)
     } catch (caught) {
       setNotice(caught instanceof ApiError ? caught.message : 'Could not add this book')
@@ -835,6 +846,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           onClose={closeDetail}
           wide
           footer={
+            <div className="w-full space-y-4">
+            {!demo && user?.profileType !== 'child' && selectedStatus === 'NOT_IN_LIBRARY' && <BookSharingChoice value={sharingOverride ?? user?.defaultBookSharing ?? 'shared'} onChange={setSharingOverride} disabled={sending !== null} />}
             <div role="group" aria-label="Book choices" className="grid w-full grid-cols-2 gap-2 [&>button]:h-auto [&>button]:min-h-11 [&>button]:min-w-0 [&>button]:px-3 [&>button]:py-2.5 [&>a]:h-auto [&>a]:min-h-11 [&>a]:min-w-0 [&>a]:px-3 [&>a]:py-2.5 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
             {
             selectedStatus === 'NOT_IN_LIBRARY' && demo ? (
@@ -853,6 +866,9 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                 >
                   {sending === 'library' ? user?.canAcquire === false ? 'Asking…' : 'Getting…' : user?.canAcquire === false ? 'Ask to add' : 'Get for my shelf'}
                 </Button>
+                {canChooseVersion && user?.acquisitionMode !== 'ask' && <Button variant="secondary" disabled={detailLoading || sending !== null} onClick={() => void add(selected, { preferredFormat, askBeforeDownload: true }, 'version')}>
+                  {sending === 'version' ? 'Finding versions…' : 'Choose a version'}
+                </Button>}
                 {hasReader && user?.canAcquire !== false && (
                   <Button
                     variant="primary"
@@ -924,6 +940,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                 Close
               </Button>
             )}
+            </div>
             </div>
           }
         >
@@ -1100,7 +1117,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                       items={[bestReleaseFormat(releases), 'ready to fetch']}
                     />
                   )}
-                  {isAdmin && !releasesLoading && releases && releases.length > 0 && (
+                  {canChooseVersion && !releasesLoading && releases && releases.length > 0 && (
                     <ul className="mt-4 max-h-56 divide-y divide-line overflow-y-auto pr-1">
                       {releases.map((release, index) => {
                         const availability = availabilityLabel(release.seeders, release.method)

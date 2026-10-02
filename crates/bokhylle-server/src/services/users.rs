@@ -87,7 +87,11 @@ pub struct CreatedUser {
     pub can_acquire: bool,
 }
 
-pub async fn create(state: &AppState, input: CreateUserInput) -> Result<CreatedUser, AppError> {
+pub async fn create(
+    state: &AppState,
+    actor: &User,
+    input: CreateUserInput,
+) -> Result<CreatedUser, AppError> {
     let role = match input.role.as_deref() {
         None | Some("user") => Role::User,
         Some("admin") => Role::Admin,
@@ -146,6 +150,7 @@ pub async fn create(state: &AppState, input: CreateUserInput) -> Result<CreatedU
                 "starting book {book_id} is not in the household library"
             )));
         }
+        crate::services::sharing::require_access_tx(&mut tx, actor.id, *book_id).await?;
     }
     let mut user = prepared.insert(&mut tx).await?;
     sqlx::query(

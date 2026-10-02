@@ -13,6 +13,12 @@ Schema changes use new forward-only migrations. Published migration files stay
 immutable so existing public installations can upgrade with their accounts,
 shelves, and settings intact.
 
+Version 0.2.0 upgrades a 0.1.0 installation in place. Back up config and library
+before updating the image. The sharing migration keeps existing books shared;
+adults can then choose their default and change individual or selected books.
+Personal shelves and reading positions stay private, and other owners retain
+their access when someone makes their copy private.
+
 ## Server administration
 
 Administrators can open **Settings → Server** to see the running version, commit,
@@ -140,7 +146,7 @@ Unix timestamp as `BOKHYLLE_BUILD_TIME`.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.1.0`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.2.0`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 

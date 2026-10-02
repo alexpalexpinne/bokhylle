@@ -141,6 +141,7 @@ pub async fn search(
 pub struct CreateRequestInput {
     pub provider: String,
     pub provider_key: String,
+    pub sharing: Option<crate::services::sharing::BookSharing>,
 }
 
 /// A member asks for a book; administrators are notified and decide.
@@ -149,8 +150,14 @@ pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<CreateRequestInput>,
 ) -> Result<CreatedOrOk<CreateRequestResponse>, AppError> {
-    let outcome =
-        services::requests::create(&state, &user, &body.provider, &body.provider_key).await?;
+    let outcome = services::requests::create_with_sharing(
+        &state,
+        &user,
+        &body.provider,
+        &body.provider_key,
+        body.sharing,
+    )
+    .await?;
     Ok(CreatedOrOk {
         created: !outcome.duplicate,
         value: CreateRequestResponse {

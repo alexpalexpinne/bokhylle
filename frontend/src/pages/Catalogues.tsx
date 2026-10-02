@@ -1,3 +1,4 @@
+import { BookSharingChoice, type BookSharing } from '../components/BookSharingChoice'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Search } from 'lucide-react'
@@ -21,6 +22,7 @@ import { SectionMark } from '../components/ui/SectionMark'
 export function Catalogues() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [sharingOverride, setSharingOverride] = useState<BookSharing | null>(null)
   const isAdmin = user?.role === 'admin'
   const canAcquire = isAdmin || user?.canAcquire === true
   const [sources, setSources] = useState<CatalogSource[]>([])
@@ -126,7 +128,7 @@ export function Catalogues() {
     setAcquiring(key)
     setError(null)
     try {
-      await acquireCatalogEntry(selectedId, feed.pageUrl, entryId, fileIndex)
+      await acquireCatalogEntry(selectedId, feed.pageUrl, entryId, fileIndex, sharingOverride ?? user?.defaultBookSharing ?? 'shared')
       navigate('/activity')
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not get this book')
@@ -199,6 +201,7 @@ export function Catalogues() {
           {!!feed?.entries.length && (
             <section>
               <SectionMark number={feed.navigation.length ? '02' : '01'} title="Books" />
+              {canAcquire && <div className="mt-4 max-w-md"><BookSharingChoice value={sharingOverride ?? user?.defaultBookSharing ?? 'shared'} onChange={setSharingOverride} disabled={acquiring !== null} label="Sharing for the book you get" /></div>}
               <div className="mt-4 divide-y divide-line">
                 {feed.entries.map((entry, index) => (
                   <article key={`${entry.id}:${index}`} className="grid gap-3 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">

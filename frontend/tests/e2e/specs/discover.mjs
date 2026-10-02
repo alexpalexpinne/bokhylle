@@ -19,7 +19,9 @@ const item = (overrides) => ({
 })
 
 /** Discover renders catalogue entries, availability signals and owned sheets. */
-export default async function discover(page, { base, user }) {
+export default async function discover(page, { base }) {
+  const { user } = await page.evaluate(async () => (await fetch('/api/auth/me')).json())
+  const canChooseVersion = user.profileType !== 'child' && (user.role === 'admin' || user.canAcquire !== false)
   const books = [
     item({
       providerKey: '/works/OLOWNEDW',
@@ -144,8 +146,7 @@ export default async function discover(page, { base, user }) {
   await page.getByRole('button', { name: /close/i }).first().click()
   await page.locator('[role="dialog"]').waitFor({ state: 'detached', timeout: 5000 })
 
-  // Availability is a signal, not a release dump: regular users must not see
-  // torrent names, indexers or seeders.
+  // Adults who can acquire see the same release details as administrators.
   await page.getByRole('button', { name: 'Open details for Wanted Mock' }).click()
   const check = page.getByRole('button', { name: /check availability/i })
   if (await check.isVisible().catch(() => false)) {
@@ -167,10 +168,8 @@ export default async function discover(page, { base, user }) {
       /good availability|limited availability|no copy/i.test(availability),
       `availability signal should render, got: ${availability.replace(/\n+/g, ' | ')}`,
     )
-    if (user !== 'admin') {
-      expect(!availability.includes('A.Mock.Release.EPUB'), 'release names are admin-only')
-      expect(!availability.includes('seeders'), 'seeder counts are admin-only')
-    }
+    expect(availability.includes('A.Mock.Release.EPUB') === canChooseVersion, 'release names follow acquisition permission')
+    expect(availability.includes('seeders') === canChooseVersion, 'seeder counts follow acquisition permission')
     await page.getByRole('button', { name: /close/i }).first().click()
     await page.locator('[role="dialog"]').waitFor({ state: 'detached', timeout: 5000 })
   }

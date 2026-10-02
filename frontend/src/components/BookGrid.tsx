@@ -14,6 +14,8 @@ type BookGridProps = {
   letterFor?: (book: BookSummary) => string
   className?: string
   appearance?: 'default' | 'shelf'
+  selectedIds?: ReadonlySet<number>
+  onSelect?: (bookId: number, selected: boolean) => void
 }
 
 export const bookGridClass =
@@ -28,9 +30,11 @@ export function BookGrid({
   letterFor,
   className = '',
   appearance = 'default',
+  selectedIds,
+  onSelect,
 }: BookGridProps) {
   const Grid = appearance === 'shelf' ? ShelfGrid : 'div'
-  const gridClass = appearance === 'shelf' ? className : `${bookGridClass} ${className}`
+  const gridClass = appearance === 'shelf' ? `${className} ${onSelect ? 'shelf-grid-selecting' : ''}` : `${bookGridClass} ${className}`
   if (loading) {
     return (
       <Grid className={gridClass}>
@@ -56,6 +60,10 @@ export function BookGrid({
     <Grid className={gridClass}>
       {books.map((book) => (
         <div key={book.id} data-letter={letterFor ? letterFor(book) : undefined}>
+          {onSelect && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-ink-muted">
+            <input type="checkbox" checked={selectedIds?.has(book.id) ?? false} onChange={(event) => onSelect(book.id, event.target.checked)} aria-label={`Select ${book.title}`} className="h-4 w-4 accent-[var(--color-accent)]" />
+            Select
+          </label>}
           <BookCard book={book} headingLevel={2} appearance={appearance} />
         </div>
       ))}

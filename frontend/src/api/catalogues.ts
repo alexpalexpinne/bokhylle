@@ -33,9 +33,10 @@ export function acquireCatalogEntry(
   pageUrl: string,
   entryId: string,
   fileIndex: number,
+  sharing?: 'private' | 'shared',
 ) {
   return apiRoute('/api/catalogues/{id}/acquisitions', `/api/catalogues/${id}/acquisitions`, {
     method: 'POST',
-    json: { pageUrl, entryId, fileIndex },
+    json: { pageUrl, entryId, fileIndex, sharing },
   })
 }

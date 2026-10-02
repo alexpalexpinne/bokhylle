@@ -6,6 +6,7 @@ use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 use super::metadata_fields::{self, MetadataSource, Scope};
 use crate::error::AppError;
 use crate::library::{relevance, subjects};
+use crate::services::sharing;
 
 const OWNED_FILTER: &str = "WHERE EXISTS (
     SELECT 1 FROM book_files f
@@ -118,6 +119,8 @@ pub struct BookDetail {
     pub rating_source: Option<String>,
     pub description: Option<String>,
     pub publication_year: Option<i64>,
+    pub sharing: Option<sharing::BookSharing>,
+    pub shared_in_household: bool,
     pub on_shelf: bool,
     pub preference: Option<String>,
     /// The viewer's last browser EPUB, populated by the book service.
@@ -220,9 +223,10 @@ struct ComicTileRow {
     cover_book_id: i64,
 }
 
-pub async fn comic_shelf(
+pub async fn comic_shelf_visible(
     pool: &SqlitePool,
     mine: Option<i64>,
+    viewer_id: i64,
     sort: &str,
     page: i64,
     page_size: i64,
@@ -234,11 +238,12 @@ pub async fn comic_shelf(
     } else {
         ""
     };
+    let visibility = sharing::predicate("b.id", viewer_id);
     let tiles = format!(
         "WITH eligible AS (
             SELECT b.id, b.series_id, b.created_at, b.normalized_title FROM books b
             WHERE b.publication_kind IN ('comic', 'manga')
-              AND {} {scope}
+              AND {} {scope} AND {visibility}
          ), tiles AS (
             SELECT 'series' AS tile_type, series_id AS item_id,
                    MAX(created_at) AS added_at, COUNT(*) AS volume_count,
@@ -325,6 +330,7 @@ pub async fn comic_series(
     let Some((name, sort_name, default_reading_direction)) = series else {
         return Ok(None);
     };
+    let visibility = sharing::predicate("b.id", reader_user_id);
     let scope = if mine.is_some() {
         "AND EXISTS (SELECT 1 FROM user_books ub WHERE ub.book_id = b.id AND ub.user_id = ? AND ub.on_shelf = 1)"
     } else {
@@ -332,7 +338,7 @@ pub async fn comic_series(
     };
     let sql = format!(
         "{BOOK_SELECT} WHERE b.series_id = ? AND b.publication_kind IN ('comic', 'manga')
-         AND {} {scope}
+         AND {} {scope} AND {visibility}
          ORDER BY b.series_sort_order IS NULL, b.series_sort_order,
                   b.normalized_title, b.id",
         OWNED_FILTER.trim_start_matches("WHERE ")
@@ -579,6 +585,7 @@ fn split_authors(authors: &str) -> Vec<String> {
 
 #[derive(Debug, Default, Clone)]
 pub struct BookFilters {
+    pub viewer_id: Option<i64>,
     pub mine: Option<i64>,
     pub kind: Option<String>,
     pub format: Option<String>,
@@ -596,6 +603,10 @@ impl BookFilters {
             .push(prefix)
             .push(OWNED_FILTER.trim_start_matches("WHERE "));
 
+        query.push(" AND ").push(sharing::predicate(
+            "b.id",
+            self.viewer_id.or(self.mine).unwrap_or(-1),
+        ));
         if let Some(mine) = self.mine {
             query.push(
                 " AND EXISTS (
@@ -745,16 +756,19 @@ pub struct BookFacets {
     pub subjects: Vec<SubjectFacet>,
 }
 
-pub async fn books_in_collection(
+pub async fn books_in_collection_visible(
     pool: &SqlitePool,
     collection_id: i64,
+    viewer_id: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
+    let visibility = sharing::predicate("b.id", viewer_id);
     let sql = format!(
         "{BOOK_SELECT}
          WHERE EXISTS (
              SELECT 1 FROM collection_books cb
              WHERE cb.book_id = b.id AND cb.collection_id = ?
          )
+         AND {visibility}
          ORDER BY b.normalized_title ASC, b.id ASC"
     );
     let rows: Vec<BookRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
@@ -765,13 +779,20 @@ pub async fn books_in_collection(
     Ok(rows.into_iter().map(BookRow::into_summary).collect())
 }
 
-pub async fn book_facets(pool: &SqlitePool, mine: Option<i64>) -> Result<BookFacets, AppError> {
+pub async fn book_facets_visible(
+    pool: &SqlitePool,
+    mine: Option<i64>,
+    viewer_id: i64,
+) -> Result<BookFacets, AppError> {
     // Facet counts follow the shelf scope, or they would advertise household
     // totals next to a personal list.
-    let scope = "AND (? IS NULL OR EXISTS (
+    let scope = format!(
+        "AND (? IS NULL OR EXISTS (
              SELECT 1 FROM user_books ub
-             WHERE ub.book_id = {column} AND ub.user_id = ? AND ub.on_shelf = 1
-         ))";
+             WHERE ub.book_id = {{column}} AND ub.user_id = ? AND ub.on_shelf = 1
+         )) AND {}",
+        sharing::predicate("{column}", viewer_id)
+    );
 
     let formats_sql = format!(
         "SELECT f.format AS value, count(DISTINCT e.book_id) AS count
@@ -916,22 +937,26 @@ pub async fn search_books(
     Ok(rows.into_iter().map(BookRow::into_summary).collect())
 }
 
-pub async fn recent_books(
+pub async fn recent_books_visible(
     pool: &SqlitePool,
     limit: i64,
     mine: Option<i64>,
+    viewer_id: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
     // Personal recency means when *you* added it to your shelf, not when the
     // household acquired the file.
+    let visibility = sharing::predicate("b.id", viewer_id);
     let sql = match mine {
         Some(_) => format!(
             "{BOOK_SELECT}
              JOIN user_books ub ON ub.book_id = b.id AND ub.user_id = ? AND ub.on_shelf = 1
-             {OWNED_FILTER}
+             {OWNED_FILTER} AND {visibility}
              ORDER BY ub.added_at DESC, b.id DESC LIMIT ?"
         ),
         None => {
-            format!("{BOOK_SELECT} {OWNED_FILTER} ORDER BY b.created_at DESC, b.id DESC LIMIT ?")
+            format!(
+                "{BOOK_SELECT} {OWNED_FILTER} AND {visibility} ORDER BY b.created_at DESC, b.id DESC LIMIT ?"
+            )
         }
     };
     let mut query = sqlx::query_as::<_, BookRow>(sqlx::AssertSqlSafe(sql));
@@ -979,6 +1004,7 @@ pub async fn continue_reading(
         WHERE e.book_id = b.id AND f.format = 'epub' ORDER BY f.id LIMIT 1) AS epub_file_id
        FROM books b",
     );
+    let visibility = sharing::predicate("b.id", user_id);
     let sql = format!(
         "WITH browser AS (
              SELECT e.book_id, p.book_file_id, p.percentage, p.updated_at,
@@ -1012,7 +1038,7 @@ pub async fn continue_reading(
          JOIN latest ON latest.book_id = b.id AND latest.rank = 1
          LEFT JOIN browser browser_last
            ON browser_last.book_id = b.id AND browser_last.rank = 1
-         {OWNED_FILTER}
+         {OWNED_FILTER} AND {visibility}
          {shelf}
          AND NOT EXISTS (
              SELECT 1 FROM user_book_completions c
@@ -1112,21 +1138,23 @@ pub async fn library_health(pool: &SqlitePool) -> Result<LibraryHealth, AppError
 /// Deterministic, seeded sampling: the same user and day produce the same
 /// highlights, and a changed day reshuffles modestly. Never `RANDOM()`, so
 /// Home does not look arbitrary between refreshes.
-pub async fn highlight_books(
+pub async fn highlight_books_visible(
     pool: &SqlitePool,
     limit: i64,
     mine: Option<i64>,
     seed: i64,
+    viewer_id: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
+    let visibility = sharing::predicate("b.id", viewer_id);
     let sql = match mine {
         Some(_) => format!(
             "{BOOK_SELECT}
              JOIN user_books ub ON ub.book_id = b.id AND ub.user_id = ? AND ub.on_shelf = 1
-             {OWNED_FILTER}
+             {OWNED_FILTER} AND {visibility}
              ORDER BY ((b.id * 1103515245 + ?) % 2147483647) LIMIT ?"
         ),
         None => format!(
-            "{BOOK_SELECT} {OWNED_FILTER}
+            "{BOOK_SELECT} {OWNED_FILTER} AND {visibility}
              ORDER BY ((b.id * 1103515245 + ?) % 2147483647) LIMIT ?"
         ),
     };
@@ -1308,6 +1336,8 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
         rating_source: summary.rating_source,
         description,
         publication_year,
+        sharing: None,
+        shared_in_household: true,
         on_shelf: false,
         preference: None,
         browser_file_id: None,
@@ -1439,7 +1469,8 @@ pub async fn list_authors(
     following_only: bool,
     user_id: i64,
 ) -> Result<Vec<AuthorSummary>, AppError> {
-    let rows: Vec<(i64, String, i64, i64, i64)> = sqlx::query_as(
+    let visibility = sharing::predicate("ba.book_id", user_id);
+    let rows: Vec<(i64, String, i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT a.id, a.name,
                 (SELECT count(*) FROM author_follows af
                  WHERE af.author_id = a.id AND af.user_id = ?) AS following,
@@ -1454,7 +1485,7 @@ pub async fn list_authors(
                         SELECT 1 FROM user_books ub
                         WHERE ub.book_id = ba.book_id AND ub.user_id = ? AND ub.on_shelf = 1
                     )
-                ) THEN ba.book_id END)
+                ) AND {visibility} THEN ba.book_id END)
          FROM authors a
          LEFT JOIN book_authors ba ON ba.author_id = a.id
          WHERE ? = 0 OR EXISTS (
@@ -1462,8 +1493,8 @@ pub async fn list_authors(
              WHERE af.author_id = a.id AND af.user_id = ?
          )
          GROUP BY a.id
-         ORDER BY a.name COLLATE NOCASE",
-    )
+         ORDER BY a.name COLLATE NOCASE"
+    )))
     .bind(user_id)
     .bind(user_id)
     .bind(mine)
@@ -1490,24 +1521,29 @@ pub async fn list_authors(
         .collect())
 }
 
-pub async fn get_author(
+pub async fn get_author_visible(
     pool: &SqlitePool,
     id: i64,
     mine: Option<i64>,
+    viewer_id: i64,
 ) -> Result<Option<AuthorDetail>, AppError> {
-    let author: Option<(i64, String)> = sqlx::query_as("SELECT id, name FROM authors WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await?;
+    let author_visibility = sharing::author_predicate("authors.id", viewer_id);
+    let author: Option<(i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id, name FROM authors WHERE id = ? AND {author_visibility}"
+    )))
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
 
     let Some((id, name)) = author else {
         return Ok(None);
     };
 
+    let visibility = sharing::predicate("b.id", viewer_id);
     let sql = format!(
         "{BOOK_SELECT}
          JOIN book_authors ba ON ba.book_id = b.id
-         WHERE ba.author_id = ?
+         WHERE ba.author_id = ? AND {visibility}
            AND EXISTS (
                SELECT 1 FROM book_files f
                JOIN editions e ON e.id = f.edition_id
@@ -1670,7 +1706,12 @@ struct RelatedSourceRow {
     series_link_locked: i64,
 }
 
-pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, AppError> {
+pub async fn related_books_visible(
+    pool: &SqlitePool,
+    id: i64,
+    viewer_id: i64,
+) -> Result<RelatedBooks, AppError> {
+    let visibility = sharing::predicate("b.id", viewer_id);
     let source: Option<RelatedSourceRow> = sqlx::query_as(
         "SELECT language, series, series_id, series_link_locked FROM books WHERE id = ?",
     )
@@ -1707,6 +1748,7 @@ pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, A
             "{BOOK_SELECT}
              WHERE {match_column} = ? AND b.id != ?
                {legacy_filter}
+               AND {visibility}
                AND EXISTS (
                    SELECT 1 FROM book_files f
                    JOIN editions e ON e.id = f.edition_id
@@ -1746,6 +1788,7 @@ pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, A
                    SELECT 1 FROM book_authors ba
                    WHERE ba.book_id = b.id AND ba.author_id IN ({author_placeholders})
                )
+               AND {visibility}
                AND EXISTS (
                    SELECT 1 FROM book_files f
                    JOIN editions e ON e.id = f.edition_id
@@ -1812,6 +1855,7 @@ pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, A
              JOIN books b ON b.id = bs.book_id
              WHERE bs.subject_id IN ({subject_placeholders})
                AND bs.book_id != ?
+               AND {visibility}
                AND EXISTS (
                    SELECT 1 FROM book_files f
                    JOIN editions e2 ON e2.id = f.edition_id
@@ -1895,7 +1939,7 @@ pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, A
         ranked.truncate(8);
 
         let ids: Vec<i64> = ranked.iter().map(|(book_id, _, _)| *book_id).collect();
-        let by_id: HashMap<i64, BookSummary> = books_by_ids(pool, &ids)
+        let by_id: HashMap<i64, BookSummary> = books_by_ids(pool, &ids, viewer_id)
             .await?
             .into_iter()
             .map(|book| (book.id, book))
@@ -1918,11 +1962,19 @@ pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, A
     })
 }
 
-async fn books_by_ids(pool: &SqlitePool, ids: &[i64]) -> Result<Vec<BookSummary>, AppError> {
+async fn books_by_ids(
+    pool: &SqlitePool,
+    ids: &[i64],
+    viewer_id: i64,
+) -> Result<Vec<BookSummary>, AppError> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let sql = format!("{BOOK_SELECT} WHERE b.id IN ({})", placeholders(ids.len()));
+    let visibility = sharing::predicate("b.id", viewer_id);
+    let sql = format!(
+        "{BOOK_SELECT} WHERE b.id IN ({}) AND {visibility}",
+        placeholders(ids.len())
+    );
     let mut query = sqlx::query_as::<_, BookRow>(sqlx::AssertSqlSafe(sql));
     for id in ids {
         query = query.bind(id);
@@ -1958,6 +2010,7 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
     let mut used: Vec<String> = Vec::new();
     let hidden = hidden_subjects(pool, user_id).await?;
 
+    let visibility = sharing::predicate("b.id", user_id);
     let personal = relevance::personal();
     let exclusions = relevance::EXCLUSIONS;
     let candidates: Vec<(String, String, i64, i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
@@ -1979,7 +2032,7 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
          JOIN books b ON b.id = bs.book_id
          WHERE EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id
                        WHERE e.book_id = b.id)
-           {personal} {exclusions}
+           AND {visibility} {personal} {exclusions}
          GROUP BY s.id"
     )))
     .bind(user_id).fetch_all(pool).await?;
@@ -2116,7 +2169,7 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
                          WHERE ub2.user_id = ? AND ub2.preference = 'liked'
                      )
                ) >= 2
-             {personal} {exclusions}
+             AND {visibility} {personal} {exclusions}
              ORDER BY b.created_at DESC, b.id DESC
              LIMIT 12"
         );
@@ -2185,6 +2238,7 @@ async fn books_for_subject(
     normalized: &str,
     limit: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
+    let visibility = sharing::predicate("b.id", user_id);
     let personal = relevance::personal();
     let exclusions = relevance::EXCLUSIONS;
     let sql = format!(
@@ -2199,7 +2253,7 @@ async fn books_for_subject(
                JOIN editions e ON e.id = f.edition_id
                WHERE e.book_id = b.id
            )
-           {personal} {exclusions}
+           AND {visibility} {personal} {exclusions}
          ORDER BY b.created_at DESC, b.id DESC
          LIMIT ?"
     );
@@ -2240,4 +2294,46 @@ pub async fn shelf_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail
         subject: None,
         books,
     }])
+}
+
+// Viewer-free consumers can see only shared books.
+pub async fn comic_shelf(
+    pool: &SqlitePool,
+    mine: Option<i64>,
+    sort: &str,
+    page: i64,
+    page_size: i64,
+) -> Result<ComicShelfPage, AppError> {
+    comic_shelf_visible(pool, mine, mine.unwrap_or(-1), sort, page, page_size).await
+}
+pub async fn books_in_collection(pool: &SqlitePool, id: i64) -> Result<Vec<BookSummary>, AppError> {
+    books_in_collection_visible(pool, id, -1).await
+}
+pub async fn book_facets(pool: &SqlitePool, mine: Option<i64>) -> Result<BookFacets, AppError> {
+    book_facets_visible(pool, mine, mine.unwrap_or(-1)).await
+}
+pub async fn recent_books(
+    pool: &SqlitePool,
+    limit: i64,
+    mine: Option<i64>,
+) -> Result<Vec<BookSummary>, AppError> {
+    recent_books_visible(pool, limit, mine, mine.unwrap_or(-1)).await
+}
+pub async fn highlight_books(
+    pool: &SqlitePool,
+    limit: i64,
+    mine: Option<i64>,
+    seed: i64,
+) -> Result<Vec<BookSummary>, AppError> {
+    highlight_books_visible(pool, limit, mine, seed, mine.unwrap_or(-1)).await
+}
+pub async fn get_author(
+    pool: &SqlitePool,
+    id: i64,
+    mine: Option<i64>,
+) -> Result<Option<AuthorDetail>, AppError> {
+    get_author_visible(pool, id, mine, mine.unwrap_or(-1)).await
+}
+pub async fn related_books(pool: &SqlitePool, id: i64) -> Result<RelatedBooks, AppError> {
+    related_books_visible(pool, id, -1).await
 }

@@ -123,7 +123,10 @@ pub async fn assign_shelf(
         return Err(AppError::Forbidden);
     }
     if body.on_shelf {
-        crate::user_books::add(&state.db, user_id, book_id, "parent_assigned").await?;
+        let mut tx = state.db.begin().await?;
+        crate::services::sharing::require_access_tx(&mut tx, actor.id, book_id).await?;
+        crate::user_books::add_tx(&mut tx, user_id, book_id, "parent_assigned").await?;
+        tx.commit().await?;
     } else {
         crate::user_books::remove(&state.db, user_id, book_id).await?;
     }
@@ -141,6 +144,7 @@ pub async fn book_shelf_users(
     {
         return Err(AppError::Forbidden);
     }
+    crate::services::sharing::require_access(&state.db, actor.id, book_id).await?;
     let sql = "SELECT u.id, u.username, u.display_name, COALESCE(u.profile_type, 'adult'),
                 COALESCE(ub.on_shelf, 0)
          FROM users u

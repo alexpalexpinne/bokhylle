@@ -205,6 +205,95 @@ async fn wait_for_status(
 }
 
 #[tokio::test]
+async fn another_version_keeps_existing_files_and_reading_progress() {
+    let (_fixture_dir, fixtures) = fixture_books();
+    let content_dir = tempfile::tempdir().unwrap();
+    let source = content_dir.path().join("content.epub");
+    std::fs::copy(&fixtures.hail_mary, &source).unwrap();
+    let (test_app, library_dir, _keep, cookie, _) = import_app(content_dir.path()).await;
+    test_app
+        .state
+        .settings
+        .set("imports.strategy", &json!("copy"))
+        .await
+        .unwrap();
+
+    let first = start_acquisition(&test_app, &cookie).await;
+    wait_for_status(&test_app, &cookie, &first, &["QUEUED"]).await;
+    bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+    let ready = wait_for_status(&test_app, &cookie, &first, &["READY"]).await;
+    let book_id = ready["bookId"].as_i64().unwrap();
+    let original: (i64, String, String) = sqlx::query_as("SELECT id, path, sha256 FROM book_files")
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    let original_bytes = std::fs::read(&original.1).unwrap();
+    let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'reader'")
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO browser_reading_positions (user_id, book_file_id, sha256, format, locator, percentage, revision) VALUES (?, ?, ?, 'epub', 'chapter-3', 0.42, 1)")
+        .bind(user_id).bind(original.0).bind(&original.2).execute(&test_app.state.db).await.unwrap();
+
+    // Change only the ZIP comment, keeping a valid EPUB with the same metadata.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&source)
+        .unwrap();
+    let mut writer = zip::ZipWriter::new_append(file).unwrap();
+    writer.set_comment("Alternative edition fixture").unwrap();
+    writer.finish().unwrap();
+    let (status, created) = post_json(
+        &test_app,
+        &format!("/api/books/{book_id}/acquisitions"),
+        &cookie,
+        json!({ "askBeforeDownload": true }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(
+        created["duplicate"], false,
+        "a ready book can acquire another version"
+    );
+    let second = created["id"].as_str().unwrap();
+    assert_ne!(second, first);
+    wait_for_status(&test_app, &cookie, second, &["NEEDS_SELECTION"]).await;
+    let (status, _) = post_json(
+        &test_app,
+        &format!("/api/acquisitions/{second}/select"),
+        &cookie,
+        json!({ "index": 0 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+    wait_for_status(&test_app, &cookie, second, &["READY"]).await;
+
+    let files: Vec<(i64, String, String)> =
+        sqlx::query_as("SELECT id, path, sha256 FROM book_files ORDER BY id")
+            .fetch_all(&test_app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0], original);
+    assert_ne!(files[1].1, original.1, "the new file uses a separate path");
+    assert_ne!(
+        files[1].2, original.2,
+        "distinct bytes get a distinct file identity"
+    );
+    assert!(std::path::Path::new(&files[1].1).starts_with(library_dir.path()));
+    assert_eq!(std::fs::read(&original.1).unwrap(), original_bytes);
+    let progress: (String, f64, i64) = sqlx::query_as("SELECT locator, percentage, revision FROM browser_reading_positions WHERE user_id = ? AND book_file_id = ?")
+        .bind(user_id).bind(original.0).fetch_one(&test_app.state.db).await.unwrap();
+    assert_eq!(progress, ("chapter-3".to_string(), 0.42, 1));
+}
+
+#[tokio::test]
 async fn delivery_intent_fires_when_the_import_is_ready() {
     let (_fixture_dir, fixtures) = fixture_books();
     let content_dir = tempfile::tempdir().unwrap();

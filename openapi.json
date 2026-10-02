@@ -19,6 +19,16 @@
               "boolean",
               "null"
             ]
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1121,6 +1131,19 @@
               "null"
             ]
           },
+          "sharedInHousehold": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subjects": {
             "items": {
               "$ref": "#/components/schemas/SubjectName"
@@ -1157,6 +1180,8 @@
           "seriesId",
           "seriesNumber",
           "seriesSortOrder",
+          "sharedInHousehold",
+          "sharing",
           "subjects",
           "title"
         ],
@@ -1336,6 +1361,35 @@
           "status",
           "title",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "BookSharing": {
+        "enum": [
+          "private",
+          "shared"
+        ],
+        "type": "string"
+      },
+      "BookSharingState": {
+        "properties": {
+          "sharedInHousehold": {
+            "type": "boolean"
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "sharedInHousehold",
+          "sharing"
         ],
         "type": "object"
       },
@@ -1741,6 +1795,25 @@
           "dirty",
           "installation",
           "version"
+        ],
+        "type": "object"
+      },
+      "BulkSharingInput": {
+        "properties": {
+          "bookIds": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "sharing": {
+            "$ref": "#/components/schemas/BookSharing"
+          }
+        },
+        "required": [
+          "bookIds",
+          "sharing"
         ],
         "type": "object"
       },
@@ -2548,6 +2621,13 @@
       },
       "CreateAcquisition": {
         "properties": {
+          "askBeforeDownload": {
+            "description": "Overrides the profile default for this new acquisition only.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "preferredFormat": {
             "type": [
               "string",
@@ -2564,6 +2644,16 @@
             "type": [
               "boolean",
               "null"
+            ]
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
@@ -2599,6 +2689,12 @@
       },
       "CreateFromDiscovery": {
         "properties": {
+          "askBeforeDownload": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "preferredFormat": {
             "type": [
               "string",
@@ -2622,6 +2718,16 @@
               "boolean",
               "null"
             ]
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2644,6 +2750,16 @@
               "null"
             ]
           },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "url": {
             "type": "string"
           }
@@ -2660,6 +2776,16 @@
           },
           "providerKey": {
             "type": "string"
+          },
+          "sharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5508,6 +5634,16 @@
               "null"
             ]
           },
+          "defaultBookSharing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSharing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "displayName": {
             "type": [
               "string",
@@ -7033,6 +7169,17 @@
         ],
         "type": "object"
       },
+      "SharingInput": {
+        "properties": {
+          "sharing": {
+            "$ref": "#/components/schemas/BookSharing"
+          }
+        },
+        "required": [
+          "sharing"
+        ],
+        "type": "object"
+      },
       "ShelfAssignInput": {
         "properties": {
           "onShelf": {
@@ -7953,6 +8100,9 @@
           "canRequest": {
             "type": "boolean"
           },
+          "defaultBookSharing": {
+            "$ref": "#/components/schemas/BookSharing"
+          },
           "defaultLanguage": {
             "type": "string"
           },
@@ -8019,6 +8169,7 @@
           "canAcquire",
           "canDiscover",
           "canRequest",
+          "defaultBookSharing",
           "defaultLanguage",
           "displayName",
           "emailNotifications",
@@ -8087,7 +8238,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -13598,6 +13749,64 @@
         ]
       }
     },
+    "/api/books/sharing": {
+      "put": {
+        "operationId": "put_books_sharing",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkSharingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "books"
+        ]
+      }
+    },
     "/api/books/shelf/claim-all": {
       "post": {
         "operationId": "post_books_shelf_claim_all",
@@ -14954,6 +15163,82 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RelatedBooks"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "books"
+        ]
+      }
+    },
+    "/api/books/{id}/sharing": {
+      "put": {
+        "operationId": "put_books__id__sharing",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookSharingState"
                 }
               }
             },

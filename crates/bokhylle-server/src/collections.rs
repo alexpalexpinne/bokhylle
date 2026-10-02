@@ -120,3 +120,32 @@ pub async fn for_book(pool: &SqlitePool, book_id: i64) -> Result<Vec<CollectionS
 
     Ok(collections)
 }
+
+pub async fn list_visible(
+    pool: &SqlitePool,
+    viewer_id: i64,
+) -> Result<Vec<CollectionSummary>, AppError> {
+    let visibility = crate::services::sharing::predicate("cb.book_id", viewer_id);
+    let sql = format!("SELECT c.id, c.name,
+        (SELECT count(*) FROM collection_books cb WHERE cb.collection_id = c.id AND {visibility}) AS book_count
+        FROM collections c WHERE NOT EXISTS(SELECT 1 FROM collection_books cb WHERE cb.collection_id = c.id)
+        OR EXISTS(SELECT 1 FROM collection_books cb WHERE cb.collection_id = c.id AND {visibility}) ORDER BY c.name COLLATE NOCASE");
+    Ok(sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .fetch_all(pool)
+        .await?)
+}
+
+pub async fn require_visible(pool: &SqlitePool, viewer_id: i64, id: i64) -> Result<(), AppError> {
+    let visibility = crate::services::sharing::predicate("cb.book_id", viewer_id);
+    let sql = format!("SELECT EXISTS(SELECT 1 FROM collections c WHERE c.id = ? AND (
+        NOT EXISTS(SELECT 1 FROM collection_books cb WHERE cb.collection_id = c.id)
+        OR EXISTS(SELECT 1 FROM collection_books cb WHERE cb.collection_id = c.id AND {visibility})))");
+    let visible: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+    if !visible {
+        return Err(AppError::NotFound("collection not found".into()));
+    }
+    Ok(())
+}

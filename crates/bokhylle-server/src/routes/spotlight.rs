@@ -514,6 +514,7 @@ pub async fn spotlight(
     let subject_id = taste.subjects.first().map(|seed| seed.id).unwrap_or(0);
     let author_id = taste.authors.first().map(|seed| seed.id).unwrap_or(0);
 
+    let visibility = crate::services::sharing::predicate("b.id", user.id);
     let exclusions = relevance::EXCLUSIONS;
     let personal = relevance::personal();
     let shelf_rows: Vec<SpotlightRow> = if shelf_enabled {
@@ -600,6 +601,7 @@ pub async fn spotlight(
                            WHERE e.book_id = b.id)
                AND NOT EXISTS (SELECT 1 FROM user_books ub
                                WHERE ub.user_id = ? AND ub.book_id = b.id AND ub.on_shelf = 1)
+               AND {visibility}
                {personal}
                {exclusions}
                {LOCAL_LANGUAGE_FILTER}

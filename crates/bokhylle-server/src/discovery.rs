@@ -611,10 +611,11 @@ async fn local_matches(
         Option<i64>,
     );
 
+    let visibility = crate::services::sharing::predicate("b.id", viewer_id);
     let rows: Vec<LocalRow> = match kind {
         SearchKind::Isbn => {
             let isbn = text.trim();
-            sqlx::query_as(
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT b.id, b.title,
                         COALESCE((SELECT group_concat(a.name, ', ')
                                   FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -624,10 +625,10 @@ async fn local_matches(
                          WHERE book_id = b.id AND publication_year IS NOT NULL
                          ORDER BY id LIMIT 1)
                  FROM editions e JOIN books b ON b.id = e.book_id
-                 WHERE e.isbn13 = ? OR e.isbn10 = ?
+                 WHERE (e.isbn13 = ? OR e.isbn10 = ?) AND {visibility}
                  ORDER BY b.created_at DESC, b.id DESC
-                 LIMIT 12",
-            )
+                 LIMIT 12"
+            )))
             .bind(isbn)
             .bind(isbn)
             .fetch_all(&state.db)
@@ -644,7 +645,7 @@ async fn local_matches(
             if fts.is_empty() {
                 Vec::new()
             } else {
-                sqlx::query_as(
+                sqlx::query_as(sqlx::AssertSqlSafe(format!(
                     "SELECT b.id, b.title,
                             COALESCE((SELECT group_concat(a.name, ', ')
                                       FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -654,10 +655,10 @@ async fn local_matches(
                              WHERE book_id = b.id AND publication_year IS NOT NULL
                              ORDER BY id LIMIT 1)
                      FROM books b
-                     WHERE b.id IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ?)
+                     WHERE b.id IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ?) AND {visibility}
                      ORDER BY b.created_at DESC, b.id DESC
-                     LIMIT 12",
-                )
+                     LIMIT 12"
+                )))
                 .bind(fts)
                 .fetch_all(&state.db)
                 .await?
@@ -783,7 +784,12 @@ async fn resolve_owned(
     let mut dropped = 0usize;
 
     for result in results {
-        let book_id = find_owned_book(pool, &result).await?;
+        let book_id = match find_owned_book(pool, &result).await? {
+            Some(id) if crate::services::sharing::can_access(pool, viewer_id, id).await? => {
+                Some(id)
+            }
+            _ => None,
+        };
         let mut status = DiscoveryStatus::NotInLibrary;
         let mut owned_file_id = None;
 
@@ -1017,10 +1023,11 @@ pub async fn resolve_metadata(
     }
 }
 
-pub async fn detail(
+pub async fn detail_visible(
     state: &AppState,
     provider: Option<&str>,
     provider_key: &str,
+    viewer_id: i64,
 ) -> Result<Option<DiscoveryDetail>, AppError> {
     let Some(metadata) = resolve_metadata(state, provider, provider_key).await? else {
         return Ok(None);
@@ -1029,7 +1036,9 @@ pub async fn detail(
     let mut status = DiscoveryStatus::NotInLibrary;
     let mut owned_book_id = None;
     let mut owned_file_id = None;
-    if let Some(book_id) = find_owned_book(&state.db, &metadata).await? {
+    if let Some(book_id) = find_owned_book(&state.db, &metadata).await?
+        && crate::services::sharing::can_access(&state.db, viewer_id, book_id).await?
+    {
         owned_book_id = Some(book_id);
         if has_files(&state.db, book_id).await? {
             status = DiscoveryStatus::InLibrary;
@@ -1140,6 +1149,14 @@ fn now_epoch() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+pub async fn detail(
+    state: &AppState,
+    provider: Option<&str>,
+    provider_key: &str,
+) -> Result<Option<DiscoveryDetail>, AppError> {
+    detail_visible(state, provider, provider_key, -1).await
 }
 
 #[cfg(test)]

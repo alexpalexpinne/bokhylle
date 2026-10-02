@@ -66,20 +66,20 @@ export function ReleaseChooserDialog({
   return (
     <Modal
       title="Choose a version"
-      description="We found several versions. Pick the one you want."
-      onClose={onClose}
+      description="Pick the torrent or file to download. Existing library files will be kept."
+      onClose={() => { if (selecting === null) onClose() }}
       footer={
-        <Button variant="ghost" onClick={onClose}>
+        <Button variant="ghost" disabled={selecting !== null} onClick={onClose}>
           Close
         </Button>
       }
     >
       {error && (
-        <p className="mb-4 rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-danger">{error}</p>
+        <p role="alert" className="mb-4 rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-danger">{error}</p>
       )}
 
       <div className="space-y-2">
-        {!loaded && <p className="text-sm text-ink-muted">Loading versions…</p>}
+        {!loaded && <p role="status" className="text-sm text-ink-muted">Loading versions…</p>}
         {loaded && candidates.length === 0 && !error && (
           <p className="text-sm text-ink-muted">No versions are available.</p>
         )}
@@ -92,13 +92,14 @@ export function ReleaseChooserDialog({
               className="flex items-start justify-between gap-3 rounded-card bg-surface-2 px-4 py-3"
             >
               <div className="min-w-0 flex-1">
+                <p className="mb-2 text-sm font-medium text-ink [overflow-wrap:anywhere]">{candidate.releaseName || 'Unnamed release'}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   {recommended && (
-                    <span className="rounded-[3px] bg-accent/15 px-2 py-0.5 font-sans text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                    <span className="rounded-[3px] bg-accent/15 px-2 py-0.5 font-sans text-[10px] font-medium uppercase tracking-[0.14em] text-accent-strong">
                       Recommended
                     </span>
                   )}
-                  <p className="min-w-0 truncate text-sm font-medium text-ink">
+                  <p className="text-xs text-ink-muted">
                     {(candidate.format ?? 'unknown').toUpperCase()}
                     {candidate.language ? ` · ${candidate.language.toUpperCase()}` : ''} ·{' '}
                     {formatBytes(candidate.sizeBytes)}
@@ -108,17 +109,12 @@ export function ReleaseChooserDialog({
                 <p className="mt-1 text-xs">
                   <span className={availability.className}>{availability.label}</span>
                 </p>
-                <details className="mt-1.5 text-xs text-ink-faint">
-                  <summary className="cursor-pointer list-none underline-offset-2 transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
-                    Source details
-                  </summary>
-                  <p className="mt-1">
-                    {candidate.releaseName ?? 'Release'}
-                    {typeof candidate.seeders === 'number' ? ` · ${candidate.seeders} seeders` : ''}
-                    {candidate.leechers ? ` · ${candidate.leechers} leechers` : ''}
-                    {candidate.indexer ? ` · ${candidate.indexer}` : ''}
-                  </p>
-                </details>
+                <p className="mt-1.5 text-xs text-ink-faint [overflow-wrap:anywhere]">
+                  {candidate.method === 'nzb' ? 'Usenet' : candidate.method === 'http' ? 'Direct download' : 'Torrent'}
+                  {candidate.method === 'torrent' && typeof candidate.seeders === 'number' ? ` · ${candidate.seeders} seeders` : ''}
+                  {candidate.indexer ? ` · ${candidate.indexer}` : ''}
+                </p>
+                {candidate.rejected && <p className="mt-1 text-xs text-ink-muted">Unavailable for this request.</p>}
               </div>
               <Button
                 size="sm"

@@ -19,10 +19,10 @@ pub struct CollectionDetail {
 }
 
 pub async fn list_collections(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<collections::CollectionSummary>>, AppError> {
-    Ok(Json(collections::list(&state.db).await?))
+    Ok(Json(collections::list_visible(&state.db, user.id).await?))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -40,27 +40,31 @@ pub async fn create_collection(
 }
 
 pub async fn get_collection(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<CollectionDetail>, AppError> {
     let Some(collection) = collections::get(&state.db, id).await? else {
         return Err(AppError::NotFound("collection not found".to_string()));
     };
-    let books = queries::books_in_collection(&state.db, id).await?;
+    let books = queries::books_in_collection_visible(&state.db, id, user.id).await?;
+    if books.is_empty() && collection.book_count > 0 {
+        return Err(AppError::NotFound("collection not found".into()));
+    }
     Ok(Json(CollectionDetail {
         id: collection.id,
         name: collection.name,
-        book_count: collection.book_count,
+        book_count: books.len() as i64,
         books,
     }))
 }
 
 pub async fn delete_collection(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    collections::require_visible(&state.db, user.id, id).await?;
     if collections::delete(&state.db, id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -75,20 +79,23 @@ pub struct AddBook {
 }
 
 pub async fn add_book(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(body): Json<AddBook>,
 ) -> Result<StatusCode, AppError> {
+    collections::require_visible(&state.db, user.id, id).await?;
+    crate::services::sharing::require_access(&state.db, user.id, body.book_id).await?;
     collections::add_book(&state.db, id, body.book_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn remove_book(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((id, book_id)): Path<(i64, i64)>,
 ) -> Result<StatusCode, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     if collections::remove_book(&state.db, id, book_id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -99,9 +106,16 @@ pub async fn remove_book(
 }
 
 pub async fn book_collections(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(book_id): Path<i64>,
 ) -> Result<Json<Vec<collections::CollectionSummary>>, AppError> {
-    Ok(Json(collections::for_book(&state.db, book_id).await?))
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
+    let selected = collections::for_book(&state.db, book_id).await?;
+    let all = collections::list_visible(&state.db, user.id).await?;
+    Ok(Json(
+        all.into_iter()
+            .filter(|entry| selected.iter().any(|item| item.id == entry.id))
+            .collect(),
+    ))
 }

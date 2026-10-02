@@ -1,6 +1,7 @@
 import { type DirectActivity, fetchDirectActivity } from '../api/acquisitions'
 import { retryDelivery } from '../api/delivery'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AlertCircle, Check, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { ApiError } from '../api/client'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -229,6 +230,7 @@ function formatWhen(seconds: number): string {
 
 export function Downloads() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const isAdmin = user?.role === 'admin'
 
   const [acquisitions, setAcquisitions] = useState<Acquisition[]>([])
@@ -347,6 +349,17 @@ export function Downloads() {
   const canManage = (acquisition: Acquisition) =>
     isAdmin || acquisition.requestedByUserId === user?.id || acquisition.managedByMe
 
+  const requestedChoice = acquisitions.find((acquisition) => acquisition.id === searchParams.get('choose'))
+  const choosingId = choosing ?? (requestedChoice?.status === 'NEEDS_SELECTION' && canManage(requestedChoice) ? requestedChoice.id : null)
+  function closeChooser() {
+    setChoosing(null)
+    if (searchParams.has('choose')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('choose')
+      setSearchParams(next, { replace: true })
+    }
+  }
+
   // Anything already represented by the higher-level inbox stays out of the
   // generic groups, so one problem never appears twice on the page.
   const attentionIds = new Set(attentionItems.map((item) => item.id))
@@ -406,6 +419,14 @@ export function Downloads() {
       />
 
       {error && <p className="mt-6 border-l-2 border-danger pl-4 text-sm text-danger">{error}</p>}
+
+      {requestedChoice && requestedChoice.status !== 'NEEDS_SELECTION' && <p role="status" className="mt-6 border-l-2 border-line pl-4 text-sm text-ink-muted">
+        {requestedChoice.askBeforeDownload && ['REQUESTED', 'SEARCHING', 'EVALUATING'].includes(requestedChoice.status)
+          ? 'Finding versions. You will choose before anything downloads.'
+          : isActiveStatus(requestedChoice.status)
+            ? 'This book already has a shared download in progress. Its current selection is kept.'
+            : 'See the result of this request below.'}
+      </p>}
 
       {loading && acquisitions.length === 0 && (
         <div className="mt-10 space-y-4">
@@ -542,12 +563,12 @@ export function Downloads() {
         />
       )}
 
-      {choosing && (
+      {choosingId && (
         <ReleaseChooserDialog
-          acquisitionId={choosing}
-          onClose={() => setChoosing(null)}
+          acquisitionId={choosingId}
+          onClose={closeChooser}
           onSelected={() => {
-            setChoosing(null)
+            closeChooser()
             refresh()
           }}
         />

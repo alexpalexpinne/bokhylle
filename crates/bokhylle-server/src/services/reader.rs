@@ -108,6 +108,7 @@ pub async fn readable_file(
     book_id: i64,
     file_id: i64,
 ) -> Result<ReadableFile, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     let row: Option<(String, String, String)> = sqlx::query_as(
         "SELECT f.path, f.sha256, f.format
          FROM book_files f
@@ -185,6 +186,7 @@ pub struct SetBookCompletion {
 }
 
 async fn readable_book(state: &AppState, user: &User, book_id: i64) -> Result<(), AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     let exists: Option<i64> = sqlx::query_scalar(
         "SELECT b.id FROM books b WHERE b.id = ?
          AND EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id

@@ -359,6 +359,7 @@ pub async fn deliver(
     file_id: i64,
     target_id: Option<i64>,
 ) -> Result<Delivery, AppError> {
+    crate::services::sharing::require_access(&state.db, user_id, book_id).await?;
     let (resolved_target_id, address) = resolve_target(state, user_id, target_id).await?;
 
     let file: Option<(String, String, i64, String, String)> = sqlx::query_as(

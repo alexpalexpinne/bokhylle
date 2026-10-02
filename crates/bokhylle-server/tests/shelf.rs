@@ -68,6 +68,7 @@ async fn shelf_adds_removes_filters_and_claims() {
         .unwrap();
 
     let filters = bokhylle_server::library::queries::BookFilters {
+        viewer_id: Some(user_id),
         mine: Some(user_id),
         kind: None,
         format: None,

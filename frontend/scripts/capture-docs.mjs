@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
 import { signInProfiles } from './sign-in-preview.mjs'
 import { serverPreview } from './server-preview.mjs'
+import { mockVersionChoices } from '../tests/e2e/specs/version-choices.mjs'
 
 const base = process.env.BOKHYLLE_DOCS_BASE ?? 'http://127.0.0.1:4173'
 const output = fileURLToPath(new URL('../../docs/media/', import.meta.url))
@@ -227,6 +228,8 @@ try {
     ['/library/1', 'metadata-corrections-mobile.png', 390, 844, 'Where Maps End'],
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
+    ['/activity?choose=maps-version', 'version-choices-desktop.png', 1440, 1000, 'Choose a version'],
+    ['/activity?choose=maps-version', 'version-choices-mobile.png', 390, 844, 'Choose a version'],
     ['/settings/getting-books', 'acquisition-settings-desktop.png', 1440, 900, 'Import folder'],
     ['/settings/server', 'server-desktop.png', 1440, 1000, 'Diagnostics'],
     ['/settings/server', 'server-mobile.png', 390, 844, 'Diagnostics'],
@@ -265,6 +268,10 @@ try {
         body: JSON.stringify(responseFor(url, adminPreview)),
       })
     })
+    if (name.startsWith('version-choices-')) {
+      const versions = await mockVersionChoices(page)
+      versions.acquisitions = [versions.newAcquisition()]
+    }
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
     if (name === 'profile-marks-mobile.png') await page.getByRole('button', { name: 'Change picture', exact: true }).click()

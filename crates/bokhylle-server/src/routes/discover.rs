@@ -53,6 +53,8 @@ pub struct LikedDiscovery {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateFromDiscovery {
+    pub ask_before_download: Option<bool>,
+    pub sharing: Option<crate::services::sharing::BookSharing>,
     pub provider: String,
     pub provider_key: String,
     pub preferred_format: Option<String>,
@@ -65,7 +67,7 @@ pub async fn create_acquisition(
     State(state): State<AppState>,
     Json(body): Json<CreateFromDiscovery>,
 ) -> Result<StatusJson<crate::services::books::CatalogueAcquisitionOutcome, 202>, AppError> {
-    let result = crate::services::books::add_catalogue(
+    let result = crate::services::books::add_catalogue_with_sharing(
         &state,
         &user,
         &body.provider,
@@ -73,6 +75,8 @@ pub async fn create_acquisition(
         body.preferred_format,
         body.preferred_language,
         body.send_to_reader.unwrap_or(false),
+        body.sharing,
+        body.ask_before_download,
     )
     .await?;
     Ok(StatusJson(result))
@@ -298,9 +302,12 @@ async fn append_derived_book_authors(
                      WHERE f.author_id = a.id AND f.user_id = ?),
                     (SELECT COUNT(DISTINCT ba.book_id) FROM book_authors ba
                      JOIN books b ON b.id = ba.book_id
-                     WHERE ba.author_id = a.id)
+                     WHERE ba.author_id = a.id AND (b.sharing_managed = 0 OR EXISTS (
+                        SELECT 1 FROM book_access access WHERE access.book_id = b.id
+                        AND (access.user_id = ? OR access.sharing = 'shared'))))
              FROM authors a WHERE a.normalized_name = ?",
         )
+        .bind(user_id)
         .bind(user_id)
         .bind(&normalized)
         .fetch_optional(&state.db)
@@ -487,8 +494,13 @@ pub async fn releases(
     State(state): State<AppState>,
     Query(params): Query<ReleaseParams>,
 ) -> Result<Json<ReleasesResponse>, AppError> {
-    let Some(detail) =
-        discovery::detail(&state, params.provider.as_deref(), &params.provider_key).await?
+    let Some(detail) = discovery::detail_visible(
+        &state,
+        params.provider.as_deref(),
+        &params.provider_key,
+        user.0.id,
+    )
+    .await?
     else {
         return Err(AppError::NotFound("book not found".to_string()));
     };
@@ -503,7 +515,7 @@ pub async fn releases(
             .unwrap_or_else(|| "epub".to_string())
             .to_ascii_lowercase()
     );
-    let is_admin = user.0.role == crate::auth::Role::Admin;
+    let can_choose = crate::auth::can_acquire(&state.db, &user.0).await?;
     if let Some((stored_at, cached)) = RELEASE_CACHE
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -512,7 +524,7 @@ pub async fn releases(
         && stored_at.elapsed() < RELEASE_TTL
     {
         return Ok(Json(ReleasesResponse {
-            releases: release_views(cached, is_admin),
+            releases: release_views(cached, can_choose),
         }));
     }
 
@@ -528,7 +540,7 @@ pub async fn releases(
         && stored_at.elapsed() < RELEASE_TTL
     {
         return Ok(Json(ReleasesResponse {
-            releases: release_views(cached, is_admin),
+            releases: release_views(cached, can_choose),
         }));
     }
 
@@ -587,15 +599,15 @@ pub async fn releases(
         })
         .collect();
 
-    let response = release_views(&releases, is_admin);
+    let response = release_views(&releases, can_choose);
     cache_release(cache_key, releases);
 
     Ok(Json(ReleasesResponse { releases: response }))
 }
 
-/// Product-level availability for every user; raw operational fields
-/// (release name, indexer, leechers) are admin-only.
-fn release_views(cached: &[ReleasePreview], admin: bool) -> Vec<ReleaseView> {
+/// Adults who can acquire books see the source information needed to choose
+/// a version. Other profiles receive the availability summary.
+fn release_views(cached: &[ReleasePreview], can_choose: bool) -> Vec<ReleaseView> {
     cached
         .iter()
         .map(|release| ReleaseView {
@@ -604,9 +616,9 @@ fn release_views(cached: &[ReleasePreview], admin: bool) -> Vec<ReleaseView> {
             language: release.language.clone(),
             size_bytes: release.size_bytes,
             seeders: release.seeders,
-            release_name: admin.then(|| release.release_name.clone()),
-            leechers: admin.then_some(release.leechers),
-            indexer: admin.then(|| release.indexer.clone()),
+            release_name: can_choose.then(|| release.release_name.clone()),
+            leechers: can_choose.then_some(release.leechers),
+            indexer: can_choose.then(|| release.indexer.clone()),
         })
         .collect()
 }
@@ -623,8 +635,13 @@ pub async fn book(
     State(state): State<AppState>,
     Query(params): Query<BookParams>,
 ) -> Result<Json<discovery::DiscoveryDetail>, AppError> {
-    let Some(mut detail) =
-        discovery::detail(&state, params.provider.as_deref(), &params.provider_key).await?
+    let Some(mut detail) = discovery::detail_visible(
+        &state,
+        params.provider.as_deref(),
+        &params.provider_key,
+        user.id,
+    )
+    .await?
     else {
         return Err(AppError::NotFound("book not found".to_string()));
     };

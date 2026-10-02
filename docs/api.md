@@ -29,6 +29,21 @@ jobs, as well as NZB jobs. Release previews and candidate choices include a
 without assuming every result has a seeder count. Adult acquisition permission
 and child restrictions apply to these routes.
 
+`POST /api/books/{book_id}/acquisitions` and `POST /api/discover/acquisitions`
+accept optional `askBeforeDownload`. Omit it to follow the profile's
+`acquisitionMode`; `true` pauses before downloading so the requester can choose
+from `GET /api/acquisitions/{id}/candidates`, then submit its candidate `index`
+to `POST /api/acquisitions/{id}/select`. The override applies only to a new
+acquisition. Joining active work preserves its original requester, selection,
+and mode. A completed book can start another acquisition; distinct file bytes
+are added alongside existing files, whose reading positions remain intact.
+
+Adults allowed to acquire books see release names, sources, and seeder counts
+in discovery previews, matching administrators. Adults needing approval see
+availability summaries. Only the original requester or an administrator can
+select a candidate. Technical scoring and acquisition
+diagnostics remain administrator operations.
+
 Administrators can select `integrations.indexer.provider` (`auto`, `prowlarr`,
 `torznab`, or `newznab`) and configure each source through the settings API.
 Newznab needs `integrations.newznab.url`, `.api_key`, and optional `.categories`;
@@ -240,3 +255,15 @@ stay optional. Do not hand-edit either generated
 file. CI checks that every registered `/api/*`
 operation is present, has a constrained JSON success and error response,
 declares authentication, and has current generated files.
+
+## Book sharing
+
+`UserView.defaultBookSharing` is `private` or `shared`. Set it with `PUT /api/profile` using `defaultBookSharing`; omitted fields retain their current value. Defaults apply only when a profile first gets access to a book. Acquisition bodies for known books, Discover, direct HTTP links, and OPDS catalogue entries accept an optional `sharing` override, saved before starting background work.
+
+Approval requests also accept `sharing` on `POST /api/requests`. The request saves its override or account default when submitted, and approval applies that saved choice. Duplicate pending requests keep their original choice. Children always request private access.
+
+`BookDetail.sharing` is the signed-in profile's choice, or null when they have not obtained access of their own. `sharedInHousehold` reports whether the title is currently available to other adults, including another owner's sharing choice.
+
+Adults update their own access with `PUT /api/books/{id}/sharing` and `{ "sharing": "private" }` or `shared`. The response is `BookSharingState`. `PUT /api/books/sharing` accepts `{ "bookIds": [1, 2], "sharing": "shared" }` and returns 204. Bulk updates accept 1–1,000 ids and commit atomically; every id must belong to the caller. Children cannot change sharing. Hidden books return 404 on detail, file, cover, and mutation routes; list counts, facets, authors, series, and collections follow visibility. Adult shelves remain private, including from administrators.
+
+Book access outlives shelf membership. Coowners retain separate grants to the same file, and changing one grant never changes another. Existing library books remain shared until a reader deliberately updates sharing. Administrative maintenance, import review, acquisition oversight, backups, and the library filesystem remain operator tools.

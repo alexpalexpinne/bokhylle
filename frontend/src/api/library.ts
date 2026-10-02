@@ -147,6 +147,14 @@ export function fetchBook(id: number) {
   return apiRoute('/api/books/{id}', `/api/books/${id}`)
 }
 
+export function setBookSharing(id: number, sharing: 'private' | 'shared') {
+  return apiRoute('/api/books/{id}/sharing', `/api/books/${id}/sharing`, { method: 'PUT', json: { sharing } })
+}
+
+export function setBooksSharing(bookIds: number[], sharing: 'private' | 'shared') {
+  return apiRoute('/api/books/sharing', '/api/books/sharing', { method: 'PUT', json: { bookIds, sharing } })
+}
+
 export type SimilarBook = components['schemas']['SimilarBook']
 
 export type RelatedBooks = components['schemas']['RelatedBooks']
