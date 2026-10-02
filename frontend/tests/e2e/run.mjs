@@ -26,6 +26,8 @@ import onboardingSearchSpec from './specs/onboarding-search.mjs'
 import childSetupSpec from './specs/child-setup.mjs'
 import profileMarksSpec from './specs/profile-marks.mjs'
 import bookDetailSpec from './specs/book-detail.mjs'
+import bookSharingSpec from './specs/book-sharing.mjs'
+import versionChoicesSpec from './specs/version-choices.mjs'
 import demoSpec from './specs/demo.mjs'
 import demoEntrySpec from './specs/demo-entry.mjs'
 import discoverDeepLinkSpec from './specs/discover-deep-link.mjs'
@@ -88,6 +90,8 @@ const allSpecs = [
   { name: 'child-setup', run: childSetupSpec, auth: false },
   { name: 'profile-marks', run: profileMarksSpec, auth: false },
   { name: 'book-detail', run: bookDetailSpec, auth: false },
+  { name: 'book-sharing', run: bookSharingSpec, auth: false },
+  { name: 'version-choices', run: versionChoicesSpec, auth: false },
   { name: 'demo', run: demoSpec, auth: false },
   { name: 'demo-entry', run: demoEntrySpec, auth: false },
   { name: 'discover-deep-link', run: discoverDeepLinkSpec, auth: false },

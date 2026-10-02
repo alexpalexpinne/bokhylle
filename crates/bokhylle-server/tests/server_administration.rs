@@ -421,7 +421,7 @@ async fn release_awareness_rejects_prereleases_malformed_and_oversized_responses
     let state = release_state(&test, &mock).await;
     let cases = [
         (
-            json!({"tag_name":"v0.1.0", "draft":false,"prerelease":false}),
+            json!({"tag_name": format!("v{}", bokhylle_core::VERSION), "draft":false,"prerelease":false}),
             0,
         ),
         (

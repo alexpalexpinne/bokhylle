@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/status-public%20beta-56624a" alt="Public beta">
 </p>
 
-Bokhylle is a self-hosted book library for your household. Keep your EPUB, PDF, and CBZ files in one shared collection, while each reader has a personal shelf. Discover your next book, read in the browser, or send it to your reading device.
+Bokhylle is a self-hosted book library for your household. Keep your EPUB, PDF, and CBZ files in one household collection, choose which books to share, and give each reader a private personal shelf. Discover your next book, read in the browser, or send it to your reading device.
 
 <p align="center">
   <a href="https://demo.bokhylle.com">Try the demo</a> · <a href="#start-with-docker-compose">Install with Docker Compose</a> · <a href="https://bokhylle.com">Visit the website</a>
@@ -22,8 +22,9 @@ The previews show the isolated demo's selected classics and their covers from [S
 
 ## A library for everyone at home
 
-- **One collection, personal shelves.** Share book files without sharing everyone's reading list. Each adult chooses the books on their own private shelf.
+- **One collection, personal shelves.** Each adult chooses private or shared books, with an account default and controls for individual or selected titles. Personal shelves and reading progress stay private.
 - **Discover something you want to read.** Home suggestions draw on your shelf, likes, reading interests, and followed authors. Search the household collection or the public catalogue, and request a missing book.
+- **Choose what to download.** Adults who can get books can use Automatic, choose for one book, or always be asked. Get another version keeps existing files and reading progress.
 - **Read wherever you prefer.** Open EPUB, PDF, and CBZ in the browser with saved progress. Download a file, send it to an email-capable reader, or connect a reading app through OPDS or KOReader sync.
 - **Give children their own shelves.** Adults choose their books and decide whether they can search or explore for more. Children read from their assigned shelves; requests need adult approval. Public catalogue search is not age filtered.
 - **Keep a useful catalogue.** Group comics and manga by series and reading order. Review imports and correct book details; your corrections survive later scans and metadata refreshes.
@@ -43,6 +44,17 @@ The previews show the isolated demo's selected classics and their covers from [S
 <p align="center">
   <img src="docs/media/library-mobile.png" alt="The demo library on a phone" width="280">
   <img src="docs/media/reader-mobile.png" alt="Reading Dracula in Paper on a phone" width="280">
+</p>
+
+</details>
+
+<details>
+<summary>See the version chooser</summary>
+
+The chooser below uses fictional books and releases.
+
+<p align="center">
+  <img src="docs/media/version-choices-desktop.png" alt="An adult choosing a torrent or file with release names, formats, sizes, and sources" width="100%">
 </p>
 
 </details>
@@ -75,7 +87,7 @@ chmod 600 .env
 chmod 700 data/config
 ```
 
-Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.1.0`. Then start the app:
+Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.2.0`. Then start the app:
 
 ```sh
 docker compose -f compose.yaml -f compose.image.yaml pull bokhylle

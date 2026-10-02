@@ -44,6 +44,7 @@ import { ReadersSection } from './profile/ReadersSection'
 import { ReaderTokensSection } from './profile/ReaderTokensSection'
 import { IntegrationsSection } from './profile/IntegrationsSection'
 import { AppearanceSection } from './profile/AppearanceSection'
+import { SharingSection } from './profile/SharingSection'
 
 const profileSections = [
   { id: 'overview', label: 'Overview', description: 'Your account at a glance.' },
@@ -426,7 +427,7 @@ export function Profile() {
         />
       )}
 
-      {activeSection === 'preferences' && (
+      {activeSection === 'preferences' && (<>
         <ProfilePreferences
           prefFormat={prefFormat}
           setPrefFormat={setPrefFormat}
@@ -448,7 +449,8 @@ export function Profile() {
           savingPrefs={savingPrefs}
           savePreferences={() => void savePreferences()}
         />
-      )}
+        {user?.profileType !== 'child' && <SharingSection />}
+      </>)}
 
       {activeSection === 'taste' && (
         <ProfileTaste

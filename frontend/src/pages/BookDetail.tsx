@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, BookOpen, ChevronDown, Download, Search, Send } from 'lucide-react'
 import { ApiError } from '../api/client'
-import { createHttpAcquisitionForBook } from '../api/acquisitions'
+import { createAcquisitionForBook, createHttpAcquisitionForBook } from '../api/acquisitions'
 import { fetchDemoActivity, startDemoGet } from '../api/demo'
 import {
   type BookDetail as BookDetailData,
@@ -36,6 +36,8 @@ import { BookAdminActions, DeleteBookFileButton } from './book-detail/BookAdminA
 import { CollectionsManager } from './book-detail/CollectionsManager'
 import { DeliveryHistory } from './book-detail/DeliveryHistory'
 import { HouseholdAccess } from './book-detail/HouseholdAccess'
+import { BookSharingSettings } from './book-detail/BookSharingSettings'
+import { BookSharingChoice, type BookSharing } from '../components/BookSharingChoice'
 
 export function BookDetail({ bookId }: { bookId: string }) {
   const id = Number(bookId)
@@ -59,9 +61,17 @@ export function BookDetail({ bookId }: { bookId: string }) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [linkFormat, setLinkFormat] = useState('auto')
+  const [linkSharing, setLinkSharing] = useState<BookSharing | null>(null)
   const [linkBusy, setLinkBusy] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const shelfMutation = useMutation()
+  const versionMutation = useMutation()
+
+  function getAnotherVersion() {
+    void versionMutation.run('version', () => createAcquisitionForBook(id, { askBeforeDownload: true }), 'Could not find other versions', (acquisition) => {
+      navigate(`/activity?choose=${encodeURIComponent(acquisition.id)}`)
+    })
+  }
 
   async function tryDemoGet(sendWhenReady = false) {
     setDemoBusy(true)
@@ -81,7 +91,7 @@ export function BookDetail({ bookId }: { bookId: string }) {
     setLinkBusy(true)
     setLinkError(null)
     try {
-      await createHttpAcquisitionForBook(id, linkUrl.trim(), linkFormat === 'auto' ? undefined : linkFormat)
+      await createHttpAcquisitionForBook(id, linkUrl.trim(), linkFormat === 'auto' ? undefined : linkFormat, linkSharing ?? book?.sharing ?? user?.defaultBookSharing ?? 'shared')
       navigate('/activity')
     } catch (caught) {
       setLinkError(caught instanceof ApiError ? caught.message : 'Could not add this link')
@@ -378,16 +388,22 @@ export function BookDetail({ bookId }: { bookId: string }) {
               </div>
               <div role="group" aria-label="Manage book" className="flex flex-wrap items-center gap-2 border-t border-ink/15 pt-3 [&_button]:min-h-11">
               {!isChild && !demo && <CollectionsManager bookId={book.id} onError={setError} />}
+              {!isChild && !demo && <BookSharingSettings book={book} onUpdated={refreshBook} />}
               {!isChild && !demo && (isAdmin || user?.canAcquire) && (
+                <>
+                {primaryFile && <Button variant="ghost" size="sm" disabled={!!versionMutation.busyKey} onClick={getAnotherVersion}>{versionMutation.busyKey ? 'Finding versions…' : 'Get another version'}</Button>}
                 <Button variant="ghost" size="sm" onClick={() => setLinkOpen((open) => !open)} aria-expanded={linkOpen}>Add from link</Button>
+                </>
               )}
               {isAdmin && <BookAdminActions book={book} onUpdated={refreshBook} />}
               {!isChild && demo && !isAdmin && <HouseholdAccess bookId={book.id} />}
               </div>
+              {versionMutation.error && <p role="alert" className="text-sm text-danger">{versionMutation.error}</p>}
               {linkOpen && !isChild && !demo && (
                 <form onSubmit={(event) => void addFromLink(event)} className="max-w-2xl space-y-3 border-t border-line pt-4">
                   <p className="text-sm text-ink-muted">Add a direct EPUB, PDF, or CBZ download for this book.</p>
                   <Field label="Download URL"><Input type="url" required value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.org/book.epub" /></Field>
+                  <BookSharingChoice value={linkSharing ?? book.sharing ?? user?.defaultBookSharing ?? 'shared'} onChange={setLinkSharing} disabled={linkBusy} />
                   <div className="flex flex-wrap items-end gap-3">
                     <Field label="Format"><Select value={linkFormat} onChange={(event) => setLinkFormat(event.target.value)}><option value="auto">From URL</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="cbz">CBZ</option></Select></Field>
                     <Button type="submit" variant="primary" disabled={linkBusy || !linkUrl.trim()}>{linkBusy ? 'Adding…' : 'Get this file'}</Button>

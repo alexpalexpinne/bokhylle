@@ -30,10 +30,11 @@ export function fetchRequestBook(provider: string, providerKey: string) {
 export function createBookRequest(
   provider: string,
   providerKey: string,
+  sharing?: components['schemas']['BookSharing'],
 ) {
   return apiRoute('/api/requests', '/api/requests', {
     method: 'POST',
-    json: { provider, providerKey },
+    json: { provider, providerKey, sharing },
   })
 }
 

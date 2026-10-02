@@ -65,6 +65,16 @@ pub async fn create(
     provider: &str,
     provider_key: &str,
 ) -> Result<RequestOutcome, AppError> {
+    create_with_sharing(state, user, provider, provider_key, None).await
+}
+
+pub async fn create_with_sharing(
+    state: &AppState,
+    user: &User,
+    provider: &str,
+    provider_key: &str,
+    sharing: Option<crate::services::sharing::BookSharing>,
+) -> Result<RequestOutcome, AppError> {
     if !may_request(state, user.id).await? {
         return Err(AppError::Forbidden);
     }
@@ -81,7 +91,7 @@ pub async fn create(
         ));
     };
     let book_id = import_metadata::upsert_book_from_metadata(&state.db, &metadata).await?;
-    create_for_book(state, user, book_id).await
+    create_for_book_with_sharing(state, user, book_id, sharing).await
 }
 
 /// Registers a request for a book already in the catalogue.
@@ -90,10 +100,20 @@ pub async fn create_for_book(
     user: &User,
     book_id: i64,
 ) -> Result<RequestOutcome, AppError> {
+    create_for_book_with_sharing(state, user, book_id, None).await
+}
+
+pub async fn create_for_book_with_sharing(
+    state: &AppState,
+    user: &User,
+    book_id: i64,
+    sharing: Option<crate::services::sharing::BookSharing>,
+) -> Result<RequestOutcome, AppError> {
     if !may_request(state, user.id).await? {
         return Err(AppError::Forbidden);
     }
-    let (id, duplicate) = book_requests::create(&state.db, book_id, user.id).await?;
+    let (id, duplicate) =
+        book_requests::create_with_sharing(&state.db, book_id, user.id, sharing).await?;
     if !duplicate {
         tracing::info!(
             request_id = id,
@@ -188,6 +208,7 @@ pub async fn approve(
         }
         crate::user_books::add_tx(&mut tx, request.user_id, request.book_id, "book_request")
             .await?;
+        apply_request_sharing(&mut tx, id, request.user_id, request.book_id).await?;
         tx.commit().await?;
 
         tracing::info!(
@@ -290,6 +311,7 @@ pub async fn approve(
     .bind(request.user_id)
     .execute(&mut *tx)
     .await?;
+    apply_request_sharing(&mut tx, id, request.user_id, request.book_id).await?;
     tx.commit().await?;
 
     tracing::info!(
@@ -387,4 +409,24 @@ async fn notify_admins(state: &AppState, requester_id: i64, book_id: i64) {
         .await
         .ok();
     }
+}
+
+async fn apply_request_sharing(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    request_id: i64,
+    user_id: i64,
+    book_id: i64,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE book_access SET sharing = CASE
+            WHEN EXISTS(SELECT 1 FROM users WHERE id = book_access.user_id AND profile_type = 'child') THEN 'private'
+            ELSE (SELECT sharing FROM book_requests WHERE id = ?) END
+        WHERE user_id = ? AND book_id = ?",
+    )
+    .bind(request_id)
+    .bind(user_id)
+    .bind(book_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }

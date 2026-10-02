@@ -14,6 +14,7 @@ pub async fn send_book(
     book_id: i64,
     target_id: Option<i64>,
 ) -> Result<Delivery, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     if crate::auth::profile_type(&state.db, user.id).await? == "child" {
         return Err(AppError::Forbidden);
     }

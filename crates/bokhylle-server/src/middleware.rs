@@ -145,12 +145,14 @@ pub async fn child_guard(
         || path == "/api/activity/direct"
         || path == "/api/profile"
         || path == "/api/books/facets"
+        || path == "/api/books/sharing"
         || (path.starts_with("/api/books/")
             && ((path.contains("/files/") && !reader_route)
                 || path.ends_with("/related")
                 || path.ends_with("/deliver")
                 // Children are curated by a parent: no self-shelf mutations.
                 || path.ends_with("/shelf")
+                || path.ends_with("/sharing")
                 || path.ends_with("/shelf/claim-all")));
     if !blocked {
         return Ok(next.run(request).await);

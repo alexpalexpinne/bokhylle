@@ -188,6 +188,11 @@ async fn accessible_document(
     document: &str,
 ) -> Result<Option<(i64, i64)>, KosyncError> {
     let resolved = resolve_document(state, document).await?;
+    if let Some((book_id, _)) = resolved
+        && !crate::services::sharing::can_access(&state.db, user.id, book_id).await?
+    {
+        return Err(KosyncError::InvalidRequest);
+    }
     if crate::auth::profile_type(&state.db, user.id).await? == "child" {
         let Some((book_id, _)) = resolved else {
             return Err(KosyncError::InvalidRequest);

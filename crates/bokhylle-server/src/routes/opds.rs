@@ -216,6 +216,7 @@ pub async fn all(
     books_feed(
         &state,
         None,
+        user.id,
         "/opds/all",
         page.page.max(1),
         "title",
@@ -232,6 +233,7 @@ pub async fn shelf(
     books_feed(
         &state,
         Some(user.id),
+        user.id,
         "/opds/shelf",
         page.page.max(1),
         "title",
@@ -250,6 +252,7 @@ pub async fn recent(
     books_feed(
         &state,
         mine,
+        user.id,
         "/opds/recent",
         page.page.max(1),
         "recent",
@@ -261,6 +264,7 @@ pub async fn recent(
 async fn books_feed(
     state: &AppState,
     mine: Option<i64>,
+    viewer_id: i64,
     base: &str,
     page_number: u32,
     sort: &str,
@@ -273,6 +277,7 @@ async fn books_feed(
         100,
         &BookFilters {
             mine,
+            viewer_id: Some(viewer_id),
             kind: None,
             format: None,
             language: None,
@@ -355,7 +360,7 @@ pub async fn author_feed(
 ) -> Result<Response, AppError> {
     let child = crate::auth::profile_type(&state.db, user.id).await? == "child";
     let mine = if child { Some(user.id) } else { None };
-    let Some(author) = queries::get_author(&state.db, id, mine).await? else {
+    let Some(author) = queries::get_author_visible(&state.db, id, mine, user.id).await? else {
         return Err(AppError::NotFound("author not found".to_string()));
     };
     if author.books.is_empty() {
@@ -392,6 +397,7 @@ pub async fn download(
     OpdsUser(user): OpdsUser,
     State(state): State<AppState>,
 ) -> Result<Response, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     if crate::auth::profile_type(&state.db, user.id).await? == "child"
         && !crate::user_books::contains(&state.db, user.id, id).await?
     {

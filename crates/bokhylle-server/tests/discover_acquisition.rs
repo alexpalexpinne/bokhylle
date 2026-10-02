@@ -260,12 +260,29 @@ async fn release_preview_lists_seeders_before_acquiring() {
     assert_eq!(body["releases"][0]["seeders"], 41);
     assert_eq!(body["releases"][0]["format"], "epub");
     assert_eq!(body["releases"][0]["method"], "torrent");
-    assert!(
-        body["releases"][0]["releaseName"].is_null(),
-        "release names are admin-only: {body}"
+    assert_eq!(
+        body["releases"][0]["releaseName"],
+        "Andy.Weir.Project.Hail.Mary.Retail.EN.EPUB"
     );
-    assert!(body["releases"][0]["leechers"].is_null());
-    assert!(body["releases"][0]["indexer"].is_null());
+    assert_eq!(body["releases"][0]["leechers"], 6);
+    assert_eq!(body["releases"][0]["indexer"], "IPTorrents");
+
+    sqlx::query("UPDATE users SET can_acquire = 0 WHERE username = 'reader'")
+        .execute(&test_app.state.db)
+        .await
+        .unwrap();
+    let (status, restricted) = get_json(
+        &test_app,
+        "/api/discover/releases?providerKey=/works/OL1W&format=epub",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        restricted["releases"][0]["releaseName"].is_null(),
+        "a cached preview must still apply the viewer's permissions"
+    );
+    assert!(restricted["releases"][0]["indexer"].is_null());
 
     test_app
         .state
@@ -283,6 +300,10 @@ async fn release_preview_lists_seeders_before_acquiring() {
     assert_eq!(status, StatusCode::OK);
     assert!(admin_body["releases"][0]["releaseName"].is_string());
     assert_eq!(admin_body["releases"][0]["leechers"], 6);
+    assert_eq!(
+        admin_body, body,
+        "adults who can acquire and admins see the same choices"
+    );
 }
 
 #[tokio::test]

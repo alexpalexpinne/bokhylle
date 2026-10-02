@@ -112,6 +112,7 @@ pub async fn feed(
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AcquireFromCatalog {
+    pub sharing: Option<crate::services::sharing::BookSharing>,
     pub page_url: String,
     pub entry_id: String,
     pub file_index: usize,
@@ -154,6 +155,7 @@ pub async fn acquire(
     let book_id =
         crate::library::import_metadata::upsert_book_from_metadata(&state.db, &metadata).await?;
     let trusted_origin = crate::remote_http::origin(&source.url)?;
+    crate::services::sharing::choose(&state.db, user.id, book_id, body.sharing).await?;
     let (acquisition, duplicate) = crate::routes::acquisitions::start_http(
         &state,
         &user,

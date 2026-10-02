@@ -92,6 +92,7 @@ pub struct UserView {
     spotlight_rotation: bool,
     avatar_version: Option<i64>,
     avatar_preset: Option<String>,
+    default_book_sharing: crate::services::sharing::BookSharing,
 }
 
 pub(crate) async fn user_with_notifications(
@@ -123,6 +124,18 @@ pub(crate) async fn user_with_notifications(
     .fetch_optional(&state.db)
     .await?;
     Ok(UserView {
+        default_book_sharing: if sqlx::query_scalar::<_, String>(
+            "SELECT default_book_sharing FROM users WHERE id = ?",
+        )
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await?
+            == "private"
+        {
+            crate::services::sharing::BookSharing::Private
+        } else {
+            crate::services::sharing::BookSharing::Shared
+        },
         user: user.clone(),
         notification_email: extras.as_ref().and_then(|(email, ..)| email.clone()),
         email_notifications: extras
@@ -513,6 +526,8 @@ pub async fn liked_books(
 
     let mut items: Vec<LikedBook> = Vec::with_capacity(rows.len());
     for (book_id, title, readable, on_shelf, provider, provider_key) in rows {
+        let readable =
+            readable && crate::services::sharing::can_access(&state.db, user.id, book_id).await?;
         let authors: Vec<String> = sqlx::query_scalar(
             "SELECT a.name FROM book_authors ba
              JOIN authors a ON a.id = ba.author_id
@@ -675,6 +690,7 @@ pub async fn logout_all(AuthUser(user): AuthUser, State(state): State<AppState>)
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileUpdate {
+    pub default_book_sharing: Option<crate::services::sharing::BookSharing>,
     pub display_name: Option<String>,
     pub preferred_format: Option<String>,
     pub preferred_language: Option<String>,
@@ -847,7 +863,8 @@ pub async fn update_profile(
                 acquisition_mode = ?, notification_email = ?, email_notifications = ?,
                 shelf_finish = COALESCE(?, shelf_finish),
                 shelf_decorations = COALESCE(?, shelf_decorations),
-                spotlight_rotation = COALESCE(?, spotlight_rotation)
+                spotlight_rotation = COALESCE(?, spotlight_rotation),
+                default_book_sharing = COALESCE(?, default_book_sharing)
          WHERE id = ?",
     )
     .bind(&display_name)
@@ -859,6 +876,7 @@ pub async fn update_profile(
     .bind(&body.shelf_finish)
     .bind(body.shelf_decorations.map(i64::from))
     .bind(body.spotlight_rotation.map(i64::from))
+    .bind(body.default_book_sharing.map(|value| value.as_str()))
     .bind(user.id)
     .execute(&mut *tx)
     .await?;

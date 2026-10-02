@@ -356,6 +356,133 @@ async fn pipeline_requests_selection_when_ambiguous() {
 }
 
 #[tokio::test]
+async fn adults_can_choose_once_without_changing_their_default_or_a_shared_download() {
+    let indexer = Arc::new(FakeIndexerProvider::with_candidates(ambiguous_candidates()));
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (app, _library, _admin_cookie, book_id) = app_with_book(indexer, downloader.clone()).await;
+    let alice = app
+        .state
+        .auth
+        .create_user("alice", "password123", Role::User)
+        .await
+        .unwrap();
+    let bob = app
+        .state
+        .auth
+        .create_user("bob", "password123", Role::User)
+        .await
+        .unwrap();
+    let alice_cookie = common::login(&app, "alice", "password123").await;
+    let bob_cookie = common::login(&app, "bob", "password123").await;
+    let (status, created) = post_json(
+        &app,
+        &format!("/api/books/{book_id}/acquisitions"),
+        &alice_cookie,
+        json!({"askBeforeDownload":true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let id = created["id"].as_str().unwrap();
+    let view = wait_for_status(&app, &alice_cookie, id, &["NEEDS_SELECTION"]).await;
+    assert_eq!(view["askBeforeDownload"], true);
+    assert!(downloader.added().is_empty());
+    let mode: String = sqlx::query_scalar("SELECT acquisition_mode FROM users WHERE id = ?")
+        .bind(alice.id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        mode, "automatic",
+        "a one-book choice leaves the account default intact"
+    );
+    let (status, candidates) = get_json(
+        &app,
+        &format!("/api/acquisitions/{id}/candidates"),
+        &alice_cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(candidates[1]["releaseName"].is_string());
+    assert_eq!(
+        get_json(
+            &app,
+            &format!("/api/acquisitions/{id}/candidates?technical=true"),
+            &alice_cookie
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let (status, joined) = post_json(
+        &app,
+        &format!("/api/books/{book_id}/acquisitions"),
+        &bob_cookie,
+        json!({"askBeforeDownload":false}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(joined["id"], id);
+    assert_eq!(joined["duplicate"], true);
+    assert_eq!(
+        bokhylle_server::acquisition::get(&app.state.db, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        Some(alice.id)
+    );
+    assert!(
+        bokhylle_server::acquisition::get(&app.state.db, id)
+            .await
+            .unwrap()
+            .unwrap()
+            .ask_before_download
+    );
+    assert_eq!(
+        post_json(
+            &app,
+            &format!("/api/acquisitions/{id}/select"),
+            &bob_cookie,
+            json!({"index":1})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post_json(
+            &app,
+            &format!("/api/acquisitions/{id}/select"),
+            &alice_cookie,
+            json!({"index":1})
+        )
+        .await
+        .0,
+        StatusCode::ACCEPTED
+    );
+    let view = wait_for_status(&app, &alice_cookie, id, &["QUEUED"]).await;
+    assert_eq!(view["selectedReleaseName"], candidates[1]["releaseName"]);
+    assert_eq!(downloader.added().len(), 1);
+    assert_eq!(
+        post_json(
+            &app,
+            &format!("/api/acquisitions/{id}/select"),
+            &alice_cookie,
+            json!({"index":0})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT,
+        "the chosen version cannot be changed after queueing"
+    );
+    assert!(
+        bokhylle_server::user_books::contains(&app.state.db, bob.id, book_id)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
 async fn pipeline_reports_no_release_found_when_all_rejected() {
     let indexer = Arc::new(FakeIndexerProvider::with_candidates(rejected_candidates()));
     let downloader = Arc::new(FakeDownloadProvider::default());

@@ -48,7 +48,17 @@ Put EPUB, PDF, or CBZ files under `data/library`, then run **Scan library** in S
 
 During onboarding, each adult chooses language and format preferences. These preferences guide discovery and acquisition. An adult can add an existing shared book to their private shelf without copying the file. Only administrators browse and assign child shelves; other adult shelves remain private, even from administrators in the app. In Settings → Household, an administrator can turn off **Can add books to the shared library** for an adult account. That reader can still use existing books and ask an administrator to approve new ones.
 
-To remove a book from your personal shelf, open its book page and choose **Remove from my shelf**. The shared file remains available to other adults. To remove a book and its files from the shared library for everyone, an administrator opens the book page and chooses **Delete book**.
+### Private and shared books
+
+Each adult chooses a **Default for new books** in **Profile → Reading preferences → New book sharing**. The initial default is **Shared with the household**. Discover, direct download links, and catalogue downloads let you override it when getting a book. The choice is saved before background work starts; changing the account default does not change earlier books or active requests.
+
+On a book page, choose **Private · Change** or **Shared · Change** to change your sharing. For several books, open **Library → My shelf → Select books**, select individual books or the visible page, and choose **Make private** or **Share with household**. This works for EPUB, PDF, and CBZ, including individual comic volumes.
+
+A private book is visible only to its owners; shared books are available to other adults. Personal shelves, likes, and reading progress stay private with either setting. If two people have the same book, both keep their access to the stored file. Each changes only their own sharing: if either owner shares the book, it remains available in the household collection. Removing a book from a personal shelf keeps its access and sharing choice. Children still see only assigned books; administrators can manage their access.
+
+Existing books retain their shared availability when upgrading. Books scanned directly into the household library are shared until an adult adds them to their shelf and deliberately changes their sharing. Privacy applies to the app, downloads, browser readers, OPDS, KOReader sync, and assistant access. The server administrator still operates the filesystem, backups, and administrative import/acquisition tools.
+
+To remove a book from your personal shelf, open its book page and choose **Remove from my shelf**. File access and sharing remain unchanged. To remove a book and its files from the shared library for everyone, an administrator opens the book page and chooses **Delete book**.
 
 Library shows **All** and adds **Books** or **Comics & Manga** when the
 selected shelf or household scope contains that kind of publication. The latter
@@ -110,7 +120,26 @@ authors. Marking a book finished adds no recommendation weight, but its
 existing taste signals remain. Local personalised rails need at least three
 suitable books; Continue reading and other shelf rows can show fewer.
 
-You can download an available EPUB or PDF repeatedly without adding another library copy or changing shelf membership. **Get** shares an active acquisition for the same book and accepted-language variant. The finished file enters the shared library once, while only the requester gains a shelf entry automatically. Children receive only books an administrator assigns or approves.
+You can download an available EPUB, PDF, or CBZ repeatedly without adding another library copy or changing shelf membership. **Get** shares an active acquisition for the same book and accepted-language variant. The finished file enters the library once, while each requester gains a personal shelf entry with their chosen sharing setting. Children receive only books an administrator assigns or approves.
+
+### Choose a download version
+
+Adults allowed to get books use the same version chooser as administrators.
+In **Profile → Reading preferences**, choose **Automatic** to download the
+recommended release or **Ask me** to choose before each download starts.
+With Automatic, **Choose a version** on a Discover book lets you choose for
+that book alone. Activity opens the chooser when the search finishes, showing
+release names, format, language, size, source, and torrent availability.
+
+For a downloaded book, use **Get another version** on its book page. The new
+file is added alongside existing files; existing reading progress stays with
+the original file. Downloading identical bytes reuses the existing file.
+If someone already started an acquisition for the same book and language
+variant, you join that work with its original choice. Its requester or an
+administrator controls the selection. Adults who need approval request a
+book through the existing approval flow.
+
+![Choosing a version as an adult, using fictional releases](media/version-choices-desktop.png)
 
 Author pages can show a short biography and dates from Open Library when the author has a known Open Library ID or an exact name match can be resolved. The source is linked on the page. These optional details are cached and may be absent; the local books and follow controls remain available if Open Library is slow or unavailable. Child profiles cannot open author pages.
 

@@ -127,6 +127,7 @@ async fn combined_book_filters_apply_to_list_search_and_letters() {
         .unwrap();
 
     let filters = queries::BookFilters {
+        viewer_id: None,
         mine: Some(user_id),
         kind: None,
         format: Some("epub".to_string()),

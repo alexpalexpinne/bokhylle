@@ -151,9 +151,23 @@ pub async fn create(
     book_id: i64,
     user_id: i64,
 ) -> Result<(i64, bool), AppError> {
+    create_with_sharing(pool, book_id, user_id, None).await
+}
+
+pub async fn create_with_sharing(
+    pool: &SqlitePool,
+    book_id: i64,
+    user_id: i64,
+    sharing: Option<crate::services::sharing::BookSharing>,
+) -> Result<(i64, bool), AppError> {
     let mut tx = pool.begin().await?;
     let inserted =
-        sqlx::query("INSERT OR IGNORE INTO book_requests (book_id, user_id) VALUES (?, ?)")
+        sqlx::query("INSERT OR IGNORE INTO book_requests (book_id, user_id, sharing)
+            SELECT ?, id, CASE WHEN profile_type = 'child' THEN 'private' ELSE coalesce(?,
+                (SELECT sharing FROM book_access WHERE user_id = users.id AND book_id = ?), default_book_sharing) END
+            FROM users WHERE id = ?")
+            .bind(book_id)
+            .bind(sharing.map(|value| value.as_str()))
             .bind(book_id)
             .bind(user_id)
             .execute(&mut *tx)

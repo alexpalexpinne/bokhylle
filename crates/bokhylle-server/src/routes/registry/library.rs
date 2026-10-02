@@ -4,6 +4,14 @@ use aide::axum::ApiRouter;
 pub(super) fn router() -> ApiRouter<AppState> {
     ApiRouter::new()
         .api_route(
+            "/api/books/sharing",
+            aide::axum::routing::put(routes::library::set_books_sharing),
+        )
+        .api_route(
+            "/api/books/{id}/sharing",
+            aide::axum::routing::put(routes::library::set_book_sharing),
+        )
+        .api_route(
             "/api/books",
             aide::axum::routing::get(routes::library::list_books),
         )

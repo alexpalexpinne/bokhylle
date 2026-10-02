@@ -93,6 +93,11 @@
 
 .shelf-grid-cell:nth-child(2n + 1) > .shelf-surface { display: block; }
 
+/* The selection row above a cover is 44px tall with an 8px bottom gap. */
+.shelf-grid-selecting .shelf-grid-cell > .shelf-surface {
+  top: calc(var(--shelf-cover-height) + 3.25rem);
+}
+
 .shelf-grid .shelf-book { width: auto; min-width: 0; }
 
 .shelf-book {

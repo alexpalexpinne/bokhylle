@@ -1124,6 +1124,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/books/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_books_sharing"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/books/shelf/claim-all": {
         parameters: {
             query?: never;
@@ -1373,6 +1389,22 @@ export interface paths {
         };
         get: operations["get_books__id__related"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/books/{id}/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_books__id__sharing"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2494,6 +2526,7 @@ export interface components {
             fileIndex: number;
             pageUrl: string;
             sendToReader?: boolean | null;
+            sharing?: components["schemas"]["BookSharing"] | null;
         };
         AcquisitionAccepted: {
             id: string;
@@ -2773,6 +2806,8 @@ export interface components {
             seriesNumber: string | null;
             /** Format: double */
             seriesSortOrder: number | null;
+            sharedInHousehold: boolean;
+            sharing: components["schemas"]["BookSharing"] | null;
             subjects: components["schemas"]["SubjectName"][];
             title: string;
         };
@@ -2822,6 +2857,12 @@ export interface components {
             title: string;
             /** Format: int64 */
             updatedAt: number;
+        };
+        /** @enum {string} */
+        BookSharing: "private" | "shared";
+        BookSharingState: {
+            sharedInHousehold: boolean;
+            sharing: components["schemas"]["BookSharing"] | null;
         };
         BookSummary: {
             /** Format: int64 */
@@ -2916,6 +2957,10 @@ export interface components {
             dirty: boolean | null;
             installation: string;
             version: string;
+        };
+        BulkSharingInput: {
+            bookIds: number[];
+            sharing: components["schemas"]["BookSharing"];
         };
         CandidateParams: {
             /** @default false */
@@ -3123,9 +3168,12 @@ export interface components {
             title?: string | null;
         };
         CreateAcquisition: {
+            /** @description Overrides the profile default for this new acquisition only. */
+            askBeforeDownload?: boolean | null;
             preferredFormat?: string | null;
             preferredLanguage?: string | null;
             sendToReader?: boolean | null;
+            sharing?: components["schemas"]["BookSharing"] | null;
         };
         CreateAgentToken: {
             name?: string | null;
@@ -3135,20 +3183,24 @@ export interface components {
             name: string;
         };
         CreateFromDiscovery: {
+            askBeforeDownload?: boolean | null;
             preferredFormat?: string | null;
             preferredLanguage?: string | null;
             provider: string;
             providerKey: string;
             sendToReader?: boolean | null;
+            sharing?: components["schemas"]["BookSharing"] | null;
         };
         CreateHttpAcquisition: {
             format?: string | null;
             sendToReader?: boolean | null;
+            sharing?: components["schemas"]["BookSharing"] | null;
             url: string;
         };
         CreateRequestInput: {
             provider: string;
             providerKey: string;
+            sharing?: components["schemas"]["BookSharing"] | null;
         };
         CreateRequestResponse: {
             duplicate: boolean;
@@ -3900,6 +3952,7 @@ export interface components {
         };
         ProfileUpdate: {
             acquisitionMode?: string | null;
+            defaultBookSharing?: components["schemas"]["BookSharing"] | null;
             displayName?: string | null;
             emailNotifications?: boolean | null;
             notificationEmail?: string | null;
@@ -4260,6 +4313,9 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        SharingInput: {
+            sharing: components["schemas"]["BookSharing"];
+        };
         ShelfAssignInput: {
             onShelf: boolean;
         };
@@ -4479,6 +4535,7 @@ export interface components {
             canAcquire: boolean;
             canDiscover: boolean;
             canRequest: boolean;
+            defaultBookSharing: components["schemas"]["BookSharing"];
             defaultLanguage: string;
             displayName: string | null;
             emailNotifications: boolean;
@@ -8486,6 +8543,55 @@ export interface operations {
             };
         };
     };
+    put_books_sharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkSharingInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     post_books_shelf_claim_all: {
         parameters: {
             query?: never;
@@ -9371,6 +9477,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RelatedBooks"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_books__id__sharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharingInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookSharingState"];
                 };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */

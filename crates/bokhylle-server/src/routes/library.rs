@@ -125,6 +125,7 @@ pub async fn list_books(
 ) -> Result<Json<BookPage>, AppError> {
     let sort = query.sort.unwrap_or_else(|| "recent".to_string());
     let filters = queries::BookFilters {
+        viewer_id: Some(user.id),
         mine: shelf_scope(&state, &user, query.mine, query.user).await?,
         kind: query.kind.filter(|value| !value.is_empty()),
         format: query.format.filter(|value| !value.is_empty()),
@@ -167,7 +168,9 @@ pub async fn book_facets(
         query.user,
     )
     .await?;
-    Ok(Json(queries::book_facets(&state.db, mine).await?))
+    Ok(Json(
+        queries::book_facets_visible(&state.db, mine, user.id).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -187,9 +190,10 @@ pub async fn comic_shelf(
 ) -> Result<Json<queries::ComicShelfPage>, AppError> {
     let mine = shelf_scope(&state, &user, Some(query.mine.unwrap_or(true)), query.user).await?;
     Ok(Json(
-        queries::comic_shelf(
+        queries::comic_shelf_visible(
             &state.db,
             mine,
+            user.id,
             query.sort.as_deref().unwrap_or("recent"),
             query.page.unwrap_or(1),
             query.page_size.unwrap_or(24),
@@ -208,6 +212,9 @@ pub async fn comic_series(
     let detail = queries::comic_series(&state.db, id, mine, user.id)
         .await?
         .ok_or_else(|| AppError::NotFound("series not found".into()))?;
+    if detail.volumes.is_empty() {
+        return Err(AppError::NotFound("series not found".into()));
+    }
     Ok(Json(detail))
 }
 
@@ -234,6 +241,7 @@ pub async fn search_books(
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<BookSummary>>, AppError> {
     let filters = queries::BookFilters {
+        viewer_id: Some(user.id),
         mine: shelf_scope(&state, &user, query.mine, query.user).await?,
         kind: query.kind.filter(|value| !value.is_empty()),
         format: query.format.filter(|value| !value.is_empty()),
@@ -302,7 +310,8 @@ pub async fn recent_books(
     } else {
         scope_of(&query, user.id)
     };
-    let books = queries::recent_books(&state.db, query.limit.unwrap_or(12), mine).await?;
+    let books =
+        queries::recent_books_visible(&state.db, query.limit.unwrap_or(12), mine, user.id).await?;
     Ok(Json(books))
 }
 
@@ -331,7 +340,9 @@ pub async fn highlights(
         .map(|value| (value.as_secs() / 86_400) as i64)
         .unwrap_or_default();
     let seed = user.id.wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as i64) ^ day;
-    let books = queries::highlight_books(&state.db, query.limit.unwrap_or(12), mine, seed).await?;
+    let books =
+        queries::highlight_books_visible(&state.db, query.limit.unwrap_or(12), mine, seed, user.id)
+            .await?;
     Ok(Json(books))
 }
 
@@ -357,6 +368,7 @@ pub async fn set_preference(
     Path(id): Path<i64>,
     Json(body): Json<PreferenceUpdate>,
 ) -> Result<StatusCode, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM books WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.db)
@@ -383,6 +395,7 @@ pub async fn add_to_shelf(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM books WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.db)
@@ -399,6 +412,7 @@ pub async fn remove_from_shelf(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     crate::user_books::remove(&state.db, user.id, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -416,6 +430,7 @@ pub async fn related_books(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<queries::RelatedBooks>, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     if is_child(&state, user.id).await? {
         // The detail page omits related rails for children. Do not expose
         // household titles through a direct call to this auxiliary endpoint.
@@ -428,7 +443,9 @@ pub async fn related_books(
             similar: Vec::new(),
         }));
     }
-    Ok(Json(queries::related_books(&state.db, id).await?))
+    Ok(Json(
+        queries::related_books_visible(&state.db, id, user.id).await?,
+    ))
 }
 
 pub async fn home_rails(
@@ -605,7 +622,9 @@ pub(crate) async fn author_hits(
     let normalized = bokhylle_core::identity::normalize_text(text);
     let like = format!("%{}%", normalized.replace('%', ""));
 
-    let mut items: Vec<(i64, String, i64, i64)> = sqlx::query_as(
+    let visibility = crate::services::sharing::predicate("b.id", user_id);
+    let author_visibility = crate::services::sharing::author_predicate("a.id", user_id);
+    let mut items: Vec<(i64, String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT a.id, a.name,
                 (SELECT COUNT(*) FROM author_follows f
                  WHERE f.author_id = a.id AND f.user_id = ?),
@@ -614,12 +633,13 @@ pub(crate) async fn author_hits(
                  WHERE ba.author_id = a.id
                    AND EXISTS (SELECT 1 FROM book_files f
                                JOIN editions e ON e.id = f.edition_id
-                               WHERE e.book_id = b.id))
+                               WHERE e.book_id = b.id)
+                   AND {visibility})
          FROM authors a
-         WHERE a.normalized_name = ? OR a.normalized_name LIKE ?
+         WHERE (a.normalized_name = ? OR a.normalized_name LIKE ?) AND {author_visibility}
          ORDER BY CASE WHEN a.normalized_name = ? THEN 0 ELSE 1 END, a.name
          LIMIT 5",
-    )
+    )))
     .bind(user_id)
     .bind(&normalized)
     .bind(&like)
@@ -822,6 +842,7 @@ pub async fn author_catalogue(
     Path(id): Path<i64>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<AuthorCatalogue>, AppError> {
+    crate::services::sharing::require_author_access(&state.db, user.id, id).await?;
     let name: Option<String> = sqlx::query_scalar("SELECT name FROM authors WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.db)
@@ -966,6 +987,7 @@ pub async fn follow_author(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    crate::services::sharing::require_author_access(&state.db, user.id, id).await?;
     crate::follows::set(&state.db, user.id, id, true).await?;
     // Populate the author's discoveries promptly instead of waiting for the
     // next hourly refresh.
@@ -986,10 +1008,11 @@ pub async fn unfollow_author(
 }
 
 pub async fn author_photo(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
+    crate::services::sharing::require_author_access(&state.db, user.id, id).await?;
     let row: Option<(String, Option<i64>)> =
         sqlx::query_as("SELECT name, photo_checked_at FROM authors WHERE id = ?")
             .bind(id)
@@ -1214,7 +1237,7 @@ pub async fn get_author(
     } else {
         None
     };
-    let author = queries::get_author(&state.db, id, mine)
+    let author = queries::get_author_visible(&state.db, id, mine, user.id)
         .await?
         .ok_or_else(|| AppError::NotFound("author not found".to_string()))?;
     Ok(Json(author))
@@ -1227,6 +1250,7 @@ pub async fn author_profile(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<Option<AuthorProfileView>>, AppError> {
+    crate::services::sharing::require_author_access(&state.db, user.id, id).await?;
     let author: Option<(String, Option<i64>)> =
         sqlx::query_as("SELECT name, photo_checked_at FROM authors WHERE id = ?")
             .bind(id)
@@ -1355,11 +1379,12 @@ pub async fn author_profile(
 }
 
 pub async fn download_file(
-    _user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path((book_id, file_id)): Path<(i64, i64)>,
     request: Request,
 ) -> Result<Response, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     let target = queries::get_download_target(&state.db, book_id, file_id)
         .await?
         .ok_or_else(|| AppError::NotFound("file not found".to_string()))?;
@@ -1534,6 +1559,7 @@ pub async fn get_cover(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
     if is_child(&state, user.id).await?
         && !crate::user_books::contains(&state.db, user.id, id).await?
     {
@@ -1553,7 +1579,7 @@ pub async fn get_cover(
                 (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
                 (
                     header::CACHE_CONTROL,
-                    HeaderValue::from_static("public, max-age=86400"),
+                    HeaderValue::from_static("private, no-store"),
                 ),
             ],
             bytes,
@@ -1574,7 +1600,7 @@ pub async fn get_cover(
                     (header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg")),
                     (
                         header::CACHE_CONTROL,
-                        HeaderValue::from_static("public, max-age=86400"),
+                        HeaderValue::from_static("private, no-store"),
                     ),
                 ],
                 bytes,
@@ -1592,7 +1618,7 @@ pub async fn get_cover(
                         (header::CONTENT_TYPE, HeaderValue::from_static("image/jpeg")),
                         (
                             header::CACHE_CONTROL,
-                            HeaderValue::from_static("public, max-age=86400"),
+                            HeaderValue::from_static("private, no-store"),
                         ),
                     ],
                     bytes,
@@ -1688,4 +1714,34 @@ fn content_type_for(path: &str) -> &'static str {
         "svg" => "image/svg+xml",
         _ => "application/octet-stream",
     }
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SharingInput {
+    pub sharing: crate::services::sharing::BookSharing,
+}
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkSharingInput {
+    pub book_ids: Vec<i64>,
+    pub sharing: crate::services::sharing::BookSharing,
+}
+pub async fn set_book_sharing(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<SharingInput>,
+) -> Result<Json<crate::services::sharing::BookSharingState>, AppError> {
+    crate::services::sharing::set(&state.db, &user, &[id], body.sharing).await?;
+    Ok(Json(
+        crate::services::sharing::state(&state.db, user.id, id).await?,
+    ))
+}
+pub async fn set_books_sharing(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<BulkSharingInput>,
+) -> Result<StatusCode, AppError> {
+    crate::services::sharing::set(&state.db, &user, &body.book_ids, body.sharing).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

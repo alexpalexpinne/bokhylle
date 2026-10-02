@@ -76,6 +76,7 @@ pub async fn search(
     let mut library = Vec::new();
     if matches!(scope, SearchScope::Library | SearchScope::Auto) {
         let filters = BookFilters {
+            viewer_id: Some(user.id),
             mine,
             ..Default::default()
         };
@@ -136,6 +137,9 @@ pub async fn get(
     user: &User,
     book_id: i64,
 ) -> Result<Option<BookWithProgress>, AppError> {
+    if !crate::services::sharing::can_access(&state.db, user.id, book_id).await? {
+        return Ok(None);
+    }
     let Some(mut book) = queries::get_book(&state.db, book_id).await? else {
         return Ok(None);
     };
@@ -146,6 +150,9 @@ pub async fn get(
         return Ok(None);
     }
     book.preference = crate::user_books::preference(&state.db, user.id, book_id).await?;
+    let access = crate::services::sharing::state(&state.db, user.id, book_id).await?;
+    book.sharing = access.sharing;
+    book.shared_in_household = access.shared_in_household;
     book.browser_file_id = sqlx::query_scalar(
         "SELECT p.book_file_id FROM browser_reading_positions p
          JOIN book_files f ON f.id = p.book_file_id AND f.sha256 = p.sha256
@@ -196,7 +203,8 @@ pub struct CatalogueAcquisitionOutcome {
 
 /// Acquire a catalogue identity for an adult profile. HTTP and MCP use the
 /// same resolution, preference snapshot, duplicate handling and permission.
-pub async fn add_catalogue(
+#[allow(clippy::too_many_arguments)]
+pub async fn add_catalogue_with_sharing(
     state: &AppState,
     user: &User,
     provider: &str,
@@ -204,6 +212,8 @@ pub async fn add_catalogue(
     preferred_format: Option<String>,
     preferred_language: Option<String>,
     send_to_reader: bool,
+    sharing: Option<crate::services::sharing::BookSharing>,
+    ask_before_download: Option<bool>,
 ) -> Result<CatalogueAcquisitionOutcome, AppError> {
     if !crate::auth::can_acquire(&state.db, user).await? {
         return Err(AppError::Forbidden);
@@ -221,6 +231,7 @@ pub async fn add_catalogue(
         })?;
     discovery::store_book(state, &metadata).await?;
     let book_id = import_metadata::upsert_book_from_metadata(&state.db, &metadata).await?;
+    crate::services::sharing::choose(&state.db, user.id, book_id, sharing).await?;
     let (profile_languages, profile_format) =
         crate::updates::user_preferences(state, user.id).await?;
     let languages = match preferred_language.as_deref() {
@@ -234,7 +245,7 @@ pub async fn add_catalogue(
         preferred_format.or(profile_format),
         languages,
         send_to_reader,
-        user.acquisition_mode == "ask",
+        ask_before_download.unwrap_or(user.acquisition_mode == "ask"),
     )
     .await?;
     if !duplicate {
@@ -267,6 +278,7 @@ pub async fn add(
     book_id: i64,
     send_to_reader: bool,
 ) -> Result<IntentOutcome, AppError> {
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
     if queries::get_book(&state.db, book_id).await?.is_none() {
         return Err(AppError::NotFound("book not found".to_string()));
     }
@@ -347,4 +359,27 @@ pub async fn add(
         request_id: None,
         acquisition_id: Some(acquisition.id),
     })
+}
+
+pub async fn add_catalogue(
+    state: &AppState,
+    user: &User,
+    provider: &str,
+    provider_key: &str,
+    preferred_format: Option<String>,
+    preferred_language: Option<String>,
+    send_to_reader: bool,
+) -> Result<CatalogueAcquisitionOutcome, AppError> {
+    add_catalogue_with_sharing(
+        state,
+        user,
+        provider,
+        provider_key,
+        preferred_format,
+        preferred_language,
+        send_to_reader,
+        None,
+        None,
+    )
+    .await
 }

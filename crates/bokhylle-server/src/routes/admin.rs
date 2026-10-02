@@ -972,11 +972,11 @@ fn parse_role(value: Option<&str>) -> Result<Option<Role>, AppError> {
 }
 
 pub async fn create_user(
-    _admin: AdminUser,
+    AdminUser(admin): AdminUser,
     State(state): State<AppState>,
     Json(body): Json<CreateUserInput>,
 ) -> Result<(StatusCode, Json<AdminUserView>), AppError> {
-    let created = crate::services::users::create(&state, body).await?;
+    let created = crate::services::users::create(&state, &admin, body).await?;
     Ok((
         StatusCode::CREATED,
         Json(
@@ -1492,6 +1492,10 @@ pub async fn set_profile_type(
     if current != body.profile_type {
         let mut tx = state.db.begin().await?;
         if body.profile_type == "child" {
+            sqlx::query("UPDATE book_access SET sharing = 'private' WHERE user_id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
             // Only a parent assigns a child's shelf. A former adult's own
             // shelf must not read as parent approval; preferences and
             // interests survive as taste.
