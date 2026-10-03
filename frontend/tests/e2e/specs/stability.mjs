@@ -310,12 +310,21 @@ export default async function stability(page, { base }) {
   // in the background for the next visit.
   await page.getByRole('link', { name: 'Library' }).first().click()
   await page.waitForURL(`${base}/library`)
+  await page.getByRole('heading', { name: 'Your shelf', exact: true }).waitFor()
   await page.evaluate(() => {
     window.__cls = 0
   })
+  const refreshedSpotlight = ['true', 'false'].map((cachedOnly) =>
+    page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/home/spotlight' &&
+        url.searchParams.get('cachedOnly') === cachedOnly
+    }),
+  )
   await page.goBack()
   await page.waitForURL(`${base}/`)
   await page.getByText(SPOTLIGHT.title).first().waitFor({ state: 'visible', timeout: 3000 })
+  await Promise.all(refreshedSpotlight)
   await page.waitForTimeout(250)
   const revisitShift = await page.evaluate(() => window.__cls)
   expect(
@@ -368,6 +377,7 @@ export default async function stability(page, { base }) {
 
   await page.getByRole('link', { name: 'Library' }).first().click()
   await page.waitForURL(`${base}/library`)
+  await page.getByRole('heading', { name: 'Your shelf', exact: true }).waitFor()
   await page.evaluate(() => {
     window.__cls = 0
   })
