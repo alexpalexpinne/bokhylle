@@ -116,7 +116,7 @@ async function installLayoutShiftObserver(page) {
   })
 }
 
-async function mockHome(page, { spotlightDelay = 0 } = {}) {
+async function mockHome(page, { spotlightDelay = 0, cachedSpotlightReady = Promise.resolve() } = {}) {
   await page.route('**/api/profile/onboarding', (route) =>
     route.fulfill({
       status: 200,
@@ -126,6 +126,7 @@ async function mockHome(page, { spotlightDelay = 0 } = {}) {
   )
   await page.route('**/api/home/spotlight*', async (route) => {
     const cached = new URL(route.request().url()).searchParams.get('cachedOnly') === 'true'
+    if (cached) await cachedSpotlightReady
     const delay = cached ? Math.min(spotlightDelay, 150) : spotlightDelay
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
     return route.fulfill({
@@ -274,7 +275,16 @@ async function mockDiscover(page) {
 
 export default async function stability(page, { base }) {
   await installLayoutShiftObserver(page)
-  await mockHome(page, { spotlightDelay: 1500 })
+  // Login may already have populated Home. The next document must start cold,
+  // and the mock stays pending until we have measured its loading skeleton.
+  await page.addInitScript(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)
+    }
+  })
+  let revealSpotlight
+  const cachedSpotlightReady = new Promise((resolve) => { revealSpotlight = resolve })
+  await mockHome(page, { spotlightDelay: 1500, cachedSpotlightReady })
   await mockDiscover(page)
 
   // A cold Home uses local/cached Spotlight without waiting for its slower
@@ -289,6 +299,7 @@ export default async function stability(page, { base }) {
     skeletonOverflow <= 1,
     `the cold Home skeleton must not overflow at 390px (${skeletonOverflow}px)`,
   )
+  revealSpotlight()
   // Core sections must not wait for the slow catalogue refresh.
   await page.getByText(BOOK.title).first().waitFor({ state: 'visible', timeout: 1200 })
   await page.getByText(SPOTLIGHT.title).first().waitFor({ state: 'visible', timeout: 8000 })
