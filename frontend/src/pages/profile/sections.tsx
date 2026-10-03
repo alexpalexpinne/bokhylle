@@ -205,11 +205,11 @@ export function ProfilePreferences(props: PreferencesProps) {
       </div>
 
       <div className="mt-5">
-        <p className="text-xs font-medium text-ink-muted">When a book is requested</p>
+        <p className="text-xs font-medium text-ink-muted">Download selection</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {([
-            ['automatic', 'Automatic', 'Bokhylle picks the best release and only asks when it is unsure.'],
-            ['ask', 'Ask me', 'Always show the available versions before downloading.'],
+            ['automatic', 'Let Bokhylle choose', 'Get picks the best suitable file using your language and format preferences. Bokhylle asks when it is unsure.'],
+            ['ask', 'Show available versions', 'Get shows the torrents and files in the book dialog. Choose one before anything downloads.'],
           ] as const).map(([value, label, description]) => (
             <button
               key={value}

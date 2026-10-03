@@ -114,6 +114,11 @@ export default async function bookDetail(page, { base }) {
     return json([])
   })
 
+  async function openBookOptions() {
+    const more = page.getByRole('button', { name: 'More', exact: true })
+    if (await more.getAttribute('aria-expanded') !== 'true') await more.click()
+  }
+
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: book.title, exact: true }).waitFor()
   for (const width of [320, 390]) {
@@ -121,14 +126,17 @@ export default async function bookDetail(page, { base }) {
     const send = await page.getByRole('button', { name: 'Send to my reader', exact: true }).boundingBox()
     const actions = await page.getByRole('group', { name: 'Reading actions', exact: true }).boundingBox()
     expect(Math.abs(send.width - actions.width) < 2, 'reader sending must fill the mobile primary row')
+    await openBookOptions()
     for (const download of await page.locator('a[href*="/download"]').all()) {
       const box = await download.boundingBox()
-      expect(box.x >= 0 && box.x + box.width <= width && box.height >= 44, 'each download must fit as a touch-friendly file row')
+      expect(box.x >= 0 && box.x + box.width <= width && box.height >= 44, 'each download must fit as a touch-friendly menu row')
     }
+    await page.keyboard.press('Escape')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'book details must not overflow on mobile')
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
 
+  await openBookOptions()
   await page.getByRole('button', { name: 'Manage collections' }).click()
   let dialog = page.getByRole('dialog', { name: 'Collections', exact: true })
   await dialog.getByRole('checkbox', { name: /Original/ }).uncheck()
@@ -136,6 +144,7 @@ export default async function bookDetail(page, { base }) {
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await dialog.waitFor({ state: 'detached' })
   expect(memberships.has(2) && !memberships.has(1), 'saving collections must add the selected membership and remove the old one')
+  await openBookOptions()
   await page.getByRole('button', { name: 'Manage collections' }).click()
   await dialog.getByPlaceholder('New collection name').fill('New shelf')
   await dialog.getByRole('button', { name: 'Add', exact: true }).click()
@@ -146,7 +155,7 @@ export default async function bookDetail(page, { base }) {
   expect(memberships.has(3), 'saving must assign the book to the newly created collection')
   expect(writes.filter((write) => write.path === '/api/collections/2/books').length === 1, 'reopening collections must reload persisted memberships')
 
-  await page.getByLabel('Book actions').click()
+  await openBookOptions()
   await page.getByRole('button', { name: 'Manage access…', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Available to', exact: true })
   const child = dialog.getByRole('button', { name: /Kid/ })
@@ -171,6 +180,7 @@ export default async function bookDetail(page, { base }) {
   await page.getByText(/^reader@example\.com/).waitFor()
   expect(deliveryReads > beforeSend, 'successful sending must refresh delivery history')
 
+  await openBookOptions()
   await page.getByRole('button', { name: 'Fix details', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
   await check(page, 'metadata corrections', '[role="dialog"]')
@@ -185,6 +195,7 @@ export default async function bookDetail(page, { base }) {
 
   const editWrite = writes.at(-1).input
   expect(Object.keys(editWrite).sort().join(',') === 'authors,title,useAutomaticMetadata', 'saving changed fields must not claim ownership of untouched metadata')
+  await openBookOptions()
   await page.getByRole('button', { name: 'Fix details', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
   await dialog.getByRole('button', { name: 'Use automatic metadata again for Description', exact: true }).focus()
@@ -194,6 +205,7 @@ export default async function bookDetail(page, { base }) {
   const beforeCancel = writes.length
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(writes.length === beforeCancel, 'cancel must not release a manual correction')
+  await openBookOptions()
   await page.getByRole('button', { name: 'Fix details', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
   expect(await dialog.getByLabel('Description', { exact: true }).isEnabled(), 'cancelled resets must not remain selected')
@@ -207,10 +219,14 @@ export default async function bookDetail(page, { base }) {
   expect(writes.at(-1).input.useAutomaticMetadata.join(',') === 'description', 'reset saves the explicitly selected field')
   expect(Object.keys(writes.at(-1).input).length === 1, 'reset must not submit unchanged manual values')
 
+  await openBookOptions()
+  if (!(await page.getByRole('button', { name: 'Delete PDF file', exact: true }).isVisible())) await page.getByText('Manage files', { exact: true }).click()
   await page.getByRole('button', { name: 'Delete PDF file', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Delete the PDF file?', exact: true })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(!writes.some((write) => write.path === '/api/admin/books/77/files/11'), 'cancel must not delete a file')
+  await openBookOptions()
+  if (!(await page.getByRole('button', { name: 'Delete PDF file', exact: true }).isVisible())) await page.getByText('Manage files', { exact: true }).click()
   await page.getByRole('button', { name: 'Delete PDF file', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete file', exact: true }).click()
   await dialog.getByText('File deletion unavailable', { exact: true }).waitFor()
@@ -220,13 +236,14 @@ export default async function bookDetail(page, { base }) {
 
   user = { ...USER, role: 'user' }
   await page.reload({ waitUntil: 'networkidle' })
-  expect(await page.getByLabel('Book actions').count() === 0, 'ordinary members must not see admin actions')
+  await openBookOptions()
+  expect(await page.getByRole('button', { name: 'Fix details', exact: true, includeHidden: true }).count() === 0, 'ordinary members must not see admin actions')
   expect(await page.getByRole('button', { name: /Delete EPUB file/ }).count() === 0, 'ordinary members must not see file deletion')
   expect(await page.getByRole('button', { name: 'Manage access', exact: true }).count() === 0, 'ordinary members must not assign child shelves')
   user = USER
   await page.reload({ waitUntil: 'networkidle' })
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByLabel('Book actions').click()
+  await openBookOptions()
   await page.getByRole('button', { name: 'Manage access…', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Available to', exact: true })
   const box = await dialog.boundingBox()
@@ -238,7 +255,7 @@ export default async function bookDetail(page, { base }) {
       localStorage.setItem('bokhylle.theme', value)
     }, theme)
     await page.reload({ waitUntil: 'networkidle' })
-    await page.getByLabel('Book actions').click()
+    await openBookOptions()
     await page.getByRole('button', { name: 'Fix details', exact: true }).click()
     dialog = page.getByRole('dialog', { name: 'Fix details', exact: true })
     const bounds = await dialog.boundingBox()
@@ -259,17 +276,19 @@ export default async function bookDetail(page, { base }) {
   demo = true
   await page.reload({ waitUntil: 'networkidle' })
   expect(forbiddenDemoReads.length === 0, 'demo details must not load real readers, collections, or delivery history')
+  await openBookOptions()
   expect(await page.getByRole('button', { name: 'Manage collections' }).count() === 0, 'demo details must not offer collection management')
 
   user = USER
   demo = false
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.reload({ waitUntil: 'networkidle' })
-  await page.getByLabel('Book actions').click()
+  await openBookOptions()
   await page.getByRole('button', { name: 'Delete book', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Delete "Updated Book"?', exact: true })
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
   expect(!writes.some((write) => write.path === '/api/admin/books/77' && write.method === 'DELETE'), 'cancel must not delete the book')
+  await openBookOptions()
   await page.getByRole('button', { name: 'Delete book', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete book', exact: true }).click()
   await page.waitForURL(`${base}/library`)

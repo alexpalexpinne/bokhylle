@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { ApiError, apiRoute } from '../api/client'
 import { AuthContext, type User } from './context'
 import { onSessionExpired } from './session'
+import { clearHomeSnapshots } from '../lib/homeSnapshot'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -16,13 +17,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!(error instanceof ApiError) || error.status !== 401) {
         console.error(error)
       }
+      clearHomeSnapshots()
       setUser(null)
     }
   }, [])
 
   // A 401 from any authenticated endpoint (revoked/expired session) drops
   // the user; RequireAuth then sends them to the login flow.
-  useEffect(() => onSessionExpired(() => setUser(null)), [])
+  useEffect(() => onSessionExpired(() => {
+    clearHomeSnapshots()
+    setUser(null)
+  }), [])
 
   useEffect(() => {
     let cancelled = false
@@ -42,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!(error instanceof ApiError) || error.status !== 401) {
             console.error(error)
           }
+          clearHomeSnapshots()
           setUser(null)
         }
       })
@@ -69,11 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await apiRoute('/api/auth/logout', '/api/auth/logout', { method: 'POST' })
+    clearHomeSnapshots()
     setUser(null)
   }, [])
 
   const logoutAll = useCallback(async () => {
     await apiRoute('/api/auth/logout-all', '/api/auth/logout-all', { method: 'POST' })
+    clearHomeSnapshots()
     setUser(null)
   }, [])
 
@@ -82,11 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       json: { profile },
     })
+    clearHomeSnapshots()
     setUser(data.user)
   }, [])
 
   const switchDemo = useCallback(async () => {
     const data = await apiRoute('/api/demo/switch', '/api/demo/switch', { method: 'POST' })
+    clearHomeSnapshots()
     setUser(data.user)
   }, [])
 

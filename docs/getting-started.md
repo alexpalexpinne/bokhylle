@@ -50,15 +50,15 @@ During onboarding, each adult chooses language and format preferences. These pre
 
 ### Private and shared books
 
-Each adult chooses a **Default for new books** in **Profile → Reading preferences → New book sharing**. The initial default is **Shared with the household**. Discover, direct download links, and catalogue downloads let you override it when getting a book. The choice is saved before background work starts; changing the account default does not change earlier books or active requests.
+Each adult chooses a **Default for new books** in **Profile → Reading preferences → New book sharing**. The initial default is **Shared with the household**. Discover, direct file imports, and catalogue downloads use that saved preference. Before adding a book, Discover shows a read-only lock or household icon beside the dialog's Close control, with a tooltip describing the saved default. Change the default in your profile, or change an acquired book's sharing from its book page. The choice is saved before background work starts; changing the account default does not change earlier books or active requests.
 
-On a book page, choose **Private · Change** or **Shared · Change** to change your sharing. For several books, open **Library → My shelf → Select books**, select individual books or the visible page, and choose **Make private** or **Share with household**. This works for EPUB, PDF, and CBZ, including individual comic volumes.
+The book page shows a lock for **Private**, or a household icon for **Shared with household**, at the top right of its header, aligned with the Library back link, with a tooltip and accessible label. On a book you acquired, select this icon to open sharing settings and save your choice. Borrowed books show a read-only icon. The marker reports actual household visibility: another owner's shared choice can keep a book shared even when your addition is private. For several books, open **Library → My shelf → More → Change sharing for several books**, select books you acquired, and choose **Make private** or **Share with household**. Shared books borrowed from another person cannot be selected. This works for EPUB, PDF, and CBZ, including individual comic volumes.
 
-A private book is visible only to its owners; shared books are available to other adults. Personal shelves, likes, and reading progress stay private with either setting. If two people have the same book, both keep their access to the stored file. Each changes only their own sharing: if either owner shares the book, it remains available in the household collection. Removing a book from a personal shelf keeps its access and sharing choice. Children still see only assigned books; administrators can manage their access.
+A private book is visible to its owners and explicitly assigned child profiles; shared books are available to other adults. Personal shelves, likes, and reading progress stay private with either setting. Adding another person’s shared book to your shelf is borrowing: it gives you no ownership or sharing controls. If its owner makes it private, it disappears from your browsing and reader access. If two people independently acquire the same title, both keep their ownership and access to the stored file. Each changes only their own sharing: if either owner shares the book, it remains available in the household collection. Removing a book from a personal shelf keeps any independently acquired ownership and sharing choice. Children still see only assigned books; administrators can manage their access.
 
-Existing books retain their shared availability when upgrading. Books scanned directly into the household library are shared until an adult adds them to their shelf and deliberately changes their sharing. Privacy applies to the app, downloads, browser readers, OPDS, KOReader sync, and assistant access. The server administrator still operates the filesystem, backups, and administrative import/acquisition tools.
+Existing owner sharing choices are preserved when upgrading. Historical, unmanaged library imports stay shared. Books scanned directly into the household library remain shared household imports. Shelf membership alone does not claim them. Acquisition history identifies existing owners when upgrading; a managed book without acquisition history keeps the earliest known adult as its owner. Privacy applies to the app, downloads, browser readers, OPDS, KOReader sync, and assistant access. The server administrator still operates the filesystem, backups, and administrative import/acquisition tools.
 
-To remove a book from your personal shelf, open its book page and choose **Remove from my shelf**. File access and sharing remain unchanged. To remove a book and its files from the shared library for everyone, an administrator opens the book page and chooses **Delete book**.
+To remove a book from your personal shelf, open its book page and toggle **On my shelf**. On mobile, this control shows a book icon with a check mark. File access and sharing remain unchanged. A downloaded book page gives **Read in Bokhylle** and **Send to my reader** equal emphasis, alongside a file picker when there are several versions. Subjects stay in the header below the author and metadata, using the small uppercase catalogue labels. On mobile, they span the full header width. Select **+N more** to expand the list, or **Fewer subjects** to collapse it. Shelf, Like and More sit underneath the reading actions. Mobile spreads these icons across three equal-width cells; desktop keeps the controls together with text labels. **More** opens a desktop popover or mobile sheet containing **Download**, collections, other versions and occasional management actions. To remove a book and its files for everyone, an administrator chooses **More → Delete book**.
 
 Library shows **All** and adds **Books** or **Comics & Manga** when the
 selected shelf or household scope contains that kind of publication. The latter
@@ -114,6 +114,11 @@ Your deliberate household searches still include books outside your shelf.
 
 Home shows a book spotlight, **Picked for you**, **From authors you follow**, **Continue reading**, **Recently Added**, **Rediscover your library**, subject rows, **Because you requested…**, **Based on books you liked**, collections, and authors when there is content for them. Subject and taste rows use books already in the library; **Picked for you** can suggest books from the catalogue. The hero uses familiar wording such as **Staff picks**, without the catalogue provider's name.
 
+Home opens with local books and saved suggestions while catalogue recommendations
+refresh in the background. New picks are used on your next Home visit, so shelves
+stay in place while you browse. A recent profile snapshot also survives page
+reloads within the same browser tab; signing out clears that tab's snapshot.
+
 Picked for you uses the overall taste profile: selected interests, likes,
 requests, successful reader sends, deliberate shelf additions, and followed
 authors. Marking a book finished adds no recommendation weight, but its
@@ -122,16 +127,30 @@ suitable books; Continue reading and other shelf rows can show fewer.
 
 You can download an available EPUB, PDF, or CBZ repeatedly without adding another library copy or changing shelf membership. **Get** shares an active acquisition for the same book and accepted-language variant. The finished file enters the library once, while each requester gains a personal shelf entry with their chosen sharing setting. Children receive only books an administrator assigns or approves.
 
+### Books being downloaded
+
+Opening a pending book shows whether Bokhylle is finding a file, waiting for a version choice, queued, downloading, importing or waiting for review. Download progress comes from the download client. **View in Activity** opens the full details; the requester or an administrator can select a version or retry failed work.
+
+A requester can use **Send when ready** to choose a reader before the file arrives. The page shows the scheduled address. Select that line to change the reader or cancel the scheduled send. The selected address is saved, so changing a default reader does not redirect this send. Earlier **Get & Send** requests continue to use the default reader until you choose a destination.
+
+If another version is being downloaded, an existing file remains available through **Read in Bokhylle** and **Send to my reader**.
+
+![A pending fictional book showing download progress](media/book-pending-mobile.png)
+
 ### Choose a download version
 
 Adults allowed to get books use the same version chooser as administrators.
-In **Profile → Reading preferences**, choose **Automatic** to download the
-recommended release or **Ask me** to choose before each download starts.
-With Automatic, **Choose a version** on a Discover book lets you choose for
-that book alone. Activity opens the chooser when the search finishes, showing
-release names, format, language, size, source, and torrent availability.
+In **Profile → Reading preferences → Download selection**, choose **Let Bokhylle
+choose** or **Show available versions**. The normal **Get** action follows this
+account preference. Automatic selection uses your language and format preferences
+and only asks if it cannot choose confidently. Show available versions keeps you
+in the book dialog while the search finishes, then shows one selectable list with
+release names, format, language, size, source, and torrent availability. Nothing
+downloads before you choose. Activity tracks the subsequent download and can also
+resume a pending choice.
 
-For a downloaded book, use **Get another version** on its book page. The new
+For a downloaded book, use **More → Find another version** to deliberately open
+the same chooser for an additional file. The new
 file is added alongside existing files; existing reading progress stays with
 the original file. Downloading identical bytes reuses the existing file.
 If someone already started an acquisition for the same book and language
@@ -153,7 +172,7 @@ KOReader progress.
 
 ## Optional acquisition services
 
-The library works without Prowlarr or qBittorrent. An administrator can open **Discover → Browse catalogues** and add an OPDS 1.x or 2.0 feed URL. Adults can browse its sections and use a direct EPUB, PDF, or CBZ acquisition link to add a book. Project Gutenberg's OPDS feed is `https://www.gutenberg.org/ebooks/search.opds/`. An adult allowed to add books can also open a known book and choose **Add from link** for a direct HTTP(S) file URL. Select the format when the URL has no `.epub`, `.pdf`, or `.cbz` extension.
+The library works without Prowlarr or qBittorrent. An administrator can open **Discover → Browse catalogues** and add an OPDS 1.x or 2.0 feed URL. Adults can browse its sections and use a direct EPUB, PDF, or CBZ acquisition link to add a book. Project Gutenberg's OPDS feed is `https://www.gutenberg.org/ebooks/search.opds/`. An adult allowed to add books can also open a known book and choose **More → Import from URL** for a direct HTTP(S) file URL, rather than a webpage or torrent URL. Select the format when the URL has no `.epub`, `.pdf`, or `.cbz` extension.
 
 OPDS feed access in this version does not accept catalogue credentials. Bokhylle offers direct file links from a feed; borrow, buy, preview, and subscription links are not imported. Public HTTP(S) download URLs must resolve to public addresses. The administrator-configured OPDS origin may be on the private network; links that leave it must resolve publicly. Downloads are capped at 512 MiB, checked against the selected file format, and then use the normal import and review path. A failed direct link can be retried manually from Activity; it is not scheduled for weeks of automatic searches.
 
@@ -174,6 +193,16 @@ To import files dropped on disk, enable **Watch an import folder** under Setting
 If you use an existing download client, its completed files must be visible inside the Bokhylle container under `/downloads`. Configure the client's reported path to match that mount; a path that only exists on the host cannot be imported. Imports default to hardlinking so completed torrents can remain available for seeding. Copy and move are configurable alternatives. EPUB, PDF, and CBZ content can be imported, including when wrapped in ZIP or RAR archives. CBZ pages and archives have additional size and entry limits.
 
 Release search accepts a result that includes EPUB, PDF, or CBZ alongside other formats. It rejects unrelated titles and releases larger than 1 GB; partial title matches require review before downloading. The size limit applies to the whole release, including archives.
+
+## Notifications
+
+Select a message under the bell to open its book, request, or download. Ready
+books and successful sends open the book page. Approval and decline messages
+open the matching request; download failures open the matching item in Activity.
+**Choose a version** opens that download's version chooser. The panel closes
+after selecting a message. Children open their own requests or assigned books.
+Administrators can also select a pending request's cover or title to open it,
+or use the separate Approve and Decline buttons in the panel.
 
 ## Readers and assistants
 

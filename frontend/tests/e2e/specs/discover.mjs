@@ -18,10 +18,8 @@ const item = (overrides) => ({
   ...overrides,
 })
 
-/** Discover renders catalogue entries, availability signals and owned sheets. */
+/** Discover renders catalogue entries, book dialogs and owned books. */
 export default async function discover(page, { base }) {
-  const { user } = await page.evaluate(async () => (await fetch('/api/auth/me')).json())
-  const canChooseVersion = user.profileType !== 'child' && (user.role === 'admin' || user.canAcquire !== false)
   const books = [
     item({
       providerKey: '/works/OLOWNEDW',
@@ -128,7 +126,9 @@ export default async function discover(page, { base }) {
     }),
   )
 
-  await page.goto(`${base}/discover`, { waitUntil: 'networkidle' })
+  // Page readiness comes from the search control and its results; background
+  // requests from the signed-in app need not settle before browsing starts.
+  await page.goto(`${base}/discover`, { waitUntil: 'domcontentloaded' })
   await page.fill('input[aria-label="Search books"]', 'mock')
   await page.getByRole('button', { name: /^Open details for/ }).first().waitFor({ timeout: 15000 })
   expect(await page.getByText('Owned Mock').first().isVisible(), 'result title should render')
@@ -146,33 +146,11 @@ export default async function discover(page, { base }) {
   await page.getByRole('button', { name: /close/i }).first().click()
   await page.locator('[role="dialog"]').waitFor({ state: 'detached', timeout: 5000 })
 
-  // Adults who can acquire see the same release details as administrators.
+  // Browsing no longer shows a separate, read-only release preview.
   await page.getByRole('button', { name: 'Open details for Wanted Mock' }).click()
-  const check = page.getByRole('button', { name: /check availability/i })
-  if (await check.isVisible().catch(() => false)) {
-    const [releasesResponse] = await Promise.all([
-      page
-        .waitForResponse((response) => response.url().includes('/api/discover/releases'), {
-          timeout: 10000,
-        })
-        .catch(() => null),
-      check.click(),
-    ])
-    expect(releasesResponse !== null, 'clicking Check availability should request releases')
-    await page
-      .getByText(/good availability|limited availability|no copy/i)
-      .first()
-      .waitFor({ timeout: 8000 })
-    const availability = await page.locator('[role="dialog"]').innerText()
-    expect(
-      /good availability|limited availability|no copy/i.test(availability),
-      `availability signal should render, got: ${availability.replace(/\n+/g, ' | ')}`,
-    )
-    expect(availability.includes('A.Mock.Release.EPUB') === canChooseVersion, 'release names follow acquisition permission')
-    expect(availability.includes('seeders') === canChooseVersion, 'seeder counts follow acquisition permission')
-    await page.getByRole('button', { name: /close/i }).first().click()
-    await page.locator('[role="dialog"]').waitFor({ state: 'detached', timeout: 5000 })
-  }
+  expect(await page.getByRole('button', { name: /check availability/i }).count() === 0, 'Get provides the single download flow')
+  await page.getByRole('button', { name: /close/i }).first().click()
+  await page.locator('[role="dialog"]').waitFor({ state: 'detached', timeout: 5000 })
 
   // A fresh external result can be liked without owning or acquiring it.
   if ((await page.locator('[role="dialog"]').count()) > 0) {

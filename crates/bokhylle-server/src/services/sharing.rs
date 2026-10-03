@@ -24,7 +24,8 @@ impl BookSharing {
 pub fn predicate(book_column: &str, viewer_id: i64) -> String {
     format!("(EXISTS (SELECT 1 FROM books unmanaged WHERE unmanaged.id = {book_column} AND unmanaged.sharing_managed = 0)
         OR EXISTS (SELECT 1 FROM book_access access WHERE access.book_id = {book_column}
-                   AND (access.user_id = {viewer_id} OR access.sharing = 'shared'
+                   AND ((access.is_owner = 1 AND (access.user_id = {viewer_id} OR access.sharing = 'shared'))
+                       OR (access.user_id = {viewer_id} AND EXISTS (SELECT 1 FROM users reader WHERE reader.id = access.user_id AND reader.profile_type = 'child'))
                        OR (EXISTS (SELECT 1 FROM users owner WHERE owner.id = access.user_id AND owner.profile_type = 'child')
                            AND EXISTS (SELECT 1 FROM users actor WHERE actor.id = {viewer_id} AND actor.role = 'admin' AND actor.profile_type = 'adult')))))")
 }
@@ -94,19 +95,44 @@ pub async fn require_access_tx(
     Ok(())
 }
 
-/// Freeze the account default when the reader first gets access. Existing
-/// household files stay shared when merely added to a personal shelf.
+/// A shelf addition does not create adult ownership. Children retain their
+/// explicitly assigned access independently of household browsing.
 pub async fn grant_tx(
     tx: &mut Transaction<'_, Sqlite>,
     user_id: i64,
     book_id: i64,
 ) -> Result<(), AppError> {
-    sqlx::query("INSERT INTO book_access (user_id, book_id, sharing)
+    sqlx::query(
+        "INSERT INTO book_access (user_id, book_id, sharing, is_owner)
+        SELECT id, ?, 'private', 0 FROM users WHERE id = ? AND profile_type = 'child'
+        ON CONFLICT(user_id, book_id) DO NOTHING",
+    )
+    .bind(book_id)
+    .bind(user_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("UPDATE books SET sharing_managed = 1 WHERE id = ?
+        AND EXISTS(SELECT 1 FROM users WHERE id = ? AND profile_type = 'child')
+        AND NOT EXISTS(SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id WHERE e.book_id = books.id)")
+        .bind(book_id).bind(user_id).execute(&mut **tx).await?;
+    Ok(())
+}
+
+/// Freeze sharing on an explicit acquisition, preserving an existing owner's
+/// choice. Borrowing a household book never calls this operation.
+pub async fn own_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    user_id: i64,
+    book_id: i64,
+) -> Result<(), AppError> {
+    sqlx::query("INSERT INTO book_access (user_id, book_id, sharing, is_owner)
         SELECT id, ?, CASE WHEN profile_type = 'child' THEN 'private'
             WHEN EXISTS (SELECT 1 FROM books WHERE id = ? AND sharing_managed = 0)
              AND EXISTS (SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id WHERE e.book_id = ?)
-            THEN 'shared' ELSE default_book_sharing END
-        FROM users WHERE id = ? ON CONFLICT(user_id, book_id) DO NOTHING")
+            THEN 'shared' ELSE default_book_sharing END, 1
+        FROM users WHERE id = ? ON CONFLICT(user_id, book_id) DO UPDATE SET
+            sharing = CASE WHEN book_access.is_owner = 1 THEN book_access.sharing ELSE excluded.sharing END,
+            is_owner = 1")
         .bind(book_id).bind(book_id).bind(book_id).bind(user_id).execute(&mut **tx).await?;
     sqlx::query("UPDATE books SET sharing_managed = 1 WHERE id = ? AND (
         EXISTS(SELECT 1 FROM users WHERE id = ? AND profile_type = 'adult')
@@ -126,7 +152,7 @@ pub async fn choose(
     sharing: Option<BookSharing>,
 ) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-    grant_tx(&mut tx, user_id, book_id).await?;
+    own_tx(&mut tx, user_id, book_id).await?;
     if let Some(sharing) = sharing {
         sqlx::query("UPDATE book_access SET sharing = ? WHERE user_id = ? AND book_id = ? AND EXISTS (SELECT 1 FROM users WHERE id = ? AND profile_type = 'adult')")
             .bind(sharing.as_str()).bind(user_id).bind(book_id).bind(user_id).execute(&mut *tx).await?;
@@ -147,12 +173,13 @@ pub async fn state(
     user_id: i64,
     book_id: i64,
 ) -> Result<BookSharingState, AppError> {
-    let sharing: Option<String> =
-        sqlx::query_scalar("SELECT sharing FROM book_access WHERE user_id = ? AND book_id = ?")
-            .bind(user_id)
-            .bind(book_id)
-            .fetch_optional(pool)
-            .await?;
+    let sharing: Option<String> = sqlx::query_scalar(
+        "SELECT sharing FROM book_access WHERE user_id = ? AND book_id = ? AND is_owner = 1",
+    )
+    .bind(user_id)
+    .bind(book_id)
+    .fetch_optional(pool)
+    .await?;
     let shared_in_household = can_access(pool, -1, book_id).await?;
     Ok(BookSharingState {
         sharing: sharing.map(|value| {
@@ -185,14 +212,14 @@ pub async fn set(
     let mut tx = pool.begin().await?;
     for &book_id in book_ids {
         let owns: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM book_access WHERE user_id = ? AND book_id = ?)",
+            "SELECT EXISTS(SELECT 1 FROM book_access WHERE user_id = ? AND book_id = ? AND is_owner = 1)",
         )
         .bind(user.id)
         .bind(book_id)
         .fetch_one(&mut *tx)
         .await?;
         if !owns {
-            return Err(AppError::NotFound("book not found on your shelf".into()));
+            return Err(AppError::Forbidden);
         }
     }
     for &book_id in book_ids {

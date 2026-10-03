@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { useMutation } from '../../lib/useMutation'
 
-export function HouseholdAccess({ bookId, menu = false }: { bookId: number; menu?: boolean }) {
+export function HouseholdAccess({ bookId, menu = false, onOpen }: { bookId: number; menu?: boolean; onOpen?: () => void }) {
   const [open, setOpen] = useState(false)
   const [users, setUsers] = useState<ShelfUser[] | null>(null)
   const mutation = useMutation()
@@ -28,7 +28,7 @@ export function HouseholdAccess({ bookId, menu = false }: { bookId: number; menu
       {menu ? (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => { onOpen?.(); setOpen(true) }}
           className="flex w-full items-center gap-2 rounded-[3px] px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-3 hover:text-ink"
         >
           <Users size={14} aria-hidden />

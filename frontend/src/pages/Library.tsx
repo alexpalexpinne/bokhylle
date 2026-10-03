@@ -11,6 +11,7 @@ import {
   claimShelf,
   fetchBookFacets,
   fetchBooks,
+  fetchBook,
   searchBooks,
   setAuthorFollow,
   setBooksSharing,
@@ -100,6 +101,8 @@ export function Library() {
   const claimMutation = useMutation()
   const sharingMutation = useMutation()
   const [selectingBooks, setSelectingBooks] = useState(false)
+  const [ownedBookIds, setOwnedBookIds] = useState<Set<number>>(new Set())
+  const [ownershipLoading, setOwnershipLoading] = useState(false)
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set())
   const [sharingNotice, setSharingNotice] = useState<string | null>(null)
   const [facets, setFacets] = useState<BookFacets | null>(null)
@@ -348,6 +351,27 @@ export function Library() {
   const displayedBooks = booksLoading
     ? booksResult?.scope === scopeKey ? booksResult.items : []
     : books
+  const displayedBookKey = displayedBooks.map((book) => book.id).join(',')
+  useEffect(() => {
+    if (!selectingBooks) return
+    let cancelled = false
+    async function loadOwnership() {
+      setOwnershipLoading(true)
+      const ids = displayedBookKey.split(',').filter(Boolean).map(Number)
+      const results = await Promise.allSettled(ids.map((id) => fetchBook(id)))
+      if (cancelled) return
+      const owned = new Set<number>()
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.sharing) owned.add(result.value.id)
+      }
+      setOwnedBookIds(owned)
+      setSelectedBookIds(new Set())
+      setOwnershipLoading(false)
+      if (results.some((result) => result.status === 'rejected')) setSharingNotice('Some books could not be checked. Only confirmed books you acquired can be selected.')
+    }
+    void loadOwnership()
+    return () => { cancelled = true }
+  }, [selectingBooks, displayedBookKey])
   const total = booksResult?.key === booksKey ? booksResult.total : 0
   const booksError = booksResult?.key === booksKey ? booksResult.error : null
   const booksLoaded = booksResult?.key === booksKey
@@ -856,18 +880,22 @@ export function Library() {
       )}
 
       <div className="mt-8">
-        {mode === 'books' && mine && !member && !isChild && !demo && <div className="mb-6 space-y-3 border-y border-line py-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost" size="sm" disabled={!!sharingMutation.busyKey} onClick={() => { setSelectingBooks((current) => !current); setSelectedBookIds(new Set()); setSharingNotice(null) }}>{selectingBooks ? 'Done selecting' : 'Select books'}</Button>
-            {selectingBooks && <>
+        {mode === 'books' && mine && !member && !isChild && !demo && <div className="mb-4">
+          <details>
+            <summary className="flex min-h-11 w-fit cursor-pointer list-none items-center text-sm text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">More</summary>
+            <Button variant="ghost" size="sm" disabled={!!sharingMutation.busyKey} onClick={() => { setSelectingBooks((current) => !current); setSelectedBookIds(new Set()); setOwnedBookIds(new Set()); setOwnershipLoading(true); setSharingNotice(null) }}>{selectingBooks ? 'Done selecting' : 'Change sharing for several books'}</Button>
+          </details>
+          {selectingBooks && <div className="mt-3 space-y-3 border-y border-line py-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs text-ink-muted">{selectedBookIds.size} selected</span>
-              <Button variant="ghost" size="sm" disabled={!!sharingMutation.busyKey} onClick={() => setSelectedBookIds(new Set(displayedBooks.map((book) => book.id)))}>Select visible books</Button>
-              {(['private', 'shared'] as const).map((sharing) => <Button key={sharing} size="sm" disabled={!selectedBookIds.size || !!sharingMutation.busyKey} onClick={() => void sharingMutation.run(sharing, () => setBooksSharing([...selectedBookIds], sharing), 'Could not update sharing', () => { setSelectedBookIds(new Set()); setReload((current) => current + 1); setSharingNotice(`Selected books are now ${sharing}. Other readers keep their access.`) })}>{sharingMutation.busyKey === sharing ? 'Saving…' : sharing === 'private' ? 'Make private' : 'Share with household'}</Button>)}
-            </>}
-          </div>
-          {selectingBooks && <p className="text-xs text-ink-muted">Change your sharing for selected books. Your personal shelf stays private.</p>}
-          {sharingNotice && <p role="status" className="text-sm text-ink-soft">{sharingNotice}</p>}
-          {sharingMutation.error && <p role="alert" className="text-sm text-danger">{sharingMutation.error}</p>}
+              <Button variant="ghost" size="sm" disabled={ownershipLoading || !!sharingMutation.busyKey} onClick={() => setSelectedBookIds(new Set(displayedBooks.filter((book) => ownedBookIds.has(book.id)).map((book) => book.id)))}>Select visible books I acquired</Button>
+              {(['private', 'shared'] as const).map((sharing) => <Button key={sharing} size="sm" disabled={ownershipLoading || !selectedBookIds.size || !!sharingMutation.busyKey} onClick={() => void sharingMutation.run(sharing, () => setBooksSharing([...selectedBookIds], sharing), 'Could not update sharing', () => { setSelectedBookIds(new Set()); setReload((current) => current + 1); setSharingNotice(`Your sharing for the selected books is now ${sharing}. Independent owners keep their access and sharing choice.`) })}>{sharingMutation.busyKey === sharing ? 'Saving…' : sharing === 'private' ? 'Make private' : 'Share with household'}</Button>)}
+            </div>
+            <p className="text-xs text-ink-muted">Only books you acquired can be changed. Books added from someone else's shared collection belong to their owner.</p>
+            {ownershipLoading && <p role="status" className="text-xs text-ink-muted">Checking which books you acquired…</p>}
+          </div>}
+          {sharingNotice && <p role="status" className="mt-3 text-sm text-ink-soft">{sharingNotice}</p>}
+          {sharingMutation.error && <p role="alert" className="mt-3 text-sm text-danger">{sharingMutation.error}</p>}
         </div>}
         {mode === 'books' ? groupedComics ? (
           <ComicShelf mine={mine} user={member ?? undefined} sort={sort === 'title' ? 'title' : 'recent'} />
@@ -883,6 +911,8 @@ export function Library() {
             <BookGrid
               books={displayedBooks}
               selectedIds={selectedBookIds}
+              selectableIds={ownedBookIds}
+              selectionDisabled={ownershipLoading || !!sharingMutation.busyKey}
               onSelect={selectingBooks && mine && !member && !isChild ? (bookId, selected) => setSelectedBookIds((current) => { const next = new Set(current); if (selected) next.add(bookId); else next.delete(bookId); return next }) : undefined}
               appearance="shelf"
               letterFor={letterForBook}

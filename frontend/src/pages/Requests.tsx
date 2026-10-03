@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { ApiError } from '../api/client'
 import { discoverCoverUrl } from '../api/discover'
@@ -17,6 +18,7 @@ import { Button } from '../components/ui/Button'
 import { MetaLine } from '../components/ui/MetaLine'
 import { PageHeader } from '../components/ui/PageHeader'
 import { SectionMark } from '../components/ui/SectionMark'
+import { useLinkedItemRef } from '../lib/useLinkedItemRef'
 
 const PHASE_COPY: Record<BookRequest['phase'], string> = {
   requested: 'Waiting for an administrator to approve.',
@@ -42,6 +44,8 @@ function requestPhaseCopy(request: BookRequest, isChild: boolean): string {
 
 export function Requests() {
   const { user } = useAuth()
+  const [searchParams] = useSearchParams()
+  const linkedItemRef = useLinkedItemRef()
   const isChild = user?.profileType === 'child'
   const isAdmin = user?.role === 'admin'
   const canSearch = !isChild || user?.canRequest !== false
@@ -90,7 +94,7 @@ export function Requests() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [searchParams])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -175,6 +179,13 @@ export function Requests() {
   const searchItems = search.queryKey === currentKey ? search.items : []
   const pending = requestsState.items.filter((request) => request.status === 'requested')
   const others = requestsState.items.filter((request) => request.status !== 'requested')
+  const linkedRequest = requestsState.items.find((request) =>
+    searchParams.has('request')
+      ? String(request.id) === searchParams.get('request')
+      : String(request.bookId) === searchParams.get('book')
+        && (!searchParams.has('acquisition') || request.acquisitionId === searchParams.get('acquisition')),
+  )
+  const hasLinkedRequest = searchParams.has('request') || searchParams.has('book')
 
   return (
     <section>
@@ -197,6 +208,9 @@ export function Requests() {
         <p role="status" className="mt-6 rounded-card bg-surface px-4 py-3 text-sm text-ink-soft">
           {notice}
         </p>
+      )}
+      {hasLinkedRequest && !requestsState.loading && !requestsState.error && !linkedRequest && (
+        <p role="status" className="mt-6 text-sm text-ink-muted">That request is no longer available. Your other requests are shown below.</p>
       )}
 
       {canAsk && (
@@ -287,7 +301,9 @@ export function Requests() {
             {pending.map((request) => (
               <li
                 key={request.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3.5"
+                ref={request.id === linkedRequest?.id ? linkedItemRef : undefined}
+                tabIndex={-1}
+                className="flex scroll-mt-24 flex-wrap items-center justify-between gap-3 py-3.5 focus:bg-surface-2/60"
               >
                 <div className="min-w-0">
                   <p className="truncate font-display text-base text-ink">{request.title}</p>
@@ -328,7 +344,12 @@ export function Requests() {
           <SectionMark title="Decided" />
           <ul className="mt-2 divide-y divide-line">
             {others.map((request) => (
-              <li key={request.id} className="py-3">
+              <li
+                key={request.id}
+                ref={request.id === linkedRequest?.id ? linkedItemRef : undefined}
+                tabIndex={-1}
+                className="scroll-mt-24 py-3 focus:bg-surface-2/60"
+              >
                 <p className="truncate text-sm text-ink-muted">{request.title}</p>
                 <MetaLine
                   className="mt-0.5"

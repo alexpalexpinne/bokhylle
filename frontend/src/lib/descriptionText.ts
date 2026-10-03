@@ -9,6 +9,13 @@ export function descriptionText(raw: string): string {
     .replace(/<\s*br\s*\/?>/gi, '\n')
     .replace(/<\s*\/\s*(?:p|div|li|h[1-6])\s*>/gi, '\n\n')
     .replace(/<[^>]*>/g, '')
+    .replace(/!?\[([^\]]+)\]\(\s*(?:[^\s()]|\([^)]*\))+(?:\s+["'][^\n]*?["'])?\s*\)/g, '$1')
+    .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, '')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, (_, bold: string, underline: string) => bold ?? underline)
+    .replace(/(?<!\w)[*_]([^*_\n]+)[*_](?!\w)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
     .replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi, (whole, entity: string) => {
       if (entity.startsWith('#')) {
         const hexadecimal = entity[1]?.toLowerCase() === 'x'

@@ -98,8 +98,10 @@ export function fetchHomeRails() {
 
 export type SpotlightItem = components['schemas']['SpotlightItem']
 
-export function fetchSpotlight() {
-  return apiRoute('/api/home/spotlight', '/api/home/spotlight')
+export function fetchSpotlight(cachedOnly = false) {
+  return apiRoute('/api/home/spotlight', '/api/home/spotlight', {
+    query: { cachedOnly },
+  })
 }
 
 export type Updates = components['schemas']['UpdatesResponse']

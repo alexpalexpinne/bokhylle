@@ -228,8 +228,12 @@ try {
     ['/library/1', 'metadata-corrections-mobile.png', 390, 844, 'Where Maps End'],
     ['/catalogues', 'catalogues-desktop.png', 1440, 900, 'The open reading room'],
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
-    ['/activity?choose=maps-version', 'version-choices-desktop.png', 1440, 1000, 'Choose a version'],
-    ['/activity?choose=maps-version', 'version-choices-mobile.png', 390, 844, 'Choose a version'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-desktop.png', 1440, 1000, 'Where Maps End'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-mobile.png', 390, 844, 'Where Maps End'],
+    ['/library/77', 'book-detail-desktop.png', 1440, 1000, 'Where Maps End'],
+    ['/library/77', 'book-detail-mobile.png', 390, 844, 'Where Maps End'],
+    ['/library/77', 'book-pending-desktop.png', 1440, 1000, 'Downloading · 42%'],
+    ['/library/77', 'book-pending-mobile.png', 390, 844, 'Downloading · 42%'],
     ['/settings/getting-books', 'acquisition-settings-desktop.png', 1440, 900, 'Import folder'],
     ['/settings/server', 'server-desktop.png', 1440, 1000, 'Diagnostics'],
     ['/settings/server', 'server-mobile.png', 390, 844, 'Diagnostics'],
@@ -268,12 +272,23 @@ try {
         body: JSON.stringify(responseFor(url, adminPreview)),
       })
     })
-    if (name.startsWith('version-choices-')) {
+    if (name.startsWith('version-choices-') || name.startsWith('book-detail-') || name.startsWith('book-pending-')) {
       const versions = await mockVersionChoices(page)
-      versions.acquisitions = [versions.newAcquisition()]
+      versions.user.acquisitionMode = 'ask'
+      versions.book.hasCover = true
+      if (!name.startsWith('version-choices-')) versions.book.subjects = ['Adventure', 'Maps', 'Mystery', 'Travel', 'Exploration'].map((name) => ({ name, normalized: name.toLowerCase() }))
+      if (name.startsWith('book-pending-')) {
+        versions.book.files = []
+        versions.acquisitions = [versions.newAcquisition({ status: 'DOWNLOADING', progress: 42, preferredLanguage: 'en', selectedReleaseFormat: 'epub' })]
+      }
+      await page.route('**/api/books/77/cover', (route) => route.fulfill({ contentType: 'image/svg+xml', body: coverSvg(versions.book) }))
     }
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
+    if (name.startsWith('version-choices-')) {
+      await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
+      await page.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
+    }
     if (name === 'profile-marks-mobile.png') await page.getByRole('button', { name: 'Change picture', exact: true }).click()
     if (name.startsWith('child-')) {
       await page.getByRole('button', { name: 'Add user', exact: true }).click()
@@ -334,7 +349,7 @@ try {
       }
     }
     if (correctionsPreview) {
-      await page.getByLabel('Book actions', { exact: true }).click()
+      await page.getByRole('button', { name: 'More', exact: true }).click()
       await page.getByRole('button', { name: 'Fix details', exact: true }).click()
       await page.getByRole('dialog', { name: 'Fix details', exact: true }).waitFor()
     }

@@ -7,6 +7,7 @@ type ModalProps = {
   description?: string
   onClose: () => void
   children: ReactNode
+  headerAside?: ReactNode
   footer?: ReactNode
   wide?: boolean
 }
@@ -14,7 +15,7 @@ type ModalProps = {
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function Modal({ title, description, onClose, children, footer, wide }: ModalProps) {
+export function Modal({ title, description, onClose, children, headerAside, footer, wide }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef(onClose)
@@ -91,9 +92,12 @@ export function Modal({ title, description, onClose, children, footer, wide }: M
             <h2 className="font-display text-xl text-ink">{title}</h2>
             {description && <p className="mt-1 text-sm text-ink-muted">{description}</p>}
           </div>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={18} aria-hidden />
-          </IconButton>
+          <div className="flex shrink-0 items-center">
+            {headerAside}
+            <IconButton label="Close" onClick={onClose}>
+              <X size={18} aria-hidden />
+            </IconButton>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">

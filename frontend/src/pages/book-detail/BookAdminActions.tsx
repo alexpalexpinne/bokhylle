@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { MoreHorizontal, Trash2, Wrench } from 'lucide-react'
+import { ChevronDown, Trash2, Wrench } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import {
   type BookDetail,
@@ -9,6 +9,7 @@ import {
   type MetadataField,
   deleteBookAdmin,
   deleteBookFileAdmin,
+  formatBytes,
   updateBookAdmin,
 } from '../../api/library'
 import { Button } from '../../components/ui/Button'
@@ -26,7 +27,7 @@ const fields = [
   { key: 'publicationYear', label: 'Publication year', wide: false },
 ] as const
 
-export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpdated: () => void }) {
+export function BookAdminActions({ book, onUpdated, onOpen }: { book: BookDetail; onUpdated: () => void; onOpen: () => void }) {
   const navigate = useNavigate()
   const [action, setAction] = useState<'edit' | 'delete' | null>(null)
   const [form, setForm] = useState({
@@ -71,6 +72,7 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
     void fetchAdminSeries().then(setAvailableSeries).catch((caught: unknown) => {
       setSeriesError(caught instanceof ApiError ? caught.message : 'Could not load series')
     })
+    onOpen()
     setAction('edit')
   }
 
@@ -137,14 +139,9 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
 
   return (
     <>
-      <details className="relative">
-        <summary
-          aria-label="Book actions"
-          className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-[3px] text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink [&::-webkit-details-marker]:hidden"
-        >
-          <MoreHorizontal size={18} aria-hidden />
-        </summary>
-        <div className="absolute left-0 z-20 mt-1 w-44 rounded-[3px] bg-surface-2 p-1 shadow-modal">
+      <div className="border-t border-line pt-2">
+        <p className="px-3 pb-1 text-[11px] uppercase tracking-[0.14em] text-ink-faint">Administration</p>
+        <div>
           <button
             type="button"
             onClick={openEdit}
@@ -153,11 +150,21 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
             <Wrench size={14} aria-hidden />
             Fix details
           </button>
-          <HouseholdAccess bookId={book.id} menu />
+          <HouseholdAccess bookId={book.id} menu onOpen={onOpen} />
+          {book.files.length > 0 && <details className="group px-3">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between text-sm text-ink-soft [&::-webkit-details-marker]:hidden">Manage files<ChevronDown size={14} className="group-open:rotate-180" aria-hidden /></summary>
+            <div className="divide-y divide-line [&_button]:min-w-11">
+              {book.files.map((file) => <div key={file.id} className="flex items-center justify-between gap-3 py-2">
+                <span className="min-w-0 text-xs text-ink-muted [overflow-wrap:anywhere]">{file.filename} · {file.format.toUpperCase()} · {formatBytes(file.size)}</span>
+                <DeleteBookFileButton bookId={book.id} file={file} onDeleted={onUpdated} onOpen={onOpen} />
+              </div>)}
+            </div>
+          </details>}
           <button
             type="button"
             onClick={() => {
               mutation.clearError()
+              onOpen()
               setAction('delete')
             }}
             className="flex w-full items-center gap-2 rounded-[3px] px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-surface-3"
@@ -166,7 +173,7 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
             Delete book
           </button>
         </div>
-      </details>
+      </div>
       {action === 'edit' && createPortal(
         <Modal
           title="Fix details"
@@ -291,10 +298,11 @@ export function BookAdminActions({ book, onUpdated }: { book: BookDetail; onUpda
   )
 }
 
-export function DeleteBookFileButton({ bookId, file, onDeleted }: {
+export function DeleteBookFileButton({ bookId, file, onDeleted, onOpen }: {
   bookId: number
   file: BookDetail['files'][number]
   onDeleted: () => void
+  onOpen?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -321,6 +329,7 @@ export function DeleteBookFileButton({ bookId, file, onDeleted }: {
         tone="danger"
         onClick={() => {
           setError(null)
+          onOpen?.()
           setOpen(true)
         }}
       >

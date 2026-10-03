@@ -12,9 +12,10 @@ import {
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 
-export function CollectionsManager({ bookId, onError }: {
+export function CollectionsManager({ bookId, onError, onOpen }: {
   bookId: number
   onError: (message: string) => void
+  onOpen?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [collections, setCollections] = useState<CollectionSummary[]>([])
@@ -30,6 +31,7 @@ export function CollectionsManager({ bookId, onError }: {
       const [all, current] = await Promise.all([fetchCollections(), fetchBookCollections(bookId)])
       setCollections(all)
       setMemberships(new Set(current.map((collection) => collection.id)))
+      onOpen?.()
       setOpen(true)
     } catch (caught) {
       onError(caught instanceof ApiError ? caught.message : 'Could not load collections')
@@ -78,7 +80,7 @@ export function CollectionsManager({ bookId, onError }: {
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => void openCollections()}>
+      <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => void openCollections()}>
         Manage collections
       </Button>
       {open && createPortal(

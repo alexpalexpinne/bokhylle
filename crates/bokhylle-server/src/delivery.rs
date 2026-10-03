@@ -361,6 +361,29 @@ pub async fn deliver(
 ) -> Result<Delivery, AppError> {
     crate::services::sharing::require_access(&state.db, user_id, book_id).await?;
     let (resolved_target_id, address) = resolve_target(state, user_id, target_id).await?;
+    deliver_to_resolved(
+        state,
+        user_id,
+        book_id,
+        file_id,
+        resolved_target_id,
+        &address,
+    )
+    .await
+}
+
+/// Internal delivery of a previously validated, frozen destination. Scheduled
+/// sends use this to keep the reader the requester selected at scheduling time.
+pub(crate) async fn deliver_to_resolved(
+    state: &AppState,
+    user_id: i64,
+    book_id: i64,
+    file_id: i64,
+    resolved_target_id: Option<i64>,
+    address: &str,
+) -> Result<Delivery, AppError> {
+    crate::services::sharing::require_access(&state.db, user_id, book_id).await?;
+    let address = validate_address(address)?;
 
     let file: Option<(String, String, i64, String, String)> = sqlx::query_as(
         "SELECT f.path, f.format, f.size, b.title, COALESCE((

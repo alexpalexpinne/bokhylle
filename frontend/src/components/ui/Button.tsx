@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, MouseEventHandler, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
@@ -70,11 +70,13 @@ export function ButtonLink({
 type ExternalButtonLinkProps = CommonProps & {
   href: string
   download?: boolean
+  onClick?: MouseEventHandler<HTMLAnchorElement>
 }
 
 export function ButtonAnchor({
   href,
   download,
+  onClick,
   variant = 'secondary',
   size = 'md',
   className = '',
@@ -84,6 +86,7 @@ export function ButtonAnchor({
     <a
       href={href}
       download={download}
+      onClick={onClick}
       className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}
     >
       {children}

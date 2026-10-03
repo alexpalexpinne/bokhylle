@@ -1,8 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Json;
-use axum::extract::State;
-use serde::Serialize;
+use axum::extract::{Query, State};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
 use crate::AppState;
 use crate::auth::AuthUser;
@@ -12,7 +16,7 @@ use crate::library::relevance;
 
 pub const SOURCES_KEY: &str = "home.spotlight_sources";
 
-#[derive(Serialize, schemars::JsonSchema)]
+#[derive(Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpotlightItem {
     source: String,
@@ -44,7 +48,15 @@ pub struct SpotlightItem {
     cover_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     year: Option<Option<i32>>,
-    cta: &'static str,
+    cta: String,
+}
+
+#[derive(Default, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotlightQuery {
+    /// Return local books and saved suggestions without waiting for catalogues.
+    #[serde(default)]
+    cached_only: bool,
 }
 
 #[derive(Serialize, schemars::JsonSchema)]
@@ -70,6 +82,12 @@ pub async fn updates(
 }
 const DEFAULT_SOURCES: [&str; 3] = ["shelf", "household", "discover"];
 const SPOTLIGHT_SIZE: usize = 8;
+const DISCOVERY_TTL_SECONDS: i64 = 15 * 60;
+const DISCOVERY_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
+// Bound catalogue work across Home requests, including overlapping profiles.
+static DISCOVERY_LOOKUPS: Semaphore = Semaphore::const_new(2);
+type RefreshLocks = HashMap<String, Weak<AsyncMutex<()>>>;
+static REFRESH_LOCKS: LazyLock<Mutex<RefreshLocks>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 type SpotlightRow = (
     i64,
@@ -127,6 +145,7 @@ const LOCAL_LANGUAGE_FILTER: &str = "AND (
     )
 )";
 
+#[derive(Clone, Serialize)]
 struct Seed {
     id: i64,
     name: String,
@@ -213,7 +232,7 @@ fn slide(row: SpotlightRow, source: &str, ownership: &str, reason: String) -> Sp
         cover_id: None,
         cover_provider: None,
         year: None,
-        cta: "explore",
+        cta: "explore".to_string(),
     }
 }
 
@@ -347,7 +366,7 @@ async fn taste_profile(state: &AppState, user_id: i64) -> Result<Taste, AppError
     Ok(Taste { subjects, authors })
 }
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 struct SeedMatches {
     heroes: Vec<SpotlightItem>,
     recommendations: Vec<SpotlightItem>,
@@ -367,6 +386,10 @@ async fn seed_search(
     reason: String,
     audience: SeedAudience<'_>,
 ) -> SeedMatches {
+    let _permit = DISCOVERY_LOOKUPS
+        .acquire()
+        .await
+        .expect("Spotlight lookup semaphore stays open");
     let results = match audience {
         SeedAudience::Child(_) => discovery::external_results(state, kind, &seed.name, 12).await,
         SeedAudience::Adult(user_id) => {
@@ -417,7 +440,7 @@ async fn seed_search(
             cover_id: Some(result.cover_id.clone()),
             cover_provider: None,
             year: Some(result.year),
-            cta: "discover",
+            cta: "discover".to_string(),
         })
         .collect();
     let mut heroes = Vec::new();
@@ -459,7 +482,7 @@ async fn seed_search(
             cover_id: Some(detail.cover_id),
             cover_provider: Some(detail.provider),
             year: Some(detail.year.or(result.year)),
-            cta: "discover",
+            cta: "discover".to_string(),
         });
     }
     SeedMatches {
@@ -468,12 +491,193 @@ async fn seed_search(
     }
 }
 
+#[derive(Deserialize, Serialize)]
+struct SavedDiscovery {
+    fingerprint: String,
+    matches: SeedMatches,
+}
+
+fn now_epoch() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+fn refresh_lock(state: &AppState, cache_key: &str) -> Arc<AsyncMutex<()>> {
+    let key = format!("{}:{cache_key}", state.paths.config_dir.display());
+    let mut locks = REFRESH_LOCKS.lock().expect("Spotlight refresh locks");
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(AsyncMutex::new(()));
+    locks.insert(key, Arc::downgrade(&lock));
+    lock
+}
+
+async fn saved_discovery(
+    state: &AppState,
+    cache_key: &str,
+    fingerprint: &str,
+) -> Result<Option<(SeedMatches, bool)>, AppError> {
+    let cached: Option<(String, i64, i64)> =
+        sqlx::query_as("SELECT value, fetched_at, expires_at FROM metadata_cache WHERE key = ?")
+            .bind(cache_key)
+            .fetch_optional(&state.db)
+            .await?;
+    let Some((value, fetched_at, expires_at)) = cached else {
+        return Ok(None);
+    };
+    let now = now_epoch();
+    let Ok(saved) = serde_json::from_str::<SavedDiscovery>(&value) else {
+        return Ok(None);
+    };
+    if saved.fingerprint != fingerprint || now - fetched_at > DISCOVERY_MAX_AGE_SECONDS {
+        return Ok(None);
+    }
+    Ok(Some((saved.matches, expires_at > now)))
+}
+
+async fn discover_matches(
+    state: &AppState,
+    user_id: i64,
+    child: bool,
+    taste: &Taste,
+    preferred_languages: &[String],
+    excluded_keys: &HashSet<(String, String)>,
+    cached_only: bool,
+) -> Result<SeedMatches, AppError> {
+    let mut seeds = Vec::new();
+    for index in 0..2 {
+        if let Some(subject) = taste.subjects.get(index) {
+            seeds.push((
+                subject,
+                SearchKind::Subject,
+                format!("Because you like {}", subject.name),
+            ));
+        }
+        if let Some(author) = taste.authors.get(index) {
+            seeds.push((
+                author,
+                SearchKind::Author,
+                format!("More from {}", author.name),
+            ));
+        }
+    }
+    if seeds.is_empty() {
+        return Ok(SeedMatches::default());
+    }
+    let seed_identity: Vec<_> = seeds
+        .iter()
+        .map(|(seed, kind, _)| (*seed, kind.as_str()))
+        .collect();
+    let identity = serde_json::to_vec(&(
+        child,
+        preferred_languages,
+        seed_identity,
+        state.metadata.name(),
+        state
+            .metadata_fallback
+            .as_ref()
+            .map(|provider| provider.name()),
+    ))
+    .map_err(|error| AppError::Unprocessable(error.to_string()))?;
+    let fingerprint = hex::encode(Sha256::digest(identity));
+    // One disposable snapshot per profile. Local shelf/household data is never
+    // saved here; it is queried with current permissions on every request.
+    let cache_key = format!("spotlight-discovery:v1:{user_id}");
+    let cached = saved_discovery(state, &cache_key, &fingerprint).await?;
+    if cached_only || cached.as_ref().is_some_and(|(_, fresh)| *fresh) {
+        return Ok(cached.map(|(matches, _)| matches).unwrap_or_default());
+    }
+
+    // Coalesce repeated refreshes for the same profile. A cache-only request
+    // never acquires this lock and can always return immediately.
+    let lock = refresh_lock(state, &cache_key);
+    let _refresh = lock.lock().await;
+    if let Some((matches, true)) = saved_discovery(state, &cache_key, &fingerprint).await? {
+        return Ok(matches);
+    }
+    let audience = if child {
+        SeedAudience::Child(excluded_keys)
+    } else {
+        SeedAudience::Adult(user_id)
+    };
+    let mut matches = SeedMatches::default();
+    // Preserve seed order even when the second catalogue lookup finishes first.
+    // Two independent searches run together; the global permit also bounds
+    // simultaneous catalogue work across profiles.
+    for pair in seeds.chunks(2) {
+        let (seed, kind, reason) = &pair[0];
+        let first = seed_search(
+            state,
+            seed,
+            *kind,
+            preferred_languages,
+            reason.clone(),
+            audience,
+        );
+        let results = if let Some((seed, kind, reason)) = pair.get(1) {
+            let second = seed_search(
+                state,
+                seed,
+                *kind,
+                preferred_languages,
+                reason.clone(),
+                audience,
+            );
+            let (first, second) = tokio::join!(first, second);
+            vec![first, second]
+        } else {
+            vec![first.await]
+        };
+        for result in results {
+            matches.heroes.extend(result.heroes);
+            matches.recommendations.extend(result.recommendations);
+        }
+    }
+    // A failed/empty catalogue pass must not wipe a usable saved selection.
+    if matches.heroes.is_empty()
+        && matches.recommendations.is_empty()
+        && let Some((saved, _)) = cached
+    {
+        return Ok(saved);
+    }
+    let saved = SavedDiscovery {
+        fingerprint,
+        matches,
+    };
+    let value = serde_json::to_string(&saved)
+        .map_err(|error| AppError::Unprocessable(error.to_string()))?;
+    let now = now_epoch();
+    let ttl = if saved.matches.heroes.is_empty() && saved.matches.recommendations.is_empty() {
+        60
+    } else {
+        DISCOVERY_TTL_SECONDS
+    };
+    sqlx::query(
+        "INSERT INTO metadata_cache (key, value, fetched_at, expires_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+             fetched_at = excluded.fetched_at, expires_at = excluded.expires_at",
+    )
+    .bind(cache_key)
+    .bind(value)
+    .bind(now)
+    .bind(now + ttl)
+    .execute(&state.db)
+    .await?;
+    Ok(saved.matches)
+}
+
 /// Deliberately mixed recommendations: the user's shelf, the household
 /// library, and discoverable not-owned books seeded by their strongest
 /// taste signals. Sources are admin-controlled and may all be disabled.
 pub async fn spotlight(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
+    Query(query): Query<SpotlightQuery>,
 ) -> Result<Json<SpotlightResponse>, AppError> {
     let child = crate::auth::profile_type(&state.db, user.id).await? == "child";
     let mut sources: Vec<String> = state
@@ -665,50 +869,56 @@ pub async fn spotlight(
             .into_iter()
             .collect()
         } else {
-            HashSet::new()
+            let visibility = crate::services::sharing::predicate("ids.book_id", user.id);
+            sqlx::query_as(sqlx::AssertSqlSafe(format!(
+                "SELECT DISTINCT ids.provider, ids.provider_key FROM book_external_ids ids
+                 WHERE {visibility}
+                    OR EXISTS (SELECT 1 FROM user_books ub
+                        WHERE ub.book_id = ids.book_id AND ub.user_id = ?
+                          AND ub.preference = 'not_for_me')"
+            )))
+            .bind(user.id)
+            .fetch_all(&state.db)
+            .await?
+            .into_iter()
+            .collect()
         };
         let mut seen_heroes = HashSet::new();
         let mut seen_recommendations = HashSet::new();
-        let mut seeds = Vec::new();
-        for index in 0..2 {
-            if let Some(subject) = taste.subjects.get(index) {
-                seeds.push((
-                    subject,
-                    SearchKind::Subject,
-                    format!("Because you like {}", subject.name),
-                ));
-            }
-            if let Some(author) = taste.authors.get(index) {
-                seeds.push((
-                    author,
-                    SearchKind::Author,
-                    format!("More from {}", author.name),
-                ));
-            }
-        }
-        for (seed, kind, reason) in seeds {
-            let audience = if child {
-                SeedAudience::Child(&excluded_keys)
-            } else {
-                SeedAudience::Adult(user.id)
-            };
-            let matches =
-                seed_search(&state, seed, kind, &preferred_languages, reason, audience).await;
-            for item in matches.heroes {
-                let key = item.provider_key.as_deref().unwrap_or_default().to_string();
-                if seen_heroes.insert(key) {
-                    items.push(item);
-                }
-            }
-            for item in matches.recommendations {
-                let key = item.provider_key.as_deref().unwrap_or_default().to_string();
-                if seen_recommendations.insert(key) {
-                    recommendations.push(item);
-                }
+        let matches = discover_matches(
+            &state,
+            user.id,
+            child,
+            &taste,
+            &preferred_languages,
+            &excluded_keys,
+            query.cached_only,
+        )
+        .await?;
+        // Recheck live ownership/child exclusions even for saved catalogue data.
+        let eligible = |item: &SpotlightItem| {
+            item.provider
+                .as_ref()
+                .zip(item.provider_key.as_ref())
+                .is_some_and(|(provider, key)| {
+                    !excluded_keys.contains(&(provider.clone(), key.clone()))
+                })
+        };
+        for item in matches.heroes.into_iter().filter(eligible) {
+            let key = (item.provider.clone(), item.provider_key.clone());
+            if seen_heroes.insert(key) {
+                items.push(item);
             }
         }
-        recommendations
-            .retain(|item| !seen_heroes.contains(item.provider_key.as_deref().unwrap_or_default()));
+        for item in matches.recommendations.into_iter().filter(eligible) {
+            let key = (item.provider.clone(), item.provider_key.clone());
+            if seen_recommendations.insert(key) {
+                recommendations.push(item);
+            }
+        }
+        recommendations.retain(|item| {
+            !seen_heroes.contains(&(item.provider.clone(), item.provider_key.clone()))
+        });
         recommendations.truncate(18);
     }
 

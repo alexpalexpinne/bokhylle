@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 — 2026-10-03
+
+- Make notifications open their book, request, or matching Activity item, including the version chooser when a selection is needed. Keep child links within their requests and assigned books.
+- Load Home from local books and saved profile suggestions without waiting for external catalogues. Refresh recommendations in the background for the next visit, keep visible shelves stable, and run independent Spotlight searches with bounded concurrency.
+- Simplify adult download selection: Get follows the account preference, with one selectable list in the book dialog and the same chooser in Activity.
+- Remove repeated download-preference copy from Discover book dialogs and show the saved sharing default as a compact icon in the header.
+- Use saved sharing defaults during acquisition. Show a visible Private or Shared marker that owners can open to change sharing; put bulk sharing under the shelf's More menu.
+- Separate acquired ownership from shelf membership. Borrowers cannot change or continue another owner's sharing; independent owners and child assignments keep their access.
+- Give Read and Send equal emphasis on downloaded book pages, with a compact mobile cover and icons for Shelf, Like and More. Move Download, additional versions, URL imports, collections and maintenance into a desktop popover or mobile sheet.
+- Balance the mobile toolbar across three equal-width cells, keep desktop controls together, and place subjects in the header. Place the sharing icon at the header’s top right with a tooltip. Restore the small uppercase subject styling with a compact expansion control and a full-width mobile row; simplify retry notices to plain text and actions.
+- Show download state and progress on book pages. Requesters can choose a reader for Send when ready, change or cancel their scheduled send, and keep reading an existing file while another version is added.
+- Convert catalogue Markdown descriptions to readable text and omit contents lists from Spotlight blurbs.
+
+Upgrade 0.1.0 or 0.2.0 in place after backing up config and library. New migrations
+separate ownership from borrowing and preserve scheduled reader destinations.
+See [upgrade details](docs/operations.md#database-compatibility). Use
+`ghcr.io/alexpalexpinne/bokhylle:v0.3.0` for the amd64/arm64 image.
+
 ## 0.2.0 — 2026-10-02
 
 - Private or shared books for adults, with an account default, a choice when getting a book, and individual or bulk sharing controls. Personal shelves and reading progress stay private. Existing books remain shared after upgrading; other owners retain their access.

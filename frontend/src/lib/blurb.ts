@@ -60,13 +60,19 @@ function stripLeadingPraise(text: string): string {
 }
 
 export function heroBlurb(description: string): string | null {
-  let text = descriptionText(description)
+  const readable = descriptionText(description)
+  // Contents lists remain readable on the book page; they are not synopses.
+  if (/^\s*(?:table of contents|contents)(?:\s*:|\s*\n|\s*$)/im.test(readable)
+    || (readable.match(/\s\/\s+[A-Z]/g) ?? []).length >= 3
+    || (readable.match(/^\s*(?:[-*]|\d+[.)])\s+.+$/gm) ?? []).length >= 4) return null
+  let text = readable
     .replace(/\s+/g, ' ')
     .trim()
 
   text = text.replace(LEADING_LABELS, '').trim()
   text = text.replace(/_/g, '').replace(/\s+/g, ' ').trim()
   text = stripLeadingPraise(text)
+  if (/https?:\/\/|\[[^\]]*\]\(/i.test(text)) return null
 
   const head = text.slice(0, 120).toLowerCase()
   if (!text || BOILERPLATE_MARKERS.some((marker) => head.includes(marker))) {

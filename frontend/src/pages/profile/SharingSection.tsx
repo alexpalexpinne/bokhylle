@@ -31,7 +31,7 @@ export function SharingSection() {
   return (
     <section className="mt-10 max-w-2xl border-t border-line pt-6" aria-labelledby="sharing-default-heading">
       <h2 id="sharing-default-heading" className="font-display text-title text-ink">New book sharing</h2>
-      <p className="mt-2 text-sm text-ink-muted">Choose how books you get will start. You can choose differently when getting a book or change it afterward.</p>
+      <p className="mt-2 text-sm text-ink-muted">Choose how books you get will start. Open the Private or Shared marker on a book you acquired to change its sharing afterward. Adding someone else’s shared book to your shelf does not give you control over its sharing.</p>
       <div className="mt-4 max-w-md"><BookSharingChoice value={value} label="Default for new books" disabled={saving} onChange={(next) => { setDraft(next); setMessage(null) }} /></div>
       <Button className="mt-4" variant="primary" disabled={saving || value === saved} onClick={() => void save()}>{saving ? 'Saving…' : 'Save sharing default'}</Button>
       {message && <p role="status" className="mt-3 text-sm text-ink-soft">{message}</p>}

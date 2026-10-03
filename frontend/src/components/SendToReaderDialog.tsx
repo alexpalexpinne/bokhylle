@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
+import { scheduleAcquisitionDelivery } from '../api/acquisitions'
 import { Input } from '../components/ui/Field'
 import {
   type DeliveryTarget,
@@ -18,31 +19,36 @@ type Destination =
 
 type SendToReaderDialogProps = {
   bookId: number
-  fileId: number
-  format: string
   onClose: () => void
   onSent: () => void
-}
+  scheduled?: boolean
+  initialAddress?: string | null
+} & ({ fileId: number; format: string; acquisitionId?: never }
+  | { acquisitionId: string; fileId?: never; format?: never })
 
 export function SendToReaderDialog({
   bookId,
   fileId,
   format,
+  acquisitionId,
+  scheduled = false,
+  initialAddress,
   onClose,
   onSent,
 }: SendToReaderDialogProps) {
   const [targets, setTargets] = useState<DeliveryTarget[]>([])
+  const [savedAddress] = useState(initialAddress)
   // One unambiguous destination: the radio shown as selected is always the
   // one that is sent to. Typing an address makes that address the destination;
   // choosing a target or the household reader clears the typed address.
-  const [destination, setDestination] = useState<Destination | null>(null)
-  const [newAddress, setNewAddress] = useState('')
-  const [newType, setNewType] = useState<'kindle' | 'pocketbook' | 'other'>('kindle')
+  const [destination, setDestination] = useState<Destination | null>(initialAddress ? { kind: 'new' } : null)
+  const [newAddress, setNewAddress] = useState(initialAddress ?? '')
+  const [newType, setNewType] = useState<'kindle' | 'pocketbook' | 'other'>(initialAddress ? 'other' : 'kindle')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
-  const [result, setResult] = useState<'sent' | 'failed' | null>(null)
+  const [result, setResult] = useState<'sent' | 'scheduled' | 'failed' | null>(null)
   const [householdReader, setHouseholdReader] = useState<string | null>(null)
   const [senderAddress, setSenderAddress] = useState<string | null>(null)
 
@@ -53,11 +59,12 @@ export function SendToReaderDialog({
       .then((items) => {
         if (!cancelled) {
           setTargets(items)
-          const preferred =
-            items.find((target) => target.enabled && target.isDefault) ??
-            items.find((target) => target.enabled)
+          const preferred = savedAddress
+            ? items.find((target) => target.enabled && target.address === savedAddress)
+            : items.find((target) => target.enabled && target.isDefault) ?? items.find((target) => target.enabled)
           if (preferred) {
             setDestination({ kind: 'target', id: preferred.id })
+            setNewAddress('')
           }
         }
       })
@@ -77,6 +84,10 @@ export function SendToReaderDialog({
         if (!cancelled) {
           if (reader.source === 'household') {
             setHouseholdReader(reader.address)
+            if (savedAddress && reader.address === savedAddress) {
+              setDestination({ kind: 'household' })
+              setNewAddress('')
+            }
           }
           setSenderAddress(reader.senderAddress)
         }
@@ -93,7 +104,7 @@ export function SendToReaderDialog({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [savedAddress])
 
   const enabledTargets = targets.filter((target) => target.enabled)
 
@@ -101,11 +112,11 @@ export function SendToReaderDialog({
     if (loading) {
       return
     }
-    if (enabledTargets.length === 0 && householdReader) {
+    if (!savedAddress && enabledTargets.length === 0 && householdReader) {
       setDestination({ kind: 'household' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, targets, householdReader])
+  }, [loading, targets, householdReader, savedAddress])
 
   function chooseTarget(id: number) {
     setDestination({ kind: 'target', id })
@@ -146,7 +157,13 @@ export function SendToReaderDialog({
         return
       }
 
-      const delivery = await deliverBook(bookId, fileId, targetId)
+      if (acquisitionId) {
+        await scheduleAcquisitionDelivery(acquisitionId, true, targetId)
+        setResult('scheduled')
+        onSent()
+        return
+      }
+      const delivery = await deliverBook(bookId, fileId!, targetId)
       if (delivery.status === 'SENT') {
         setResult('sent')
         onSent()
@@ -156,6 +173,21 @@ export function SendToReaderDialog({
       }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not send the book')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function cancelScheduledSend() {
+    if (!acquisitionId) return
+    setSending(true)
+    setError(null)
+    try {
+      await scheduleAcquisitionDelivery(acquisitionId, false)
+      onSent()
+      onClose()
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not cancel the scheduled send')
     } finally {
       setSending(false)
     }
@@ -179,24 +211,28 @@ export function SendToReaderDialog({
   const canSend =
     !sending &&
     result !== 'sent' &&
+    result !== 'scheduled' &&
     (destination?.kind === 'target' ||
       destination?.kind === 'household' ||
       (destination?.kind === 'new' && newAddress.trim() !== ''))
 
   return (
     <Modal
-      title="Send to your reader"
-      description={`The ${format.toUpperCase()} file is emailed to your ${deviceNoun}.`}
-      onClose={onClose}
+      title={acquisitionId ? 'Send when ready' : 'Send to your reader'}
+      description={acquisitionId ? 'Choose a reader. This book will be emailed there after it is added to the library.' : `The ${format!.toUpperCase()} file is emailed to your ${deviceNoun}.`}
+      onClose={() => { if (!sending) onClose() }}
       footer={
-        result === 'sent' ? (
+        result === 'sent' || result === 'scheduled' ? (
           <Button variant="primary" onClick={onClose}>
             Done
           </Button>
         ) : (
+          <>
+          {acquisitionId && scheduled && <Button variant="ghost" disabled={sending} onClick={() => void cancelScheduledSend()}>Cancel scheduled send</Button>}
           <Button variant="primary" onClick={() => void send()} disabled={!canSend}>
-            {sending ? 'Sending…' : 'Send'}
+            {sending ? acquisitionId ? 'Scheduling…' : 'Sending…' : acquisitionId ? 'Send when ready' : 'Send'}
           </Button>
+          </>
         )
       }
     >
@@ -216,7 +252,11 @@ export function SendToReaderDialog({
         </p>
       )}
 
-      {loading ? (
+      {result === 'scheduled' && <p role="status" className="mb-4 border-l-2 border-accent pl-3 text-sm text-ink-soft">
+        Scheduled. The book will be sent to {selectedTarget?.address ?? householdReader} when it is ready.
+      </p>}
+
+      {result === 'scheduled' || result === 'sent' ? null : loading ? (
         <p className="text-sm text-ink-muted">Loading your readers…</p>
       ) : (
         <div className="space-y-2">

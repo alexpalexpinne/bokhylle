@@ -12,6 +12,7 @@ export async function mockVersionChoices(page) {
     description: 'A fictional journey through forgotten coastlines.', publicationYear: 2024, subjects: [], editions: [], metadataSources: [],
     series: null, seriesNumber: null, rating: null, ratingCount: null, hasCover: false, onShelf: true, preference: null,
     sharing: 'private', sharedInHousehold: false, files: [{ id: 10, format: 'epub', size: 420000, filename: 'Where Maps End.epub' }] }
+  state.book = book
   const candidates = [
     { index: 0, method: 'torrent', format: 'epub', language: 'en', sizeBytes: 4200000, seeders: 30, leechers: 2, indexer: 'Reading Room', releaseName: 'Nora.Vale.Where.Maps.End.2024.Retail.EPUB', rejected: false },
     { index: 1, method: 'nzb', format: 'pdf', language: 'en', sizeBytes: 8400000, seeders: null, indexer: 'Paper Archive', releaseName: 'Where Maps End — illustrated PDF edition', rejected: false },
@@ -19,7 +20,7 @@ export async function mockVersionChoices(page) {
   ]
   state.newAcquisition = (overrides = {}) => ({ id: 'maps-version', bookId: 77, bookTitle: book.title, bookAuthors: book.authors,
     status: 'NEEDS_SELECTION', askBeforeDownload: true, requestedByUserId: 88, requestedBy: 'Mira', managedByMe: false,
-    progress: 0, deliveryStatus: 'NONE', errorMessage: null, keepLooking: false, retryAttempts: 0,
+    progress: 0, deliveryStatus: 'NONE', deliverOnReady: false, requestedByMe: true, scheduledDeliveryAddress: null, errorMessage: null, keepLooking: false, retryAttempts: 0,
     createdAt: 1768471200, updatedAt: 1768471200, ...overrides })
   await page.route('**/api/**', (route) => {
     const request = route.request()
@@ -40,6 +41,7 @@ export async function mockVersionChoices(page) {
     if (path === '/api/discover/book') return json({ provider: 'openlibrary', providerKey: '/works/FICTIONAL', ...book,
       status: 'NOT_IN_LIBRARY', ownedBookId: null, ownedFileId: null, coverId: null, liked: false, onShelf: false })
     if (path === '/api/discover/releases') return json({ releases: candidates.slice(0, 2) })
+    if (path === '/api/books/77/acquisitions' && request.method() === 'GET') return json(state.acquisitions)
     if (path === '/api/discover/acquisitions' || path === '/api/books/77/acquisitions') {
       const input = request.postDataJSON()
       state.writes.push({ path, input })
@@ -47,6 +49,7 @@ export async function mockVersionChoices(page) {
       return json({ id: state.acquisitions[0].id, bookId: 77, status: state.acquisitions[0].status, duplicate: state.duplicate }, 202)
     }
     if (path === '/api/acquisitions') return json(state.acquisitions)
+    if (path === '/api/acquisitions/maps-version') return json(state.acquisitions[0])
     if (path.endsWith('/candidates')) return json(candidates)
     if (path.endsWith('/select')) {
       state.writes.push({ path, input: request.postDataJSON() })
@@ -69,21 +72,18 @@ export default async function versionChoices(page, { base }) {
   const state = await mockVersionChoices(page)
   const discover = `${base}/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL`
   await page.goto(discover, { waitUntil: 'networkidle' })
-  const check = page.getByRole('button', { name: 'Check availability', exact: true })
-  if (await check.count()) await check.click()
-  await page.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).waitFor()
-  expect(await page.getByText(/30 seeders/).count() > 0, 'an acquiring adult sees torrent details')
+  state.user.acquisitionMode = 'ask'
+  await page.reload({ waitUntil: 'networkidle' })
   state.initialStatus = 'REQUESTED'
-  await page.getByRole('button', { name: 'Choose a version', exact: true }).click()
+  await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
   await page.getByRole('status').getByText(/You will choose before anything downloads/).waitFor()
   state.acquisitions[0].status = 'NEEDS_SELECTION'
   state.initialStatus = 'NEEDS_SELECTION'
-  const dialog = page.getByRole('dialog', { name: 'Choose a version', exact: true })
-  await dialog.waitFor()
+  let dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
   await dialog.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
-  expect(state.writes[0].input.askBeforeDownload === true && state.writes[0].input.sharing === 'private', 'one-book choice sends the override and sharing intent')
-  expect(state.user.acquisitionMode === 'automatic', 'one-book choice preserves the account default')
-  expect(await dialog.getByRole('button', { name: 'Choose', exact: true }).nth(2).isDisabled(), 'unavailable releases cannot be selected')
+  expect(state.writes[0].input.askBeforeDownload === undefined && state.writes[0].input.sharing === undefined, 'Get follows saved download and sharing preferences')
+  expect(state.user.acquisitionMode === 'ask', 'Get preserves the account default')
+  expect(await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(2).isDisabled(), 'unavailable releases cannot be selected')
   expect(await page.getByRole('button', { name: /diagnostics/i }).count() === 0, 'adult choices do not expose admin diagnostics')
   for (const theme of ['paper', 'ink']) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)
@@ -98,22 +98,23 @@ export default async function versionChoices(page, { base }) {
     }
   }
   state.failSelection = true
-  await dialog.getByRole('button', { name: 'Choose', exact: true }).nth(1).click()
+  await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(1).click()
   await dialog.getByRole('alert').getByText('Source temporarily unavailable').waitFor()
   expect(state.acquisitions[0].status === 'NEEDS_SELECTION', 'a failed choice stays available for retry')
-  await dialog.getByRole('button', { name: 'Choose', exact: true }).nth(1).click()
+  await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(1).click()
   await dialog.waitFor({ state: 'detached' })
   expect(state.writes.at(-1).input.index === 1, 'the selected release is sent by its candidate index')
   expect(!new URL(page.url()).searchParams.has('choose'), 'successful choice clears the chooser URL')
 
+  state.user.acquisitionMode = 'automatic'
   await page.goto(`${base}/profile/preferences`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: /^Ask me/ }).click()
+  await page.getByRole('button', { name: /^Show available versions/ }).click()
   await page.getByRole('button', { name: 'Save preferences', exact: true }).click()
   await page.getByText('Preferences saved.', { exact: true }).waitFor()
   await page.reload({ waitUntil: 'networkidle' })
-  expect(await page.getByRole('button', { name: /^Ask me/ }).getAttribute('aria-pressed') === 'true', 'an adult can save Ask me as their account default')
+  expect(await page.getByRole('button', { name: /^Show available versions/ }).getAttribute('aria-pressed') === 'true', 'an adult can save Show available versions as their account default')
   await page.goto(discover, { waitUntil: 'networkidle' })
-  expect(await page.getByRole('button', { name: 'Choose a version', exact: true }).count() === 0, 'Ask me uses the normal Get action')
+  expect(await page.getByRole('button', { name: 'Choose a version', exact: true }).count() === 0, 'the account preference uses the normal Get action')
   await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
   await dialog.waitFor()
   expect(state.writes.at(-1).input.askBeforeDownload === undefined, 'normal Get follows the account preference')
@@ -122,7 +123,9 @@ export default async function versionChoices(page, { base }) {
 
   state.user.acquisitionMode = 'automatic'
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Get another version', exact: true }).click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('button', { name: 'Find another version', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Available versions', exact: true })
   await dialog.waitFor()
   expect(state.writes.at(-1).path === '/api/books/77/acquisitions' && state.writes.at(-1).input.askBeforeDownload === true, 'downloaded books can request another exact version')
   expect(state.writes.at(-1).input.sharing === undefined, 'getting another version preserves sharing')
@@ -131,13 +134,16 @@ export default async function versionChoices(page, { base }) {
   state.duplicate = true
   state.acquisitions = [state.newAcquisition({ status: 'QUEUED', askBeforeDownload: false, requestedByUserId: 99, requestedBy: 'Alex' })]
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Get another version', exact: true }).click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('button', { name: 'Find another version', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Available versions', exact: true })
   await page.getByRole('status').getByText(/already has a shared download in progress/).waitFor()
-  expect(await dialog.count() === 0 && state.acquisitions[0].askBeforeDownload === false, 'joining an active download preserves its existing choice')
+  expect(await dialog.getByRole('button', { name: 'Get this version', exact: true }).count() === 0 && state.acquisitions[0].askBeforeDownload === false, 'joining an active download preserves its existing choice')
 
   state.user.canAcquire = false
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })
-  expect(await page.getByRole('button', { name: 'Get another version', exact: true }).count() === 0, 'adults needing approval cannot start another download')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  expect(await page.getByRole('button', { name: 'Find another version', exact: true }).count() === 0, 'adults needing approval cannot start another download')
   await page.goto(discover, { waitUntil: 'networkidle' })
   expect(await page.getByRole('button', { name: 'Choose a version', exact: true }).count() === 0, 'adults needing approval cannot choose downloads')
 }

@@ -19,6 +19,16 @@ adults can then choose their default and change individual or selected books.
 Personal shelves and reading positions stay private, and other owners retain
 their access when someone makes their copy private.
 
+Version 0.3.0 upgrades 0.1.0 and 0.2.0 installations in place. Back up config
+and library first. New migrations distinguish acquired ownership from borrowing
+and store a reader destination for scheduled sends. Acquisition history preserves
+owners; managed books without that history retain the earliest known adult as
+owner. A shelf addition alone no longer gives an adult sharing controls or
+continued access after the owner makes the book private. Explicit child
+assignments and independent owners retain their access. Restore the backup with
+the previous image if rolling back; do not run an older image against the migrated
+database.
+
 ## Server administration
 
 Administrators can open **Settings → Server** to see the running version, commit,
@@ -146,7 +156,7 @@ Unix timestamp as `BOKHYLLE_BUILD_TIME`.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.2.0`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.3.0`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 

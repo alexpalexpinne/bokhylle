@@ -275,7 +275,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-acquisition"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bokhylle-core",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "unicode-normalization",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-importer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bokhylle-core",
  "bokhylle-library",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-library"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bokhylle-core",
  "lopdf",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-metadata"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bokhylle-core",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "bokhylle-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aide",
  "argon2",
@@ -3710,7 +3710,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bokhylle-library",
 ]

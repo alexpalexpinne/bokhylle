@@ -1,6 +1,6 @@
 import { type DirectActivity, fetchDirectActivity } from '../api/acquisitions'
 import { retryDelivery } from '../api/delivery'
-import { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, type Ref, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AlertCircle, Check, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { ApiError } from '../api/client'
@@ -12,6 +12,7 @@ import {
   type AttentionItem,
   type AcquisitionStatus,
   cancelAcquisition,
+  fetchAcquisition,
   fetchAcquisitions,
   inspectAcquisition,
   retryAcquisition,
@@ -31,6 +32,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { SectionMark } from '../components/ui/SectionMark'
 import { useAuth } from '../auth/useAuth'
 import { useMutation } from '../lib/useMutation'
+import { useLinkedItemRef } from '../lib/useLinkedItemRef'
 
 type Group = 'attention' | 'working' | 'finished'
 
@@ -232,9 +234,10 @@ export function Downloads() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const isAdmin = user?.role === 'admin'
+  const linkedAcquisitionId = searchParams.get('acquisition') ?? searchParams.get('choose')
 
   const [acquisitions, setAcquisitions] = useState<Acquisition[]>([])
-  const [householdScope, setHouseholdScope] = useState(false)
+  const [householdScope, setHouseholdScope] = useState(() => !!isAdmin && searchParams.get('scope') === 'household')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [choosing, setChoosing] = useState<string | null>(null)
@@ -254,10 +257,19 @@ export function Downloads() {
     let cancelled = false
 
     fetchAcquisitions(50, householdScope)
-      .then((items) => {
+      .then(async (items) => {
+        let linkedError: string | null = null
+        if (linkedAcquisitionId && !items.some((item) => item.id === linkedAcquisitionId)) {
+          try {
+            const linked = await fetchAcquisition(linkedAcquisitionId)
+            items = [linked, ...items]
+          } catch {
+            linkedError = 'That activity item is no longer available to you. Your other activity is shown below.'
+          }
+        }
         if (!cancelled) {
           setAcquisitions(items)
-          setError(null)
+          setError(linkedError)
         }
       })
       .catch((caught: unknown) => {
@@ -275,7 +287,7 @@ export function Downloads() {
     return () => {
       cancelled = true
     }
-  }, [refreshToken, householdScope])
+  }, [refreshToken, householdScope, linkedAcquisitionId])
 
   useEffect(() => {
     if (!isAdmin) {
@@ -351,6 +363,7 @@ export function Downloads() {
 
   const requestedChoice = acquisitions.find((acquisition) => acquisition.id === searchParams.get('choose'))
   const choosingId = choosing ?? (requestedChoice?.status === 'NEEDS_SELECTION' && canManage(requestedChoice) ? requestedChoice.id : null)
+  const linkedItemRef = useLinkedItemRef(!choosingId && !reviewing)
   function closeChooser() {
     setChoosing(null)
     if (searchParams.has('choose')) {
@@ -441,7 +454,9 @@ export function Downloads() {
           {attentionItems.map((item) => (
             <div
               key={item.id}
-              className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t border-line px-1 py-3"
+              ref={item.id === linkedAcquisitionId ? linkedItemRef : undefined}
+              tabIndex={-1}
+              className="flex scroll-mt-24 flex-wrap items-start justify-between gap-x-4 gap-y-2 border-t border-line px-1 py-3 focus:bg-surface-2/60"
             >
               <div className="min-w-0">
                 <h3 className="truncate font-display text-base text-ink">{item.title}</h3>
@@ -486,7 +501,12 @@ export function Downloads() {
       {attention.length > 0 && (
         <Section title="Waiting on you" count={attention.length}>
           {attention.map((acquisition) => (
-            <AcquisitionRow key={acquisition.id} acquisition={acquisition} {...rowProps} />
+            <AcquisitionRow
+              key={acquisition.id}
+              acquisition={acquisition}
+              itemRef={acquisition.id === linkedAcquisitionId ? linkedItemRef : undefined}
+              {...rowProps}
+            />
           ))}
         </Section>
       )}
@@ -494,7 +514,12 @@ export function Downloads() {
       {working.length > 0 && (
         <Section title="On the way" count={working.length}>
           {working.map((acquisition) => (
-            <AcquisitionRow key={acquisition.id} acquisition={acquisition} {...rowProps} />
+            <AcquisitionRow
+              key={acquisition.id}
+              acquisition={acquisition}
+              itemRef={acquisition.id === linkedAcquisitionId ? linkedItemRef : undefined}
+              {...rowProps}
+            />
           ))}
         </Section>
       )}
@@ -502,7 +527,13 @@ export function Downloads() {
       {(finished.length > 0 || direct.length > 0) && (
         <Section title="Finished" count={finished.length + direct.length}>
           {finished.map((acquisition) => (
-            <AcquisitionRow key={acquisition.id} acquisition={acquisition} quiet {...rowProps} />
+            <AcquisitionRow
+              key={acquisition.id}
+              acquisition={acquisition}
+              quiet
+              itemRef={acquisition.id === linkedAcquisitionId ? linkedItemRef : undefined}
+              {...rowProps}
+            />
           ))}
           {direct.map((item) => (
             <div
@@ -630,6 +661,7 @@ function StatusIcon({ status }: { status: AcquisitionStatus }) {
 
 function AcquisitionRow({
   acquisition,
+  itemRef,
   quiet = false,
   isAdmin,
   canManage,
@@ -641,6 +673,7 @@ function AcquisitionRow({
   onKeepLooking,
 }: {
   acquisition: Acquisition
+  itemRef?: Ref<HTMLElement>
   quiet?: boolean
   isAdmin: boolean
   canManage: (acquisition: Acquisition) => boolean
@@ -654,7 +687,11 @@ function AcquisitionRow({
   const manageable = canManage(acquisition)
 
   return (
-    <article className={`transition-colors ${quiet ? 'py-3' : 'py-4'}`}>
+    <article
+      ref={itemRef}
+      tabIndex={-1}
+      className={`scroll-mt-24 transition-colors focus:bg-surface-2/60 ${quiet ? 'py-3' : 'py-4'}`}
+    >
       <div className="flex gap-4">
         <BookCover
           src={coverUrl(acquisition.bookId)}

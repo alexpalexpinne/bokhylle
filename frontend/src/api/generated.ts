@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/acquisitions/{id}/delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_acquisitions__id__delivery"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/acquisitions/{id}/inspect": {
         parameters: {
             query?: never;
@@ -1163,7 +1179,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["get_books__book_id__acquisitions"];
         put?: never;
         post: operations["post_books__book_id__acquisitions"];
         delete?: never;
@@ -2597,10 +2613,14 @@ export interface components {
             /** Format: double */
             progress: number;
             requestedBy: string | null;
+            /** @description The viewing profile participates in this acquisition. */
+            requestedByMe: boolean;
             /** Format: int64 */
             requestedByUserId: number | null;
             /** Format: int64 */
             retryAttempts: number;
+            /** @description Frozen destination, visible only to the requester who chose it. */
+            scheduledDeliveryAddress: string | null;
             /** Format: double */
             selectedReleaseConfidence: number | null;
             selectedReleaseFormat: string | null;
@@ -4188,6 +4208,11 @@ export interface components {
             /** Format: uint */
             updated: number;
         };
+        ScheduledDeliveryInput: {
+            enabled: boolean;
+            /** Format: int64 */
+            targetId?: number | null;
+        };
         ScoreReason: {
             reason: string;
             /** Format: int32 */
@@ -4367,6 +4392,13 @@ export interface components {
             title: string;
             /** Format: int32 */
             year?: number | null;
+        };
+        SpotlightQuery: {
+            /**
+             * @description Return local books and saved suggestions without waiting for catalogues.
+             * @default false
+             */
+            cachedOnly: boolean;
         };
         SpotlightResponse: {
             items: components["schemas"]["SpotlightItem"][];
@@ -4737,6 +4769,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CandidateView"][];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_acquisitions__id__delivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledDeliveryInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionView"];
                 };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */
@@ -8638,6 +8722,54 @@ export interface operations {
             };
         };
     };
+    get_books__book_id__acquisitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                book_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionView"][];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     post_books__book_id__acquisitions: {
         parameters: {
             query?: never;
@@ -11729,7 +11861,10 @@ export interface operations {
     };
     get_home_spotlight: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Return local books and saved suggestions without waiting for catalogues. */
+                cachedOnly?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
