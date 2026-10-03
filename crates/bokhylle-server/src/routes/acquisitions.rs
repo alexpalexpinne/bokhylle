@@ -291,6 +291,11 @@ pub async fn create_http(
             .and_then(|filename| filename.rsplit_once('.').map(|(_, ext)| ext.to_string()))
     });
     let format = format.unwrap_or_default().to_ascii_lowercase();
+    if !matches!(format.as_str(), "epub" | "pdf" | "cbz") {
+        return Err(AppError::BadRequest(
+            "format must be epub, pdf, or cbz".to_string(),
+        ));
+    }
     crate::services::sharing::choose(&state.db, user.id, book_id, body.sharing).await?;
     let (acquisition, duplicate) = start_http(
         &state,
@@ -373,6 +378,45 @@ pub async fn get(
         .await?
         .ok_or_else(|| AppError::NotFound("acquisition not found".to_string()))?;
     Ok(Json(view))
+}
+
+pub async fn list_for_book(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(book_id): Path<i64>,
+) -> Result<Json<Vec<acquisition::AcquisitionView>>, AppError> {
+    if crate::auth::profile_type(&state.db, user.id).await? == "child" {
+        return Err(AppError::Forbidden);
+    }
+    crate::services::sharing::require_access(&state.db, user.id, book_id).await?;
+    Ok(Json(
+        acquisition::list_for_book(&state.db, user.id, book_id, user.role == Role::Admin).await?,
+    ))
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduledDeliveryInput {
+    pub enabled: bool,
+    pub target_id: Option<i64>,
+}
+
+pub async fn schedule_delivery(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ScheduledDeliveryInput>,
+) -> Result<Json<acquisition::AcquisitionView>, AppError> {
+    Ok(Json(
+        crate::services::delivery::schedule_for_acquisition(
+            &state,
+            &user,
+            &id,
+            body.enabled,
+            body.target_id,
+        )
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

@@ -198,6 +198,11 @@ pub async fn approve(
         &languages,
     )
     .await?
+        && (crate::services::sharing::can_access(&state.db, request.user_id, request.book_id)
+            .await?
+            || (child_request
+                && crate::services::sharing::can_access(&state.db, user.id, request.book_id)
+                    .await?))
     {
         let mut tx = state.db.begin().await?;
         if !book_requests::mark_approved_tx(&mut tx, id, user.id).await? {
@@ -421,7 +426,7 @@ async fn apply_request_sharing(
         "UPDATE book_access SET sharing = CASE
             WHEN EXISTS(SELECT 1 FROM users WHERE id = book_access.user_id AND profile_type = 'child') THEN 'private'
             ELSE (SELECT sharing FROM book_requests WHERE id = ?) END
-        WHERE user_id = ? AND book_id = ?",
+        WHERE user_id = ? AND book_id = ? AND is_owner = 1",
     )
     .bind(request_id)
     .bind(user_id)

@@ -70,6 +70,21 @@ export function inspectAcquisition(id: string) {
   return apiRoute('/api/acquisitions/{id}/inspect', `/api/acquisitions/${id}/inspect`, { method: 'POST' })
 }
 
+export function fetchAcquisition(id: string) {
+  return apiRoute('/api/acquisitions/{id}', `/api/acquisitions/${id}`)
+}
+
+export function fetchBookAcquisitions(bookId: number) {
+  return apiRoute('/api/books/{book_id}/acquisitions', `/api/books/${bookId}/acquisitions`)
+}
+
+export function scheduleAcquisitionDelivery(id: string, enabled: boolean, targetId?: number) {
+  return apiRoute('/api/acquisitions/{id}/delivery', `/api/acquisitions/${id}/delivery`, {
+    method: 'PUT',
+    json: { enabled, targetId },
+  })
+}
+
 export function setKeepLooking(id: string, enabled: boolean) {
   return apiRoute('/api/acquisitions/{id}/keep-looking', `/api/acquisitions/${id}/keep-looking`, {
     method: 'POST',

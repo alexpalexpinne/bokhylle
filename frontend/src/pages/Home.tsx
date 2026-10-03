@@ -1,76 +1,28 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
-import { heroBlurb } from '../lib/blurb'
 import { EmptyState } from '../components/ui/EmptyState'
 import { fetchOnboarding } from '../api/profile'
 import { ApiError } from '../api/client'
 import {
-  type AuthorSummary,
-  type BookSummary,
   type ContinueReadingItem,
   type HomeRail,
   coverUrl,
-  fetchAuthors,
-  fetchBooks,
-  fetchContinueReading,
-  fetchHighlights,
   fetchHomeRails,
-  fetchRecent,
   setSubjectHidden,
 } from '../api/library'
 import { BookCard } from '../components/BookCard'
 import { discoverCoverUrl, localDiscoveryBookId } from '../api/discover'
 import { AuthorAvatar } from '../components/AuthorAvatar'
-import {
-  type SpotlightItem,
-  type Updates,
-  fetchSpotlight,
-  fetchUpdates,
-} from '../api/library'
 import { Spotlight, SpotlightSkeleton } from '../components/Spotlight'
 import { ShelfBook, ShelfBookSkeleton, ShelfRail } from '../components/ShelfRail'
 import { MetaLine } from '../components/ui/MetaLine'
 import { SectionMark } from '../components/ui/SectionMark'
-import { type CollectionDetail, fetchCollection, fetchCollections } from '../api/collections'
 import { BookCover } from '../components/BookCover'
 import { BookRail } from '../components/BookRail'
 import { ButtonLink } from '../components/ui/Button'
 import { useAuth } from '../auth/useAuth'
-import { BrandMark } from '../components/BrandMark'
-
-type HomeViewState = {
-  spotlight: SpotlightItem[]
-  recommendations: SpotlightItem[]
-  updates: Updates | null
-  recent: BookSummary[]
-  continueReading: ContinueReadingItem[]
-  highlights: BookSummary[]
-  authors: AuthorSummary[]
-  shelves: CollectionDetail[]
-  rails: HomeRail[]
-  householdBooks: number
-  loadedAt: number
-}
-
-const HOME_TTL_MS = 60_000
-const homeCache = new Map<string, HomeViewState>()
-
-function baseView(): HomeViewState {
-  return {
-    spotlight: [],
-    recommendations: [],
-    updates: null,
-    recent: [],
-    continueReading: [],
-    highlights: [],
-    authors: [],
-    shelves: [],
-    rails: [],
-    householdBooks: 0,
-    loadedAt: Date.now(),
-  }
-}
+import { type HomeSection, useHomeSnapshot } from './useHomeSnapshot'
 
 function ReadingStatus({ item }: { item: ContinueReadingItem }) {
   const browserPosition = item.browserFileId != null && item.browserPercentage != null
@@ -115,8 +67,6 @@ export function Home() {
   const { user } = useAuth()
   const location = useLocation()
   const fromOnboarding = (location.state as { fromOnboarding?: boolean } | null)?.fromOnboarding === true
-  const isChild = user?.profileType === 'child'
-  const navigate = useNavigate()
   const preferredLanguages = user?.preferredLanguages?.length
     ? user.preferredLanguages
     : user?.preferredLanguage
@@ -124,18 +74,24 @@ export function Home() {
       : user?.defaultLanguage
         ? [user.defaultLanguage]
         : []
-  const cacheKey = `${user?.id ?? 0}|${isChild ? 'child' : 'adult'}|${user?.canDiscover ? 'discover' : 'shelf'}|${preferredLanguages.join(',')}`
-  const [view, setView] = useState<HomeViewState | null>(
-    () => fromOnboarding ? null : homeCache.get(cacheKey) ?? null,
-  )
-  const [error, setError] = useState<string | null>(null)
-  const [hiddenNotice, setHiddenNotice] = useState<{ subject: string; title: string } | null>(null)
-  const [heroPending, setHeroPending] = useState(false)
+  const cacheKey = JSON.stringify([user?.id, user?.username, user?.role, user?.profileType,
+    user?.canDiscover, user?.canRequest, preferredLanguages])
+  return <HomePage key={`${cacheKey}|${fromOnboarding}`} cacheKey={cacheKey}
+    fromOnboarding={fromOnboarding} preferredLanguages={preferredLanguages} />
+}
 
-  const store = (next: HomeViewState) => {
-    homeCache.set(cacheKey, next)
-    return next
-  }
+function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
+  cacheKey: string
+  fromOnboarding: boolean
+  preferredLanguages: string[]
+}) {
+  const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const isChild = user?.profileType === 'child'
+  const [hiddenNotice, setHiddenNotice] = useState<{ subject: string; title: string } | null>(null)
+  const { view, setView, pending, refreshPending, error, setError, store, visible, nextSection } =
+    useHomeSnapshot({ cacheKey, fromOnboarding, isChild, canDiscover: !!user?.canDiscover })
 
   // New members land in the setup wizard once, which is always skippable.
   useEffect(() => {
@@ -153,121 +109,6 @@ export function Home() {
   }, [navigate])
 
   useEffect(() => {
-    const cached = fromOnboarding ? undefined : homeCache.get(cacheKey)
-    if (cached && Date.now() - cached.loadedAt < HOME_TTL_MS) {
-      setView(cached)
-      setHeroPending(false)
-      return
-    }
-
-    let cancelled = false
-    // Sections publish as they settle: core/local content first, the hero
-    // when Spotlight arrives, into its reserved slot. The cache is written
-    // only once both halves have settled.
-    let merged = cached ?? (fromOnboarding ? null : view) ?? baseView()
-    let coreDone = false
-    let spotlightDone = false
-    setHeroPending(merged.spotlight.length === 0)
-
-    const publish = () => {
-      if (cancelled || !coreDone) {
-        return
-      }
-      const next = { ...merged, loadedAt: Date.now() }
-      setView(next)
-      if (coreDone && spotlightDone) {
-        homeCache.set(cacheKey, next)
-      }
-    }
-
-    const shelvesPromise = isChild
-      ? Promise.resolve([] as CollectionDetail[])
-      : fetchCollections()
-          .then((collections) =>
-            Promise.all(
-              collections
-                .filter((collection) => collection.bookCount > 0)
-                .slice(0, 4)
-                .map((collection) => fetchCollection(collection.id)),
-            ),
-          )
-          .catch(() => [] as CollectionDetail[])
-
-    Promise.allSettled([
-      fetchRecent(12),
-      fetchHighlights(12),
-      fetchContinueReading(),
-      // Children cannot browse authors; the call would be refused and blank
-      // the shelf they are allowed to see.
-      isChild ? Promise.resolve([] as AuthorSummary[]) : fetchAuthors(),
-      isChild
-        ? Promise.resolve(0)
-        : fetchBooks('recent', 1, 1, { mine: false })
-            .then((page) => page.total)
-            .catch(() => 0),
-      fetchHomeRails(),
-      shelvesPromise,
-      isChild ? Promise.resolve(null) : fetchUpdates(),
-    ]).then((results) => {
-      if (cancelled) {
-        return
-      }
-      const value = <T,>(index: number, fallback: T): T => {
-        const result = results[index]
-        return result && result.status === 'fulfilled' ? (result.value as T) : fallback
-      }
-      merged = {
-        ...merged,
-        recent: value(0, merged.recent),
-        highlights: value(1, merged.highlights),
-        continueReading: value(2, merged.continueReading),
-        authors: value(3, merged.authors),
-        householdBooks: value(4, merged.householdBooks),
-        rails: value(5, merged.rails),
-        shelves: value(6, merged.shelves),
-        updates: value(7, merged.updates),
-      }
-      coreDone = true
-      publish()
-      const core = results[0]
-      if (core && core.status === 'rejected') {
-        const caught = core.reason
-        setError(caught instanceof ApiError ? caught.message : 'Could not load your library')
-      }
-    })
-
-    fetchSpotlight()
-      .then((data) => {
-        if (cancelled) {
-          return
-        }
-        merged = {
-          ...merged,
-          spotlight: data.items
-            .filter((item) => (isChild ? item.source === 'shelf' || (user?.canDiscover && item.source === 'discover') : true) && item.blurb && heroBlurb(item.blurb) !== null)
-            .slice(0, 5),
-          recommendations: isChild && !user?.canDiscover ? [] : data.recommendations ?? [],
-        }
-        spotlightDone = true
-        publish()
-      })
-      .catch(() => {
-        spotlightDone = true
-        publish()
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setHeroPending(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheKey, fromOnboarding, isChild, user?.canDiscover])
-
-  useEffect(() => {
     if (!hiddenNotice) {
       return
     }
@@ -281,7 +122,7 @@ export function Home() {
     }
     try {
       await setSubjectHidden(rail.subject, true)
-      const current = view ?? baseView()
+      const current = view
       setView(
         store({ ...current, rails: current.rails.filter((item) => item.key !== rail.key) }),
       )
@@ -299,26 +140,25 @@ export function Home() {
       await setSubjectHidden(hiddenNotice.subject, false)
       setHiddenNotice(null)
       const items = await fetchHomeRails()
-      setView(store({ ...(view ?? baseView()), rails: items }))
+      setView(store({ ...view, rails: items }))
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not restore the category')
     }
   }
 
-  const spotlight = view?.spotlight ?? []
-  const recommendations = view?.recommendations ?? []
-  const updates = view?.updates ?? null
+  const spotlight = view.spotlight
+  const recommendations = view.recommendations
+  const updates = view.updates
   // Spotlight features one book at a time. Its candidates still belong on
   // their shelves, especially when a small shelf fits entirely in Spotlight.
-  const recent = view?.recent ?? []
+  const recent = view.recent
   // The endpoint merges browser and KOReader activity; never manufacture progress.
-  const continueReading = (view?.continueReading ?? []).filter((item) => Number.isFinite(item.percentage) && item.percentage > 0 && item.percentage < 0.995)
-  const highlights = view?.highlights ?? []
-  const authors = view?.authors ?? []
-  const shelves = view?.shelves ?? []
-  const rails = view?.rails ?? []
-  const householdBooks = view?.householdBooks ?? 0
-  const loading = view === null
+  const continueReading = view.continueReading.filter((item) => Number.isFinite(item.percentage) && item.percentage > 0 && item.percentage < 0.995)
+  const highlights = view.highlights
+  const authors = view.authors
+  const shelves = view.shelves
+  const rails = view.rails
+  const householdBooks = view.householdBooks
   // A shelf can be empty while the household, follows, or the wizard's
   // taste signals still have something useful to show.
   const hasContent =
@@ -331,24 +171,9 @@ export function Home() {
     shelves.length > 0 ||
     authors.length > 0 ||
     (updates?.discoveries.length ?? 0) > 0
+  const loading = Object.values(pending).some(Boolean) || (!hasContent && refreshPending)
 
-  if (loading) {
-    return (
-      <>
-        <h1 className="sr-only">Your library</h1>
-        <div role="status" aria-live="polite" className="mb-8 flex items-center gap-4 border-b border-line pb-6">
-          <BrandMark className="h-7 w-7 shrink-0 animate-pulse text-ink-faint" />
-          <div>
-            <p className="font-display text-xl text-ink">{fromOnboarding ? 'Preparing your library' : 'Loading your library'}</p>
-            <p className="mt-1 text-sm text-ink-muted">{fromOnboarding ? 'Your choices are saved. Gathering your books and suggestions…' : 'Gathering your books and suggestions…'}</p>
-          </div>
-        </div>
-        <HomeSkeleton />
-      </>
-    )
-  }
-
-  if (!hasContent) {
+  if (!hasContent && !loading) {
     const householdHasBooks = !isChild && householdBooks > 0
     return (
       <>
@@ -409,11 +234,11 @@ export function Home() {
       <h1 className="sr-only">Your library</h1>
       {error && <p className="border-l-2 border-danger pl-4 text-sm text-danger">{error}</p>}
 
-      {spotlight.length > 0 ? (
+      {visible('spotlight') && spotlight.length > 0 ? (
         <Spotlight items={spotlight} preferredLanguages={preferredLanguages} />
-      ) : heroPending ? <SpotlightSkeleton /> : null}
+      ) : pending.spotlight || (!hasContent && refreshPending) ? <SpotlightSkeleton /> : null}
 
-      {recommendations.length > 0 && (
+      {visible('spotlight') && recommendations.length > 0 && (
         <section className="home-shelf-section">
           <div className="home-shelf-heading">
             <SectionMark
@@ -441,7 +266,7 @@ export function Home() {
         </section>
       )}
 
-      {updates && updates.discoveries.length > 0 && (
+      {visible('updates') && updates && updates.discoveries.length > 0 && (
         <section className="home-shelf-section">
           <div className="home-shelf-heading">
             <SectionMark
@@ -480,7 +305,7 @@ export function Home() {
         </section>
       )}
 
-      {continueReading.length > 0 && (
+      {visible('continueReading') && continueReading.length > 0 && (
         <section className="home-shelf-section">
           <div className="home-shelf-heading">
             <SectionMark
@@ -512,11 +337,11 @@ export function Home() {
         </section>
       )}
 
-      {recent.length > 0 && (
+      {visible('recent') && recent.length > 0 && (
         <BookRail title="Recently Added" books={recent} seeAllHref="/library" appearance="shelf" />
       )}
 
-      {highlights.length > 0 && (
+      {visible('highlights') && highlights.length > 0 && (
         <BookRail
           title="Rediscover your library"
           subtitle="A few books already on your shelves, worth another look."
@@ -526,7 +351,7 @@ export function Home() {
         />
       )}
 
-      {rails.map((rail) => (
+      {visible('rails') && rails.map((rail) => (
         <BookRail
           key={rail.key}
           appearance="shelf"
@@ -556,7 +381,7 @@ export function Home() {
         </p>
       )}
 
-      {shelves.length > 0 && (
+      {visible('shelves') && shelves.length > 0 && (
         <section>
           <SectionMark
             rule={false}
@@ -600,7 +425,7 @@ export function Home() {
         </section>
       )}
 
-      {authors.length > 0 && (
+      {visible('authors') && authors.length > 0 && (
         <section>
           <SectionMark
             rule={false}
@@ -639,22 +464,41 @@ export function Home() {
           </div>
         </section>
       )}
+      {nextSection && nextSection !== 'spotlight' && <HomeSectionSkeleton section={nextSection} />}
+      {loading && <p role="status" className="sr-only">{fromOnboarding ? 'Preparing your library' : 'Loading your library'}</p>}
     </div>
   )
 }
 
-function HomeSkeleton() {
-  return (
-    <div className="space-y-10 sm:space-y-12" aria-hidden>
-      <SpotlightSkeleton />
-      {[0, 1].map((section) => (
-        <div key={section}>
-          <div className="h-7 w-44 animate-pulse rounded bg-surface-2" />
-          <ShelfRail label="Loading books" loading>
-            {Array.from({ length: 6 }, (_, index) => <ShelfBookSkeleton key={index} />)}
-          </ShelfRail>
+function HomeSectionSkeleton({ section }: { section: HomeSection }) {
+  if (section === 'authors' || section === 'shelves') {
+    return (
+      <section aria-hidden>
+        <div className="h-7 w-44 animate-pulse rounded bg-surface-2" />
+        <div className={section === 'authors'
+          ? 'rail-scroll mt-7 flex gap-6 overflow-hidden'
+          : 'mt-7 grid gap-8 sm:grid-cols-2 lg:grid-cols-4'}>
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className={section === 'authors'
+              ? 'flex w-32 shrink-0 animate-pulse flex-col items-center'
+              : 'animate-pulse'}>
+              <div className={section === 'authors'
+                ? 'h-14 w-14 rounded-full bg-surface-2'
+                : 'h-24 w-28 rounded-[3px] bg-surface-2'} />
+              <div className="mt-4 h-4 w-24 rounded bg-surface-2" />
+              <div className="mt-2 h-3 w-16 rounded bg-surface-2" />
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      </section>
+    )
+  }
+  return (
+    <section aria-hidden className={section === 'updates' || section === 'continueReading' ? 'home-shelf-section' : undefined}>
+      <div className="home-shelf-heading"><div className="h-7 w-44 animate-pulse rounded bg-surface-2" /></div>
+      <ShelfRail label="Loading books" loading>
+        {Array.from({ length: 6 }, (_, index) => <ShelfBookSkeleton key={index} />)}
+      </ShelfRail>
+    </section>
   )
 }

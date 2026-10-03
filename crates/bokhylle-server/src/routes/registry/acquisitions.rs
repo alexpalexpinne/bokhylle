@@ -5,7 +5,8 @@ pub(super) fn router() -> ApiRouter<AppState> {
     ApiRouter::new()
         .api_route(
             "/api/books/{book_id}/acquisitions",
-            aide::axum::routing::post(routes::acquisitions::create),
+            aide::axum::routing::post(routes::acquisitions::create)
+                .get(routes::acquisitions::list_for_book),
         )
         .api_route(
             "/api/books/{book_id}/acquisitions/http",
@@ -18,6 +19,10 @@ pub(super) fn router() -> ApiRouter<AppState> {
         .api_route(
             "/api/acquisitions/{id}",
             aide::axum::routing::get(routes::acquisitions::get),
+        )
+        .api_route(
+            "/api/acquisitions/{id}/delivery",
+            aide::axum::routing::put(routes::acquisitions::schedule_delivery),
         )
         .api_route(
             "/api/acquisitions/{id}/inspect",

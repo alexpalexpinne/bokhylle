@@ -20,6 +20,15 @@ Keep published SQL migrations unchanged and add new migrations for schema
 changes. Review diffs for credentials, local data, database files, and build
 output before pushing public changes.
 
+## Version numbers
+
+Bokhylle uses `MAJOR.MINOR.PATCH`. During the 0.x beta, use a new minor version
+for added product capabilities or substantial behavior changes, and a patch
+version for compatible fixes and small refinements. Update the Rust workspace
+and local crate dependency versions, frontend manifest, API contract, changelog,
+and installation examples together. Document database and access changes in
+the operations guide.
+
 ## Release checks
 
 Before publishing, run in the source tree with Node.js 24 and pnpm 10:

@@ -46,6 +46,9 @@ and real cover art. It remains a useful web application, not a magazine.
 - Keep the composition stable as books change. Give the cover a controlled
   space without cropping it; keep the action in a steady position and the
   previous/count/next controls together below the hero.
+- Start Home with local books and saved profile suggestions. Reveal initial
+  sections in a fixed order with matching loading slots. Prepare refreshed
+  recommendations for the next visit so visible shelves stay in place.
 - Adult profiles may enable automatic rotation. Pause it during interaction,
   when the hero is out of view or a dialog is open, and when reduced motion is
   requested. Child and shared demo profiles browse manually. Do not add a
@@ -96,6 +99,41 @@ and real cover art. It remains a useful web application, not a magazine.
 - **Acquisition narrative** (Downloads and request moments): FINDING →
   FOUND → FETCHING → SHELVING → READY → DELIVERED, rendered as numbered
   stages with rules and plain text, not a generic progress bar.
+
+## Book pages
+
+- Keep Read in Bokhylle and Send to my reader equally prominent, with matching
+  filled buttons. Place them
+  alongside each other on desktop and stack them on mobile. A single file
+  selection applies to both actions and to Download inside More.
+- Put Shelf, Like and More in one quieter row beneath the reading actions.
+  Desktop keeps the three controls together with icons and text; mobile uses
+  three equal-width cells across the page, icons with accessible names, clear
+  selected states and 48px touch targets.
+- Pair a compact cover with the title on mobile so actions remain easy to
+  reach. Keep the larger desktop cover beside the title and action area.
+- Show actual Private or Shared visibility at the top right of the book header,
+  aligned with the Library back link, using a lock
+  or household icon with an accessible name and tooltip. Owners open this
+  icon to edit sharing in a dialog with an explicit Save action. Borrowers see
+  a read-only icon.
+- Before adding a catalogue book, show the saved sharing default as a read-only
+  lock or household icon in the dialog header, with a tooltip and accessible
+  label. Keep download-preference explanations in settings; the version chooser
+  explains the selection when it opens.
+- Keep subjects in the header beneath the author and metadata, above download
+  status and actions. Preserve the small uppercase catalogue styling. Let the
+  subject row span the full header width on mobile. Show three on mobile and six
+  on desktop, with a compact +N more control in the row and an accessible label.
+- Use plain text and spacing for download failures, followed by Try again and
+  the Activity link. The retry section has no decorative vertical rule.
+- Pending books show their actual acquisition state and progress, a route to
+  Activity and actions appropriate to the requesting profile. Send when ready
+  schedules that profile's chosen reader; show the destination on the page.
+  An existing file stays readable and sendable while another version is added.
+- More opens a desktop popover or mobile sheet. Download, collections,
+  additional versions and imports live there; administration is labelled and
+  destructive actions retain their confirmation dialogs.
 
 ## Profile marks
 

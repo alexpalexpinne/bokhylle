@@ -484,8 +484,22 @@ async fn deliver_if_requested(state: &AppState, acquisition_id: &str, file_id: O
             Err(_) => return,
         };
 
-    for user_id in users {
-        match crate::delivery::deliver(state, user_id, acquisition.book_id, file_id, None).await {
+    for intent in users {
+        let user_id = intent.user_id;
+        let result = if let Some(address) = intent.delivery_address {
+            crate::delivery::deliver_to_resolved(
+                state,
+                user_id,
+                acquisition.book_id,
+                file_id,
+                intent.delivery_target_id,
+                &address,
+            )
+            .await
+        } else {
+            crate::delivery::deliver(state, user_id, acquisition.book_id, file_id, None).await
+        };
+        match result {
             Ok(record) => {
                 // A delivery record exists, so the intent is satisfied even
                 // when the send itself failed.

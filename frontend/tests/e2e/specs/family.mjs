@@ -249,8 +249,8 @@ export default async function family(page, { base }) {
   await page.getByRole('button', { name: 'Finish' }).click()
   await page.waitForURL(`${base}/`)
   await page.getByText('Preparing your library', { exact: true }).waitFor({ state: 'visible', timeout: 8000 })
-  expect(await page.getByText('Your choices are saved. Gathering your books and suggestions…').isVisible(),
-    'the setup handoff must explain why Home is still loading')
+  expect(await page.locator('.animate-pulse').count() > 0,
+    'the setup handoff reserves space while the library loads')
   releaseRecent()
   await page.getByText('Preparing your library', { exact: true }).waitFor({ state: 'hidden', timeout: 8000 })
   expect(
@@ -475,9 +475,9 @@ export default async function family(page, { base }) {
     !/Similar in your library/.test(detailText),
     'child detail must not show the similar-books rail',
   )
-  expect(/♥ like/i.test(detailText), 'child detail must offer a like toggle')
-  await page.getByRole('button', { name: '♥ Like', exact: true }).click()
-  await page.getByRole('button', { name: '♥ Liked', exact: true }).waitFor({ timeout: 8000 })
+  await page.getByRole('button', { name: 'Like', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Like', exact: true }).click()
+  await page.getByRole('button', { name: 'Liked', exact: true }).waitFor({ timeout: 8000 })
   expect(
     childLikeBody?.preference === 'liked',
     `a child like must set the preference: ${JSON.stringify(childLikeBody)}`,
@@ -584,7 +584,7 @@ export default async function family(page, { base }) {
       }),
     }),
   )
-  await page.route('**/api/home/spotlight', (route) =>
+  await page.route('**/api/home/spotlight*', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[],"recommendations":[{"title":"Suggested Catalogue Book","authors":["Sample Author"],"provider":"openlibrary","providerKey":"/works/OLSUGGESTEDW","source":"discover"}]}' }),
   )
   await page.goto(`${base}/discover`, { waitUntil: 'networkidle' })

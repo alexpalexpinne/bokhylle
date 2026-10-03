@@ -145,6 +145,8 @@ export default async function requests(page, { base }) {
   await page.getByRole('button', { name: /Notifications/ }).click()
   await page.getByText('1 request awaiting you').waitFor({ timeout: 8000 })
   await page.getByText('Requested Book').first().waitFor({ timeout: 8000 })
+  expect(await page.getByRole('link', { name: /Requested Book/ }).getAttribute('href') === '/requests?request=1',
+    'the pending request cover and title open that exact request')
   await page.getByRole('button', { name: 'Approve' }).click()
   await page
     .getByText('1 request awaiting you')
@@ -153,4 +155,49 @@ export default async function requests(page, { base }) {
     (await page.getByRole('button', { name: 'Approve' }).count()) === 0,
     'an approved request leaves the pinned block',
   )
+
+  const notifications = [
+    ['ready', 'Your book is ready', null],
+    ['sent', 'Sent to your reader', 'download-1'],
+    ['failed', 'Download failed', 'download-1'],
+    ['needs_selection', 'Choose a version', 'download-1'],
+    ['declined', 'Your request was declined', null],
+  ].map(([kind, title, acquisitionId], index) => ({
+    id: index + 1, kind, title, acquisitionId, bookId: 7,
+    body: null, read: false, createdAt: 1,
+  }))
+  await page.route('**/api/notifications', (route) => route.fulfill({ json: {
+    items: notifications, unread: notifications.length, pendingRequests: 0, pendingRequestItems: [],
+  } }))
+  await page.route('**/api/requests', (route) => route.fulfill({ json: {
+    items: [{ ...pendingItem, status: 'declined', phase: 'declined' }],
+  } }))
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: /Notifications/ }).click()
+  for (const [title, href] of [
+    ['Your book is ready', '/library/7'],
+    ['Sent to your reader', '/library/7'],
+    ['Download failed', '/activity?acquisition=download-1'],
+    ['Choose a version', '/activity?acquisition=download-1&choose=download-1'],
+    ['Your request was declined', '/requests?book=7'],
+  ]) {
+    expect(await page.getByRole('link', { name: new RegExp(`^${title}`) }).getAttribute('href') === href,
+      `${title} opens the relevant item`)
+  }
+  await page.getByRole('link', { name: /^Your request was declined/ }).click()
+  await page.waitForURL(`${base}/requests?book=7`)
+  await page.waitForFunction(() => document.activeElement?.tagName === 'LI'
+    && document.activeElement.textContent.includes('Requested Book'))
+  expect(await page.getByRole('button', { name: /Notifications/ }).getAttribute('aria-expanded') === 'false',
+    'following a notification closes the panel and focuses its request')
+
+  await page.route('**/api/auth/me', (route) => route.fulfill({ json: { user: CHILD } }))
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('button', { name: /Notifications/ }).click()
+  expect(await page.getByRole('link', { name: /^Download failed/ }).getAttribute('href') === '/requests?book=7&acquisition=download-1',
+    'child download messages open their requests')
+  expect(await page.getByRole('link', { name: /^Choose a version/ }).getAttribute('href') === '/requests?book=7&acquisition=download-1',
+    'child notifications never open adult Activity or version selection')
+  expect(await page.getByRole('link', { name: /^Your book is ready/ }).getAttribute('href') === '/library/7',
+    'a child ready notification opens the assigned book')
 }

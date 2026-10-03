@@ -15,6 +15,8 @@ type BookGridProps = {
   className?: string
   appearance?: 'default' | 'shelf'
   selectedIds?: ReadonlySet<number>
+  selectableIds?: ReadonlySet<number>
+  selectionDisabled?: boolean
   onSelect?: (bookId: number, selected: boolean) => void
 }
 
@@ -31,6 +33,8 @@ export function BookGrid({
   className = '',
   appearance = 'default',
   selectedIds,
+  selectableIds,
+  selectionDisabled,
   onSelect,
 }: BookGridProps) {
   const Grid = appearance === 'shelf' ? ShelfGrid : 'div'
@@ -60,9 +64,9 @@ export function BookGrid({
     <Grid className={gridClass}>
       {books.map((book) => (
         <div key={book.id} data-letter={letterFor ? letterFor(book) : undefined}>
-          {onSelect && <label className="mb-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-ink-muted">
-            <input type="checkbox" checked={selectedIds?.has(book.id) ?? false} onChange={(event) => onSelect(book.id, event.target.checked)} aria-label={`Select ${book.title}`} className="h-4 w-4 accent-[var(--color-accent)]" />
-            Select
+          {onSelect && <label className="mb-2 flex min-h-11 items-center gap-2 text-xs text-ink-muted">
+            <input type="checkbox" disabled={selectionDisabled || (selectableIds !== undefined && !selectableIds.has(book.id))} checked={selectedIds?.has(book.id) ?? false} onChange={(event) => onSelect(book.id, event.target.checked)} aria-label={`Select ${book.title}`} className="h-4 w-4 accent-[var(--color-accent)] disabled:opacity-50" />
+            {!selectableIds || selectableIds.has(book.id) ? 'Select' : 'Shared book'}
           </label>}
           <BookCard book={book} headingLevel={2} appearance={appearance} />
         </div>

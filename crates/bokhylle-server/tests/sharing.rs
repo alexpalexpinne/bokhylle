@@ -70,6 +70,262 @@ async fn book(app: &common::TestApp, key: &str) -> (i64, i64) {
 }
 
 #[tokio::test]
+async fn borrowing_never_grants_sharing_controls_or_private_access() {
+    let app = common::test_app().await;
+    let owner = app
+        .state
+        .auth
+        .create_user("owner", "password123", Role::User)
+        .await
+        .unwrap();
+    let borrower = app
+        .state
+        .auth
+        .create_user("borrower", "password123", Role::User)
+        .await
+        .unwrap();
+    let child = app
+        .state
+        .auth
+        .create_user("child", "password123", Role::User)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET profile_type = 'child' WHERE id = ?")
+        .bind(child.id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let (id, file) = book(&app, "borrowed").await;
+    sharing::choose(&app.state.db, owner.id, id, None)
+        .await
+        .unwrap();
+    let borrower_cookie = common::login(&app, "borrower", "password123").await;
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &format!("/api/books/{id}/shelf"),
+            &borrower_cookie,
+            None
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        sharing::state(&app.state.db, borrower.id, id)
+            .await
+            .unwrap()
+            .sharing,
+        None
+    );
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &format!("/api/books/{id}/sharing"),
+            &borrower_cookie,
+            Some(json!({"sharing":"private"}))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    bokhylle_server::user_books::add(&app.state.db, child.id, id, "parent_assigned")
+        .await
+        .unwrap();
+    sharing::set(&app.state.db, &owner, &[id], BookSharing::Private)
+        .await
+        .unwrap();
+    for path in [
+        format!("/api/books/{id}"),
+        format!("/api/books/{id}/files/{file}/download"),
+    ] {
+        assert_eq!(
+            request(&app, "GET", &path, &borrower_cookie, None).await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        request(&app, "GET", "/api/books?mine=true", &borrower_cookie, None)
+            .await
+            .1["total"],
+        0
+    );
+    assert!(
+        sharing::can_access(&app.state.db, child.id, id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        sharing::can_access(&app.state.db, owner.id, id)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn scheduled_sends_are_requester_scoped_and_keep_the_selected_address() {
+    let app = common::test_app().await;
+    let owner = app
+        .state
+        .auth
+        .create_user("owner", "password123", Role::User)
+        .await
+        .unwrap();
+    let other = app
+        .state
+        .auth
+        .create_user("other", "password123", Role::Admin)
+        .await
+        .unwrap();
+    let child = app
+        .state
+        .auth
+        .create_user("child", "password123", Role::User)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET profile_type = 'child' WHERE id = ?")
+        .bind(child.id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let (id, _) = book(&app, "scheduled").await;
+    let (acquisition, _) = bokhylle_server::acquisition::create(
+        &app.state.db,
+        id,
+        Some(owner.id),
+        None,
+        None,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+    let target = sqlx::query("INSERT INTO delivery_targets (user_id, type, name, address, is_default) VALUES (?, 'other', 'Original reader', 'original@example.test', 1)")
+        .bind(owner.id).execute(&app.state.db).await.unwrap().last_insert_rowid();
+    let foreign_target = sqlx::query("INSERT INTO delivery_targets (user_id, type, name, address) VALUES (?, 'other', 'Other reader', 'other@example.test')")
+        .bind(other.id).execute(&app.state.db).await.unwrap().last_insert_rowid();
+    let owner_cookie = common::login(&app, "owner", "password123").await;
+    let other_cookie = common::login(&app, "other", "password123").await;
+    let child_cookie = common::login(&app, "child", "password123").await;
+    let path = format!("/api/acquisitions/{}/delivery", acquisition.id);
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &path,
+            &other_cookie,
+            Some(json!({"enabled":true,"targetId":foreign_target}))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &path,
+            &child_cookie,
+            Some(json!({"enabled":true}))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &path,
+            &owner_cookie,
+            Some(json!({"enabled":true,"targetId":foreign_target}))
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let (status, view) = request(
+        &app,
+        "PUT",
+        &path,
+        &owner_cookie,
+        Some(json!({"enabled":true,"targetId":target})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["requestedByMe"], true);
+    assert_eq!(view["scheduledDeliveryAddress"], "original@example.test");
+    let other_view = request(
+        &app,
+        "GET",
+        &format!("/api/acquisitions/{}", acquisition.id),
+        &other_cookie,
+        None,
+    )
+    .await
+    .1;
+    assert_eq!(other_view["scheduledDeliveryAddress"], Value::Null);
+    assert_eq!(other_view["deliverOnReady"], false);
+    sqlx::query("UPDATE delivery_targets SET address = 'changed@example.test' WHERE id = ?")
+        .bind(target)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM delivery_targets WHERE id = ?")
+        .bind(target)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let intents =
+        bokhylle_server::acquisition_requests::pending_deliveries(&app.state.db, &acquisition.id)
+            .await
+            .unwrap();
+    assert_eq!(intents.len(), 1);
+    assert_eq!(
+        intents[0].delivery_address.as_deref(),
+        Some("original@example.test")
+    );
+    assert_eq!(intents[0].delivery_target_id, None);
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &path,
+            &owner_cookie,
+            Some(json!({"enabled":false}))
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(
+        bokhylle_server::acquisition_requests::pending_deliveries(&app.state.db, &acquisition.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    sqlx::query("UPDATE acquisitions SET status = 'READY' WHERE id = ?")
+        .bind(&acquisition.id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            &path,
+            &owner_cookie,
+            Some(json!({"enabled":false}))
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+}
+
+#[tokio::test]
 async fn private_books_are_hidden_across_http_opds_and_shared_services() {
     let app = common::test_app().await;
     let owner = app
@@ -87,6 +343,9 @@ async fn private_books_are_hidden_across_http_opds_and_shared_services() {
     let owner_cookie = common::login(&app, "owner", "password123").await;
     let other_cookie = common::login(&app, "other", "password123").await;
     let (id, file) = book(&app, "hidden").await;
+    sharing::choose(&app.state.db, owner.id, id, None)
+        .await
+        .unwrap();
     bokhylle_server::user_books::add(&app.state.db, owner.id, id, "manual")
         .await
         .unwrap();
@@ -304,7 +563,7 @@ async fn private_books_are_hidden_across_http_opds_and_shared_services() {
 }
 
 #[tokio::test]
-async fn approval_keeps_the_requesters_original_default_with_or_without_a_local_file() {
+async fn approval_uses_borrowing_for_local_files_and_saved_sharing_for_acquisitions() {
     let app = common::test_app().await;
     let owner = app
         .state
@@ -353,12 +612,17 @@ async fn approval_keeps_the_requesters_original_default_with_or_without_a_local_
                 .await
                 .unwrap()
                 .sharing,
-            Some(BookSharing::Private)
+            if has_file {
+                None
+            } else {
+                Some(BookSharing::Private)
+            }
         );
-        assert!(
-            !sharing::can_access(&app.state.db, admin.id, id)
+        assert_eq!(
+            sharing::can_access(&app.state.db, admin.id, id)
                 .await
-                .unwrap()
+                .unwrap(),
+            has_file
         );
         assert!(
             bokhylle_server::user_books::contains(&app.state.db, owner.id, id)
@@ -386,6 +650,9 @@ async fn hidden_collections_and_child_assignments_cannot_grant_access_by_guessin
     let cookie = common::login(&app, "admin", "password123").await;
     let (hidden, _) = book(&app, "hidden-collection").await;
     let (public, _) = book(&app, "public-collection").await;
+    sharing::choose(&app.state.db, owner.id, hidden, None)
+        .await
+        .unwrap();
     bokhylle_server::user_books::add(&app.state.db, owner.id, hidden, "manual")
         .await
         .unwrap();
@@ -529,6 +796,9 @@ async fn sharing_preserves_coowners_and_survives_shelf_removal_and_account_delet
         .unwrap();
     let (id, _) = book(&app, "coowned").await;
     for user in [&first, &second] {
+        sharing::choose(&app.state.db, user.id, id, None)
+            .await
+            .unwrap();
         bokhylle_server::user_books::add(&app.state.db, user.id, id, "manual")
             .await
             .unwrap();
@@ -719,7 +989,13 @@ async fn bulk_changes_are_atomic_and_children_cannot_change_sharing() {
     let child_cookie = common::login(&app, "child", "password123").await;
     let (first, _) = book(&app, "first").await;
     let (second, _) = book(&app, "second").await;
+    sharing::choose(&app.state.db, owner.id, first, None)
+        .await
+        .unwrap();
     bokhylle_server::user_books::add(&app.state.db, owner.id, first, "manual")
+        .await
+        .unwrap();
+    sharing::choose(&app.state.db, other.id, second, None)
         .await
         .unwrap();
     bokhylle_server::user_books::add(&app.state.db, other.id, second, "manual")
@@ -735,7 +1011,7 @@ async fn bulk_changes_are_atomic_and_children_cannot_change_sharing() {
         )
         .await
         .0,
-        StatusCode::NOT_FOUND
+        StatusCode::FORBIDDEN
     );
     assert_eq!(
         sharing::state(&app.state.db, owner.id, first)
@@ -744,6 +1020,9 @@ async fn bulk_changes_are_atomic_and_children_cannot_change_sharing() {
             .sharing,
         Some(BookSharing::Shared)
     );
+    sharing::choose(&app.state.db, owner.id, second, None)
+        .await
+        .unwrap();
     bokhylle_server::user_books::add(&app.state.db, owner.id, second, "manual")
         .await
         .unwrap();

@@ -116,7 +116,7 @@ async function installLayoutShiftObserver(page) {
   })
 }
 
-async function mockHome(page, { spotlightDelay = 0 } = {}) {
+async function mockHome(page, { spotlightDelay = 0, cachedSpotlightReady = Promise.resolve() } = {}) {
   await page.route('**/api/profile/onboarding', (route) =>
     route.fulfill({
       status: 200,
@@ -124,10 +124,11 @@ async function mockHome(page, { spotlightDelay = 0 } = {}) {
       body: JSON.stringify({ onboarded: true, interests: [] }),
     }),
   )
-  await page.route('**/api/home/spotlight', async (route) => {
-    if (spotlightDelay > 0) {
-      await new Promise((resolve) => setTimeout(resolve, spotlightDelay))
-    }
+  await page.route('**/api/home/spotlight*', async (route) => {
+    const cached = new URL(route.request().url()).searchParams.get('cachedOnly') === 'true'
+    if (cached) await cachedSpotlightReady
+    const delay = cached ? Math.min(spotlightDelay, 150) : spotlightDelay
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -274,11 +275,20 @@ async function mockDiscover(page) {
 
 export default async function stability(page, { base }) {
   await installLayoutShiftObserver(page)
-  await mockHome(page, { spotlightDelay: 1500 })
+  // Login may already have populated Home. The next document must start cold,
+  // and the mock stays pending until we have measured its loading skeleton.
+  await page.addInitScript(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)
+    }
+  })
+  let revealSpotlight
+  const cachedSpotlightReady = new Promise((resolve) => { revealSpotlight = resolve })
+  await mockHome(page, { spotlightDelay: 1500, cachedSpotlightReady })
   await mockDiscover(page)
 
-  // A cold Home reserves the hero's space: the delayed spotlight must not
-  // push the rails down after they rendered.
+  // A cold Home uses local/cached Spotlight without waiting for its slower
+  // catalogue refresh. Reserved sections keep their placement stable.
   await page.goto(`${base}/`, { waitUntil: 'domcontentloaded' })
   // The cold-load skeleton must fit the viewport too, not just the final page.
   await page.locator('.animate-pulse').first().waitFor({ state: 'visible', timeout: 3000 })
@@ -289,7 +299,8 @@ export default async function stability(page, { base }) {
     skeletonOverflow <= 1,
     `the cold Home skeleton must not overflow at 390px (${skeletonOverflow}px)`,
   )
-  // Core sections must not wait for the slow Spotlight call.
+  revealSpotlight()
+  // Core sections must not wait for the slow catalogue refresh.
   await page.getByText(BOOK.title).first().waitFor({ state: 'visible', timeout: 1200 })
   await page.getByText(SPOTLIGHT.title).first().waitFor({ state: 'visible', timeout: 8000 })
   await page.waitForTimeout(250)
@@ -306,15 +317,25 @@ export default async function stability(page, { base }) {
     }
   })
 
-  // Revisiting Home renders from the session cache: no skeleton, no refetch.
+  // Revisiting Home renders from the session cache while fresh data is prepared
+  // in the background for the next visit.
   await page.getByRole('link', { name: 'Library' }).first().click()
   await page.waitForURL(`${base}/library`)
+  await page.getByRole('heading', { name: 'Your shelf', exact: true }).waitFor()
   await page.evaluate(() => {
     window.__cls = 0
   })
+  const refreshedSpotlight = ['true', 'false'].map((cachedOnly) =>
+    page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/home/spotlight' &&
+        url.searchParams.get('cachedOnly') === cachedOnly
+    }),
+  )
   await page.goBack()
   await page.waitForURL(`${base}/`)
   await page.getByText(SPOTLIGHT.title).first().waitFor({ state: 'visible', timeout: 3000 })
+  await Promise.all(refreshedSpotlight)
   await page.waitForTimeout(250)
   const revisitShift = await page.evaluate(() => window.__cls)
   expect(
@@ -322,8 +343,8 @@ export default async function stability(page, { base }) {
     `a cached Home revisit should not shift (CLS ${revisitShift})`,
   )
   expect(
-    spotlightRequests === 0,
-    `a fresh cached Home must not refetch Spotlight (got ${spotlightRequests})`,
+    spotlightRequests === 2,
+    `a cached Home refreshes its local snapshot and catalogue in the background (got ${spotlightRequests})`,
   )
 
   // A cached Discover search restores books and authors together and keeps
@@ -367,6 +388,7 @@ export default async function stability(page, { base }) {
 
   await page.getByRole('link', { name: 'Library' }).first().click()
   await page.waitForURL(`${base}/library`)
+  await page.getByRole('heading', { name: 'Your shelf', exact: true }).waitFor()
   await page.evaluate(() => {
     window.__cls = 0
   })

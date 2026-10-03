@@ -170,7 +170,7 @@ export default async function mobileChild(page, { base }) {
     !/On my shelf|Add to my shelf|Not for me/.test(detailText),
     'child detail must not offer shelf or taste mutations',
   )
-  expect(/♥ like/i.test(detailText), 'child detail must still offer a like toggle')
+  expect(await page.getByRole('button', { name: 'Like', exact: true }).isVisible(), 'child detail must still offer a like toggle')
   expect(
     forbidden.length === 0,
     `the child UI must not request forbidden endpoints: ${forbidden.join(', ')}`,

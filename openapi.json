@@ -284,6 +284,10 @@
               "null"
             ]
           },
+          "requestedByMe": {
+            "description": "The viewing profile participates in this acquisition.",
+            "type": "boolean"
+          },
           "requestedByUserId": {
             "format": "int64",
             "type": [
@@ -294,6 +298,13 @@
           "retryAttempts": {
             "format": "int64",
             "type": "integer"
+          },
+          "scheduledDeliveryAddress": {
+            "description": "Frozen destination, visible only to the requester who chose it.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "selectedReleaseConfidence": {
             "format": "double",
@@ -381,8 +392,10 @@
           "preferredLanguage",
           "progress",
           "requestedBy",
+          "requestedByMe",
           "requestedByUserId",
           "retryAttempts",
+          "scheduledDeliveryAddress",
           "selectedReleaseConfidence",
           "selectedReleaseFormat",
           "selectedReleaseIndexer",
@@ -6669,6 +6682,24 @@
         ],
         "type": "object"
       },
+      "ScheduledDeliveryInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "targetId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
       "ScoreReason": {
         "properties": {
           "reason": {
@@ -7405,6 +7436,16 @@
           "subjects",
           "title"
         ],
+        "type": "object"
+      },
+      "SpotlightQuery": {
+        "properties": {
+          "cachedOnly": {
+            "default": false,
+            "description": "Return local books and saved suggestions without waiting for catalogues.",
+            "type": "boolean"
+          }
+        },
         "type": "object"
       },
       "SpotlightResponse": {
@@ -8238,7 +8279,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -8482,6 +8523,81 @@
                     "$ref": "#/components/schemas/CandidateView"
                   },
                   "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "acquisitions"
+        ]
+      }
+    },
+    "/api/acquisitions/{id}/delivery": {
+      "put": {
+        "operationId": "put_acquisitions__id__delivery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduledDeliveryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcquisitionView"
                 }
               }
             },
@@ -13863,6 +13979,73 @@
       }
     },
     "/api/books/{book_id}/acquisitions": {
+      "get": {
+        "operationId": "get_books__book_id__acquisitions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AcquisitionView"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "books"
+        ]
+      },
       "post": {
         "operationId": "post_books__book_id__acquisitions",
         "parameters": [
@@ -18289,6 +18472,19 @@
     "/api/home/spotlight": {
       "get": {
         "operationId": "get_home_spotlight",
+        "parameters": [
+          {
+            "description": "Return local books and saved suggestions without waiting for catalogues.",
+            "in": "query",
+            "name": "cachedOnly",
+            "schema": {
+              "default": false,
+              "description": "Return local books and saved suggestions without waiting for catalogues.",
+              "type": "boolean"
+            },
+            "style": "form"
+          }
+        ],
         "responses": {
           "200": {
             "content": {

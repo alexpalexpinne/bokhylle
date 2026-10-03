@@ -11,7 +11,7 @@ export function BookSharingChoice({ value, onChange, disabled, label = 'Book sha
 }) {
   return (
     <Field label={label} hint={value === 'private'
-      ? 'Other owners keep their access. If another owner shares this book, it stays available in the household collection.'
+      ? 'Stops sharing your addition. Independent owners and assigned children keep their access; another owner may still share the title.'
       : 'Make this book available in the household collection. Your personal shelf stays private.'}>
       <Select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as BookSharing)}>
         <option value="private">Private</option>

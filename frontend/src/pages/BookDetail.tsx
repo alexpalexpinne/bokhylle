@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, BookOpen, ChevronDown, Download, Search, Send } from 'lucide-react'
+import { ArrowLeft, BookCheck, BookOpen, BookPlus, ChevronDown, Download, Heart, Search, Send } from 'lucide-react'
 import { ApiError } from '../api/client'
 import { createAcquisitionForBook, createHttpAcquisitionForBook } from '../api/acquisitions'
 import { fetchDemoActivity, startDemoGet } from '../api/demo'
@@ -28,16 +28,19 @@ import { DemoSendDialog } from '../components/DemoSendDialog'
 import { MetaLine } from '../components/ui/MetaLine'
 import { Field, Input, Select } from '../components/ui/Field'
 import { SectionMark } from '../components/ui/SectionMark'
+import { Modal } from '../components/ui/Modal'
 import { Button, ButtonAnchor, ButtonLink } from '../components/ui/Button'
 import { useAuth } from '../auth/useAuth'
 import { useMutation } from '../lib/useMutation'
 import { descriptionText } from '../lib/descriptionText'
-import { BookAdminActions, DeleteBookFileButton } from './book-detail/BookAdminActions'
+import { BookAdminActions } from './book-detail/BookAdminActions'
+import { BookActionsMenu } from './book-detail/BookActionsMenu'
+import { BookAcquisitionStatus } from './book-detail/BookAcquisitionStatus'
 import { CollectionsManager } from './book-detail/CollectionsManager'
 import { DeliveryHistory } from './book-detail/DeliveryHistory'
 import { HouseholdAccess } from './book-detail/HouseholdAccess'
 import { BookSharingSettings } from './book-detail/BookSharingSettings'
-import { BookSharingChoice, type BookSharing } from '../components/BookSharingChoice'
+import { ReleaseChooserDialog } from '../components/ReleaseChooserDialog'
 
 export function BookDetail({ bookId }: { bookId: string }) {
   const id = Number(bookId)
@@ -61,7 +64,8 @@ export function BookDetail({ bookId }: { bookId: string }) {
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [linkFormat, setLinkFormat] = useState('auto')
-  const [linkSharing, setLinkSharing] = useState<BookSharing | null>(null)
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null)
+  const [choosingId, setChoosingId] = useState<string | null>(null)
   const [linkBusy, setLinkBusy] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
   const shelfMutation = useMutation()
@@ -69,7 +73,7 @@ export function BookDetail({ bookId }: { bookId: string }) {
 
   function getAnotherVersion() {
     void versionMutation.run('version', () => createAcquisitionForBook(id, { askBeforeDownload: true }), 'Could not find other versions', (acquisition) => {
-      navigate(`/activity?choose=${encodeURIComponent(acquisition.id)}`)
+      setChoosingId(acquisition.id)
     })
   }
 
@@ -91,7 +95,7 @@ export function BookDetail({ bookId }: { bookId: string }) {
     setLinkBusy(true)
     setLinkError(null)
     try {
-      await createHttpAcquisitionForBook(id, linkUrl.trim(), linkFormat === 'auto' ? undefined : linkFormat, linkSharing ?? book?.sharing ?? user?.defaultBookSharing ?? 'shared')
+      await createHttpAcquisitionForBook(id, linkUrl.trim(), linkFormat === 'auto' ? undefined : linkFormat)
       navigate('/activity')
     } catch (caught) {
       setLinkError(caught instanceof ApiError ? caught.message : 'Could not add this link')
@@ -100,13 +104,18 @@ export function BookDetail({ bookId }: { bookId: string }) {
     }
   }
 
-  function refreshBook() {
+  const refreshBook = useCallback(() => {
     fetchBook(id)
       .then(setBook)
       .catch((caught: unknown) => {
         setError(caught instanceof ApiError ? caught.message : 'Failed to load book')
       })
-  }
+  }, [id])
+
+  const refreshAcquisition = useCallback(() => {
+    refreshBook()
+    setDeliveriesToken((token) => token + 1)
+  }, [refreshBook])
 
   useEffect(() => {
     let cancelled = false
@@ -191,9 +200,11 @@ export function BookDetail({ bookId }: { bookId: string }) {
       : user?.defaultLanguage
         ? [user.defaultLanguage]
         : []
-  const primaryFile = book.files[0]
-  const readableFiles = book.files.filter((file) => file.format === 'epub' || file.format === 'pdf' || file.format === 'cbz')
-  const readerFile = readableFiles.find((file) => file.id === book.browserFileId) ?? readableFiles[0]
+  const primaryFile = book.files.find((file) => file.id === selectedFileId)
+    ?? book.files.find((file) => file.id === book.browserFileId)
+    ?? book.files.find((file) => file.format === user?.preferredFormat)
+    ?? book.files[0]
+  const readerFile = primaryFile
   const availableLanguage = preferredLanguages.find((language) =>
     book.availableLanguages?.includes(language),
   )
@@ -226,8 +237,8 @@ export function BookDetail({ bookId }: { bookId: string }) {
     <article className="space-y-12">
       <section className="relative -mx-4 overflow-hidden sm:-mx-6 lg:-mx-8">
         <CoverField bookId={book.id} />
-        <div className="relative mx-auto flex max-w-content flex-col gap-8 px-4 pb-12 pt-8 sm:flex-row sm:items-start sm:px-6 lg:px-8">
-          <div className="relative mx-auto aspect-[2/3] w-36 shrink-0 sm:mx-0 sm:w-52">
+        <div className="relative mx-auto grid max-w-content grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-x-5 gap-y-3 px-4 py-6 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-x-8 sm:px-6 sm:py-8 lg:px-8">
+          <div className={`relative aspect-[2/3] w-full ${book.subjects.length > 0 ? 'sm:row-span-3' : 'sm:row-span-2'}`}>
             {loadedCoverId !== book.id && (
               <div aria-hidden className="absolute inset-0 flex items-center justify-center rounded-[3px] bg-surface-2">
                 <BrandMark className="h-16 w-16 text-ink-faint" />
@@ -243,38 +254,19 @@ export function BookDetail({ bookId }: { bookId: string }) {
             />
           </div>
 
-          <div className="min-w-0 flex-1">
-            <Link
-              to="/library"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-soft transition-colors hover:text-ink"
-            >
-              <ArrowLeft size={14} />
-              Library
-            </Link>
+          <div className="min-w-0">
+            <div className="flex h-6 items-center justify-between gap-2">
+              <Link
+                to="/library"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-soft transition-colors hover:text-ink"
+              >
+                <ArrowLeft size={14} />
+                Library
+              </Link>
+              {!isChild && !demo && <BookSharingSettings book={book} onUpdated={refreshBook} />}
+            </div>
 
-            <MetaLine
-              className="mt-5"
-              tone="soft"
-              items={[
-                book.rating && book.ratingCount && book.ratingCount >= 10
-                  ? `★ ${book.rating.toFixed(1)} · ${
-                      book.ratingCount >= 1000
-                        ? `${(book.ratingCount / 1000).toFixed(1)}k`
-                        : String(book.ratingCount)
-                    } ratings`
-                  : null,
-                book.publicationYear ? String(book.publicationYear) : null,
-                book.language?.toUpperCase() ?? availabilityLabel,
-                book.series
-                  ? `${book.series}${book.seriesNumber ? ` · ${book.publicationKind === 'comic' || book.publicationKind === 'manga' ? 'Volume' : 'Book'} ${book.seriesNumber}` : ''}`
-                  : null,
-                book.files.length > 0
-                  ? book.files.map((file) => file.format.toUpperCase()).join(' + ')
-                  : null,
-              ]}
-            />
-
-            <h1 className="mt-3 font-display text-display text-ink [text-wrap:balance]">
+            <h1 className="mt-3 font-display text-3xl leading-tight text-ink [overflow-wrap:anywhere] [text-wrap:balance] sm:text-display">
               {book.title}
             </h1>
             {(book.authorRefs ?? []).length > 0 ? (
@@ -301,210 +293,112 @@ export function BookDetail({ bookId }: { bookId: string }) {
               </Link>
             )}
 
-            {book.subjects.length > 0 && (
-              <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-                {(showAllSubjects ? book.subjects : book.subjects.slice(0, 8)).map((subject) => (
-                  <Link
-                    key={subject.normalized}
-                    to={`/library?subject=${encodeURIComponent(subject.normalized)}`}
-                    className="font-sans text-[11px] uppercase tracking-[0.18em] text-ink-soft transition-colors hover:text-ink"
-                  >
-                    {subject.name}
-                  </Link>
-                ))}
-                {book.subjects.length > 8 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllSubjects((current) => !current)}
-                    className="font-sans text-[11px] font-medium uppercase tracking-[0.18em] text-ink-soft transition-colors hover:text-ink"
-                  >
-                    {showAllSubjects ? 'Fewer subjects' : `+${book.subjects.length - 8} more`}
-                  </button>
-                )}
-              </div>
+            <MetaLine tone="soft" className="mt-2 break-words" items={[
+              book.rating && book.ratingCount && book.ratingCount >= 10
+                ? `★ ${book.rating.toFixed(1)} · ${book.ratingCount >= 1000 ? `${(book.ratingCount / 1000).toFixed(1)}k` : String(book.ratingCount)} ratings`
+                : null,
+              book.publicationYear ? String(book.publicationYear) : null,
+              book.language?.toUpperCase() ?? availabilityLabel,
+              book.series ? `${book.series}${book.seriesNumber ? ` · ${book.publicationKind === 'comic' || book.publicationKind === 'manga' ? 'Volume' : 'Book'} ${book.seriesNumber}` : ''}` : null,
+              primaryFile?.format.toUpperCase() ?? null,
+            ]} />
+          </div>
+
+          {book.subjects.length > 0 && <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 sm:col-span-1 sm:col-start-2">
+            {book.subjects.slice(0, showAllSubjects ? undefined : 6).map((subject, index) => <Link
+              key={subject.normalized} to={`/library?subject=${encodeURIComponent(subject.normalized)}`}
+              className={`max-w-full break-words font-sans text-[11px] uppercase tracking-[0.18em] text-ink-soft transition-colors hover:text-ink ${!showAllSubjects && index >= 3 ? 'hidden sm:inline' : ''}`}>
+              {subject.name}
+            </Link>)}
+            {book.subjects.length > 3 && <button type="button" aria-label={showAllSubjects ? 'Show fewer subjects' : 'Show more subjects'} aria-expanded={showAllSubjects} onClick={() => setShowAllSubjects((current) => !current)}
+              className={`min-h-11 font-sans text-left text-[11px] font-medium uppercase tracking-[0.18em] text-ink-soft transition-colors hover:text-ink ${book.subjects.length <= 6 ? 'sm:hidden' : ''}`}>
+              {showAllSubjects ? 'Fewer subjects' : <>
+                <span className="sm:hidden">+{book.subjects.length - 3} more</span>
+                <span className="hidden sm:inline">+{book.subjects.length - 6} more</span>
+              </>}
+            </button>}
+          </div>}
+
+          <div className="col-span-2 min-w-0 space-y-4 sm:col-span-1 sm:col-start-2">
+            {!isChild && !demo && <BookAcquisitionStatus key={book.id} bookId={book.id} hasFile={!!primaryFile} onReady={refreshAcquisition} onChoose={setChoosingId} />}
+            {book.files.length > 1 && !isChild && <Field label="Book file">
+              <Select value={primaryFile.id} onChange={(event) => setSelectedFileId(Number(event.target.value))} className="max-w-full sm:max-w-xs">
+                {book.files.map((file) => <option key={file.id} value={file.id}>{file.format.toUpperCase()} · {formatBytes(file.size)} · {file.filename}</option>)}
+              </Select>
+            </Field>}
+            <div role="group" aria-label="Reading actions" className="grid gap-2 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+            {readerFile && (
+              <ButtonLink to={`/read/${book.id}/${readerFile.id}`} variant="primary" size="lg" className="sm:min-w-56">
+                <BookOpen size={16} aria-hidden />Read in Bokhylle
+              </ButtonLink>
             )}
-
-            <div className="mt-7 space-y-4">
-              <div role="group" aria-label="Reading actions" className="grid gap-2 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
-              {readerFile && (
-                <ButtonLink to={`/read/${book.id}/${readerFile.id}`} variant="primary" size="lg">
-                  <BookOpen size={16} aria-hidden />Read in Bokhylle
-                </ButtonLink>
-              )}
-              {primaryFile && !isChild && demo && (
-                <>
-                <Button variant="primary" size="lg" disabled={demoBusy || (!book.onShelf && (demoPending === null || demoPending))} onClick={() => book.onShelf ? setDemoSendOpen(true) : void tryDemoGet(true)}>
-                  <Send size={16} aria-hidden />
-                  {demoBusy ? 'Working…' : book.onShelf ? 'Send to Demo Kindle' : demoPending ? 'Getting…' : 'Get & Send to Kindle'}
-                </Button>
-                {!book.onShelf && !demoPending && <Button variant="secondary" size="lg" disabled={demoBusy || demoPending === null} onClick={() => void tryDemoGet()}>Get for my shelf</Button>}
-                </>
-              )}
-              {primaryFile && !isChild && !demo && (
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={() =>
-                    setSendFile({ id: primaryFile.id, format: primaryFile.format })
-                  }
-                >
-                  <Send size={16} />
-                  Send to my reader
-                  {targets.length > 1 && <ChevronDown size={14} />}
-                </Button>
-              )}
-              </div>
-              <div role="group" aria-label="Book files" className="divide-y divide-ink/15 [&_button]:min-h-11 [&_button]:min-w-11 sm:flex sm:flex-wrap sm:gap-x-4 sm:divide-y-0">
-              {book.files.map((file) => (
-                <div key={file.id} className="flex min-w-0 items-center gap-2 py-1">
-                  {readableFiles.length > 1 && file.id !== readerFile?.id && (
-                    <ButtonLink to={`/read/${book.id}/${file.id}`} variant="ghost" size="md" className="shrink-0 px-2" >
-                      Read {file.filename || `${file.format.toUpperCase()} ${file.id}`}
-                    </ButtonLink>
-                  )}
-                  {isChild ? (
-                    <span className="font-sans text-xs uppercase tracking-[0.12em] text-ink-soft">
-                      {file.format.toUpperCase()} · {formatBytes(file.size)}
-                    </span>
-                  ) : (
-                    <>
-                      <ButtonAnchor
-                        href={downloadUrl(book.id, file.id)}
-                        variant="ghost"
-                        size="md"
-                        className="h-auto min-h-11 flex-1 justify-start px-3 py-2 [&_svg]:shrink-0"
-                      >
-                        <Download size={16} />
-                        <span className="min-w-0 text-left">
-                          <span className="block">Download {file.format.toUpperCase()}</span>
-                          <span className="block text-xs font-normal text-ink-muted">{formatBytes(file.size)}</span>
-                        </span>
-                      </ButtonAnchor>
-                      {isAdmin && <DeleteBookFileButton bookId={book.id} file={file} onDeleted={refreshBook} />}
-                    </>
-                  )}
-                </div>
-              ))}
-              </div>
-              <div role="group" aria-label="Manage book" className="flex flex-wrap items-center gap-2 border-t border-ink/15 pt-3 [&_button]:min-h-11">
-              {!isChild && !demo && <CollectionsManager bookId={book.id} onError={setError} />}
-              {!isChild && !demo && <BookSharingSettings book={book} onUpdated={refreshBook} />}
-              {!isChild && !demo && (isAdmin || user?.canAcquire) && (
-                <>
-                {primaryFile && <Button variant="ghost" size="sm" disabled={!!versionMutation.busyKey} onClick={getAnotherVersion}>{versionMutation.busyKey ? 'Finding versions…' : 'Get another version'}</Button>}
-                <Button variant="ghost" size="sm" onClick={() => setLinkOpen((open) => !open)} aria-expanded={linkOpen}>Add from link</Button>
-                </>
-              )}
-              {isAdmin && <BookAdminActions book={book} onUpdated={refreshBook} />}
-              {!isChild && demo && !isAdmin && <HouseholdAccess bookId={book.id} />}
-              </div>
-              {versionMutation.error && <p role="alert" className="text-sm text-danger">{versionMutation.error}</p>}
-              {linkOpen && !isChild && !demo && (
-                <form onSubmit={(event) => void addFromLink(event)} className="max-w-2xl space-y-3 border-t border-line pt-4">
-                  <p className="text-sm text-ink-muted">Add a direct EPUB, PDF, or CBZ download for this book.</p>
-                  <Field label="Download URL"><Input type="url" required value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.org/book.epub" /></Field>
-                  <BookSharingChoice value={linkSharing ?? book.sharing ?? user?.defaultBookSharing ?? 'shared'} onChange={setLinkSharing} disabled={linkBusy} />
-                  <div className="flex flex-wrap items-end gap-3">
-                    <Field label="Format"><Select value={linkFormat} onChange={(event) => setLinkFormat(event.target.value)}><option value="auto">From URL</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="cbz">CBZ</option></Select></Field>
-                    <Button type="submit" variant="primary" disabled={linkBusy || !linkUrl.trim()}>{linkBusy ? 'Adding…' : 'Get this file'}</Button>
-                  </div>
-                  {linkError && <p role="alert" className="text-sm text-danger">{linkError}</p>}
-                </form>
-              )}
+            {primaryFile && !isChild && demo && (
+              <>
+              <Button variant="primary" size="lg" className="sm:min-w-56" disabled={demoBusy || (!book.onShelf && (demoPending === null || demoPending))} onClick={() => book.onShelf ? setDemoSendOpen(true) : void tryDemoGet(true)}>
+                <Send size={16} aria-hidden />
+                {demoBusy ? 'Working…' : book.onShelf ? 'Send to Demo Kindle' : demoPending ? 'Getting…' : 'Get & Send to Kindle'}
+              </Button>
+              {!book.onShelf && !demoPending && <Button variant="secondary" size="lg" disabled={demoBusy || demoPending === null} onClick={() => void tryDemoGet()}>Get for my shelf</Button>}
+              </>
+            )}
+            {primaryFile && !isChild && !demo && (
+              <Button
+                variant="primary"
+                size="lg"
+                className="sm:min-w-56"
+                onClick={() =>
+                  setSendFile({ id: primaryFile.id, format: primaryFile.format })
+                }
+              >
+                <Send size={16} />
+                Send to my reader
+                {targets.length > 1 && <ChevronDown size={14} />}
+              </Button>
+            )}
             </div>
-
+            <div role="group" aria-label="Personal book actions" className="flex w-full items-center gap-1 border-y border-line py-1 [&>button]:min-h-12 sm:w-fit sm:gap-2 sm:border-0 sm:py-0 sm:[&>button]:min-h-11">
+              {!isChild && (!demo || book.onShelf) && <Button variant="ghost" size="sm"
+                aria-label={book.onShelf ? 'Remove from my shelf' : 'Add to my shelf'} aria-pressed={book.onShelf}
+                title={book.onShelf ? 'Remove from my shelf' : 'Add to my shelf'}
+                className="min-w-0 flex-1 aria-pressed:bg-surface-2 aria-pressed:text-accent sm:flex-none"
+                disabled={shelfMutation.busyKey === 'shelf'} onClick={() => void shelfMutation.run(
+                'shelf', () => book.onShelf ? removeBookFromShelf(book.id) : addBookToShelf(book.id),
+                'Could not update your shelf', refreshBook,
+              )}>
+                {book.onShelf ? <BookCheck size={20} aria-hidden /> : <BookPlus size={20} aria-hidden />}
+                <span className="hidden sm:inline">{book.onShelf ? 'On my shelf' : 'Add to shelf'}</span>
+              </Button>}
+              <Button variant="ghost" size="sm" aria-label={book.preference === 'liked' ? 'Liked' : 'Like'} aria-pressed={book.preference === 'liked'}
+                title={book.preference === 'liked' ? 'Unlike this book' : 'Like this book'}
+                className="min-w-0 flex-1 aria-pressed:bg-surface-2 aria-pressed:text-accent sm:flex-none"
+                disabled={!!shelfMutation.busyKey} onClick={() => void shelfMutation.run(
+                'like', () => setBookPreference(book.id, book.preference === 'liked' ? null : 'liked'),
+                'Could not update that like', refreshBook,
+              )}><Heart size={20} fill={book.preference === 'liked' ? 'currentColor' : 'none'} aria-hidden /><span className="hidden sm:inline">{book.preference === 'liked' ? 'Liked' : 'Like'}</span></Button>
+              {!isChild && <BookActionsMenu>{(close) => <>
+                {primaryFile && <ButtonAnchor href={downloadUrl(book.id, primaryFile.id)} variant="ghost" size="sm" className="w-full justify-start" onClick={close}>
+                  <Download size={16} aria-hidden />Download {primaryFile.format.toUpperCase()}
+                  <span className="ml-auto text-xs font-normal text-ink-muted">{formatBytes(primaryFile.size)}</span>
+                </ButtonAnchor>}
+                {!demo && <>
+                  <CollectionsManager bookId={book.id} onError={setError} onOpen={close} />
+                  {(isAdmin || user?.canAcquire) && primaryFile && <Button variant="ghost" size="sm" className="w-full justify-start" disabled={!!versionMutation.busyKey}
+                    onClick={() => { close(); getAnotherVersion() }}>Find another version</Button>}
+                  <Button variant="ghost" size="sm" className="w-full justify-start" aria-pressed={book.preference === 'not_for_me'} disabled={!!shelfMutation.busyKey} onClick={() => {
+                    close()
+                    void shelfMutation.run('not-for-me', () => setBookPreference(book.id, book.preference === 'not_for_me' ? null : 'not_for_me'), 'Could not update that preference', refreshBook)
+                  }}>{book.preference === 'not_for_me' ? 'Undo not for me' : 'Not for me'}</Button>
+                  {(isAdmin || user?.canAcquire) && <div className="border-t border-line pt-1">
+                    <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => { close(); setLinkError(null); setLinkOpen(true) }}>Import from URL</Button>
+                  </div>}
+                  {isAdmin && <BookAdminActions book={book} onUpdated={refreshBook} onOpen={close} />}
+                </>}
+              </>}</BookActionsMenu>}
+            </div>
+            {!isChild && demo && !isAdmin && <HouseholdAccess bookId={book.id} />}
+            {versionMutation.error && <p role="alert" className="text-sm text-danger">{versionMutation.error}</p>}
             {demoNotice && <p role="status" className="mt-3 border-l-2 border-accent pl-3 text-sm text-ink-soft">{demoNotice}</p>}
             {demo && demoPending && !book.onShelf && <Link to="/activity" className="mt-3 inline-block text-sm text-accent">Follow in Activity</Link>}
-
-            {primaryFile && !isChild && !demo && (
-              <p className="mt-3 text-xs text-ink-soft">
-                Delivered by email to your reader.
-                {targets.some((target) => target.type === 'kindle') &&
-                  ' Kindle addresses must be approved in your Amazon account.'}
-              </p>
-            )}
-
-            <div className={`mt-6 gap-2 border-t border-line pt-4 [&>button]:min-h-11 ${isChild ? 'flex' : 'grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center'}`}>
-              {!isChild &&
-                (book.onShelf ? (
-                  <button
-                    type="button"
-                    disabled={shelfMutation.busyKey === 'shelf'}
-                    onClick={() =>
-                      void shelfMutation.run(
-                        'shelf',
-                        () => removeBookFromShelf(book.id),
-                        'Could not remove it from your shelf',
-                        refreshBook,
-                      )
-                    }
-                    className="col-span-2 rounded-[3px] border border-accent bg-accent/10 px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-[0.14em] text-ink transition-colors hover:bg-accent/15 disabled:opacity-50"
-                  >
-                    Remove from my shelf
-                  </button>
-                ) : !demo ? (
-                  <button
-                    type="button"
-                    disabled={shelfMutation.busyKey === 'shelf'}
-                    onClick={() =>
-                      void shelfMutation.run(
-                        'shelf',
-                        () => addBookToShelf(book.id),
-                        'Could not add it to your shelf',
-                        refreshBook,
-                      )
-                    }
-                    className="col-span-2 rounded-[3px] border border-line px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-[0.14em] text-ink-soft transition-colors hover:border-ink-faint hover:text-ink disabled:opacity-50"
-                  >
-                    + Add to my shelf
-                  </button>
-                ) : null)}
-              <button
-                type="button"
-                aria-pressed={book.preference === 'liked'}
-                onClick={() =>
-                  void shelfMutation.run(
-                    'like',
-                    () =>
-                      setBookPreference(book.id, book.preference === 'liked' ? null : 'liked'),
-                    'Could not update that like',
-                    refreshBook,
-                  )
-                }
-                className={`rounded-[3px] border px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-[0.14em] transition-colors ${
-                  book.preference === 'liked'
-                    ? 'border-accent bg-accent/10 text-ink'
-                    : 'border-line text-ink-soft hover:border-ink-faint hover:text-ink'
-                }`}
-              >
-                ♥ {book.preference === 'liked' ? 'Liked' : 'Like'}
-              </button>
-              {!isChild && (
-                <button
-                  type="button"
-                  aria-pressed={book.preference === 'not_for_me'}
-                  onClick={() =>
-                    void shelfMutation.run(
-                      'not-for-me',
-                      () =>
-                        setBookPreference(
-                          book.id,
-                          book.preference === 'not_for_me' ? null : 'not_for_me',
-                        ),
-                      'Could not update that preference',
-                      refreshBook,
-                    )
-                  }
-                  className={`rounded-[3px] border px-3 py-1.5 font-sans text-[11px] font-medium uppercase tracking-[0.14em] transition-colors ${
-                    book.preference === 'not_for_me'
-                      ? 'border-accent bg-accent/10 text-ink'
-                      : 'border-line text-ink-soft hover:border-ink-faint hover:text-ink'
-                  }`}
-                >
-                  Not for me
-                </button>
-              )}
-            </div>
             {shelfMutation.error && (
               <p className="mt-3 border-l-2 border-danger pl-3 text-sm text-danger">
                 {shelfMutation.error}
@@ -603,6 +497,19 @@ export function BookDetail({ bookId }: { bookId: string }) {
 
       {!isChild && !demo && <DeliveryHistory bookId={book.id} refreshToken={deliveriesToken} />}
 
+      {choosingId && <ReleaseChooserDialog acquisitionId={choosingId} onClose={() => setChoosingId(null)} onSelected={() => { setChoosingId(null); navigate('/activity') }} />}
+      {linkOpen && !isChild && !demo && <Modal title="Import from URL" description="Fetch a direct EPUB, PDF or CBZ file for this book. Use the file URL, rather than a webpage address."
+        onClose={() => { if (!linkBusy) setLinkOpen(false) }} footer={<>
+          <Button variant="ghost" disabled={linkBusy} onClick={() => setLinkOpen(false)}>Cancel</Button>
+          <Button type="submit" form="import-book-url" variant="primary" disabled={linkBusy || !linkUrl.trim()}>{linkBusy ? 'Importing…' : 'Import file'}</Button>
+        </>}>
+        <form id="import-book-url" onSubmit={(event) => void addFromLink(event)} className="space-y-4">
+          <Field label="File URL"><Input type="url" required disabled={linkBusy} value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.org/book.epub" /></Field>
+          <Field label="Format"><Select disabled={linkBusy} value={linkFormat} onChange={(event) => setLinkFormat(event.target.value)}><option value="auto">From URL</option><option value="epub">EPUB</option><option value="pdf">PDF</option><option value="cbz">CBZ</option></Select></Field>
+          <p className="text-xs text-ink-muted">{book.sharing ? `Your sharing stays ${book.sharing}.` : `Your addition uses your ${user?.defaultBookSharing ?? 'shared'} sharing preference.`}</p>
+          {linkError && <p role="alert" className="text-sm text-danger">{linkError}</p>}
+        </form>
+      </Modal>}
       {sendFile && (
         <SendToReaderDialog
           bookId={book.id}

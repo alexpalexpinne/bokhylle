@@ -16,6 +16,15 @@ Downloads return EPUB, PDF, or CBZ data, backup downloads use an octet stream, a
 cover routes return images. The OpenAPI contract covers `/api/*`; OPDS, KOReader
 sync, and MCP retain their own protocols.
 
+`GET /api/home/spotlight?cachedOnly=true` returns current eligible local books
+and matching saved catalogue recommendations without contacting an external
+provider. Omit `cachedOnly` or set it to `false` to refresh an expired catalogue
+selection before returning. Home uses the cache-only response for its initial
+layout and the full response in the background for the next visit. Recommendation
+snapshots are profile-scoped and match current taste seeds, language preferences,
+profile type and metadata providers; local sharing and child scope are checked
+on every response.
+
 Direct acquisition uses `POST /api/books/{book_id}/acquisitions/http` with an
 HTTP(S) `url` and optional `format` (`epub`, `pdf`, or `cbz`). OPDS sources use
 `GET` and `POST /api/catalogues`, `DELETE /api/catalogues/{id}`, and
@@ -258,12 +267,22 @@ declares authentication, and has current generated files.
 
 ## Book sharing
 
-`UserView.defaultBookSharing` is `private` or `shared`. Set it with `PUT /api/profile` using `defaultBookSharing`; omitted fields retain their current value. Defaults apply only when a profile first gets access to a book. Acquisition bodies for known books, Discover, direct HTTP links, and OPDS catalogue entries accept an optional `sharing` override, saved before starting background work.
+`UserView.defaultBookSharing` is `private` or `shared`. Set it with `PUT /api/profile` using `defaultBookSharing`; omitted fields retain their current value. Defaults apply when a profile explicitly acquires a book, not when borrowing a shared book onto their shelf. Acquisition bodies for known books, Discover, direct HTTP links, and OPDS catalogue entries accept an optional `sharing` override, saved before starting background work.
 
-Approval requests also accept `sharing` on `POST /api/requests`. The request saves its override or account default when submitted, and approval applies that saved choice. Duplicate pending requests keep their original choice. Children always request private access.
+Approval requests also accept `sharing` on `POST /api/requests`. The request saves its override or account default when submitted, and approval applies that saved choice when acquisition is needed. A request fulfilled by an existing shared file only adds a borrowed shelf entry. Duplicate pending requests keep their original choice. Children always request private access.
 
-`BookDetail.sharing` is the signed-in profile's choice, or null when they have not obtained access of their own. `sharedInHousehold` reports whether the title is currently available to other adults, including another owner's sharing choice.
+`BookDetail.sharing` is the signed-in owner's choice, or null for a shelf-only borrower. Only non-null sharing denotes ownership; putting a book on a shelf never grants ownership. `sharedInHousehold` reports whether the title is currently available to other adults, including another owner's sharing choice.
 
-Adults update their own access with `PUT /api/books/{id}/sharing` and `{ "sharing": "private" }` or `shared`. The response is `BookSharingState`. `PUT /api/books/sharing` accepts `{ "bookIds": [1, 2], "sharing": "shared" }` and returns 204. Bulk updates accept 1–1,000 ids and commit atomically; every id must belong to the caller. Children cannot change sharing. Hidden books return 404 on detail, file, cover, and mutation routes; list counts, facets, authors, series, and collections follow visibility. Adult shelves remain private, including from administrators.
+Adult owners update their own sharing with `PUT /api/books/{id}/sharing` and `{ "sharing": "private" }` or `shared`. The response is `BookSharingState`. `PUT /api/books/sharing` accepts `{ "bookIds": [1, 2], "sharing": "shared" }` and returns 204. Bulk updates accept 1–1,000 ids and commit atomically; every id must be independently owned by the caller. A shelf-only borrower receives 403, and the entire update is rolled back. Children cannot change sharing. Hidden books return 404 on detail, file, cover, and mutation routes; list counts, facets, authors, series, and collections follow visibility. Adult shelves remain private, including from administrators.
 
-Book access outlives shelf membership. Coowners retain separate grants to the same file, and changing one grant never changes another. Existing library books remain shared until a reader deliberately updates sharing. Administrative maintenance, import review, acquisition oversight, backups, and the library filesystem remain operator tools.
+Acquired ownership outlives shelf membership. Coowners retain separate ownership of the same title; changing one sharing choice never changes another. Shelf-only adult borrowers depend on current household sharing and lose app/file access when no owner shares the book. Explicit child assignments remain shelf scoped. Existing unmanaged library imports remain shared. Migration 0006 derives ownership from acquisition participants and creators; for previously managed books without acquisition history, it preserves the earliest known adult as owner. Shelf-only grants cannot keep a book shared. Administrative maintenance, import review, acquisition oversight, backups, and the library filesystem remain operator tools.
+
+The frontend download preference is account specific: `acquisitionMode: "automatic"` selects the best suitable release, while `"ask"` shows candidates in the current book dialog before downloading. Activity uses the same candidate selection operation. The optional `askBeforeDownload` API override remains available for explicit additional-version requests. Joining active work does not change its original requester, mode, language intent or selected release.
+
+## Book download status and scheduled sends
+
+`GET /api/books/{book_id}/acquisitions` returns the book’s acquisitions visible to the signed-in adult: their own requests and joined work, or all work for administrators. Book access is required; child profiles receive 403. The list is independent of Activity pagination.
+
+`AcquisitionView.requestedByMe` identifies participation by the viewing profile. `scheduledDeliveryAddress` is the viewing requester’s frozen address while a send is scheduled, or null. Delivery intent and address are profile scoped. Delivery status follows the existing Activity rules: a participant sees their own delivery; administrative oversight of unjoined work uses the original requester.
+
+`PUT /api/acquisitions/{id}/delivery` accepts `{ "enabled": true, "targetId": 1 }` to schedule a send to an enabled reader owned by the caller. Omit `targetId` to resolve the caller’s default or household fallback at scheduling time. The address is saved with the request; later default changes or target removal do not redirect it. `{ "enabled": false }` cancels only the caller’s scheduled send. Only an adult participating in active work may update it, including when the caller is an administrator. Completed or stopped work returns 409; available files use the normal delivery route. Existing Get & Send intents with no saved address retain default-reader behavior. Migration 0007 adds the saved destination.

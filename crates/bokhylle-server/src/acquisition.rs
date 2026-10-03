@@ -93,6 +93,10 @@ pub struct AcquisitionView {
     pub ask_before_download: bool,
     pub download_speed: Option<i64>,
     pub deliver_on_ready: bool,
+    /// The viewing profile participates in this acquisition.
+    pub requested_by_me: bool,
+    /// Frozen destination, visible only to the requester who chose it.
+    pub scheduled_delivery_address: Option<String>,
     pub requested_by_user_id: Option<i64>,
     pub requested_by: Option<String>,
     pub download_provider: Option<String>,
@@ -133,6 +137,8 @@ struct AcquisitionRow {
     download_speed: Option<i64>,
     requested_by_user_id: Option<i64>,
     my_deliver_on_ready: i64,
+    requested_by_me: i64,
+    scheduled_delivery_address: Option<String>,
     requested_by: Option<String>,
     download_provider: Option<String>,
     error_code: Option<String>,
@@ -177,6 +183,8 @@ impl AcquisitionRow {
             selected_release_format: self.selected_release_format,
             selected_release_seeders: self.selected_release_seeders,
             deliver_on_ready: self.my_deliver_on_ready != 0,
+            requested_by_me: self.requested_by_me != 0,
+            scheduled_delivery_address: self.scheduled_delivery_address,
             requested_by_user_id: self.requested_by_user_id,
             ask_before_download: self.ask_before_download != 0,
             download_speed: self.download_speed,
@@ -206,6 +214,8 @@ const VIEW_SQL: &str = "SELECT a.id, a.book_id, b.title AS book_title,
        a.selected_release_seeders, a.ask_before_download,
        a.download_speed, a.user_id AS requested_by_user_id,
        COALESCE(r.deliver_on_ready, 0) AS my_deliver_on_ready,
+       (r.user_id IS NOT NULL) AS requested_by_me,
+       CASE WHEN r.deliver_on_ready = 1 THEN r.delivery_address END AS scheduled_delivery_address,
        COALESCE(u.display_name, u.username) AS requested_by, a.download_provider,
        a.error_code, a.error_message, a.progress,
        a.retry_attempts, a.next_retry_at, a.retry_stopped,
@@ -645,6 +655,29 @@ pub async fn list(
     }
 
     Ok(views)
+}
+
+/// Book pages need all of their relevant work, independent of Activity's
+/// pagination. Other profiles' requests are visible only to administrators.
+pub async fn list_for_book(
+    pool: &SqlitePool,
+    viewer_id: i64,
+    book_id: i64,
+    admin: bool,
+) -> Result<Vec<AcquisitionView>, AppError> {
+    let rows: Vec<AcquisitionRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "{VIEW_SQL} WHERE a.book_id = ?
+         AND (? OR a.user_id = ? OR r.user_id IS NOT NULL)
+         ORDER BY a.created_at DESC, a.id DESC"
+    )))
+    .bind(viewer_id)
+    .bind(viewer_id)
+    .bind(book_id)
+    .bind(admin)
+    .bind(viewer_id)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter().map(AcquisitionRow::into_view).collect()
 }
 
 pub async fn transition(

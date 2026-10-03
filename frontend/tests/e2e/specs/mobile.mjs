@@ -85,7 +85,7 @@ async function mockJourney(page, homeReady) {
       body: JSON.stringify({ onboarded: true, interests: [] }),
     }),
   )
-  await page.route('**/api/home/spotlight', async (route) => {
+  await page.route('**/api/home/spotlight*', async (route) => {
     await homeReady
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[],"recommendations":[]}' })
   })
@@ -269,9 +269,9 @@ export default async function mobile(page, { base }) {
     !/Available to/.test(detailText),
     'admin shelf assignment must not clutter the book hero',
   )
-  await page.locator('summary[aria-label="Book actions"]').click()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
   await page.getByRole('button', { name: /Manage access/ }).waitFor({ state: 'visible', timeout: 8000 })
-  await page.locator('summary[aria-label="Book actions"]').click()
+  await page.getByRole('button', { name: 'Close book options', exact: true }).click()
 
   await page.getByRole('button', { name: /Send to my reader/ }).first().click()
   const readerDialog = page.getByRole('dialog', { name: 'Send to your reader' })

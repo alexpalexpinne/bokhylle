@@ -36,6 +36,33 @@ to the book when its file is replaced.
 
 ## Spotlight layout and rotation
 
+Home first loads local books and saved catalogue suggestions. It does not wait
+for external catalogue searches before showing Spotlight. On an initial load,
+sections appear in their established order as their requests finish; slower
+collections and authors do not hold up the featured book or earlier shelves.
+Loading slots use the same featured shelf and rail geometry as the content.
+
+A complete Home snapshot is retained for one minute in the browser tab, scoped
+to the authenticated profile, role, child permissions and preferred languages.
+It survives a page reload and is cleared on sign-out, session expiry or demo
+profile switching. A returning visitor sees that snapshot immediately while
+requests prepare the next visit. The current visit's books and recommendations
+stay in place; hiding or restoring a subject still takes effect immediately.
+
+Catalogue recommendations also have a saved snapshot on the server, separate
+from local books. It refreshes after fifteen minutes, with up to two independent
+catalogue searches running together across profiles. Repeated refreshes for a
+profile share the same work. Matching saved suggestions can be used for up to
+one day while a refresh runs or a provider is unavailable. Changing taste seeds,
+preferred languages, profile type or metadata providers invalidates that
+selection. Current ownership and child exclusions are checked on every response;
+local books always use the current sharing and shelf rules.
+
+Refreshed catalogue suggestions are saved for the next Home visit rather than
+being inserted above shelves already being browsed. A new profile with no local
+books or saved suggestions can show its first catalogue results when they arrive,
+since there are no existing shelves to move.
+
 Spotlight advances every ten seconds while visible; hover, keyboard focus,
 touch and open dialogs suspend it temporarily. Rotation starts a fresh interval
 after interaction ends or an arrow is used. Previous and next controls remain

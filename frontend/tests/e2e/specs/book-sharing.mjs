@@ -37,22 +37,28 @@ export default async function bookSharing(page, { base }) {
   expect(await page.getByLabel('Default for new books').inputValue() === 'private', 'sharing default survives reloading')
 
   await page.goto(`${base}/library/9700`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Shared · Change', exact: true }).click()
+  await page.getByRole('button', { name: /^Book sharing: Shared with household/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Book sharing', exact: true })
   await dialog.getByRole('combobox', { name: /^Book sharing/ }).selectOption('private')
   await dialog.getByRole('button', { name: 'Save sharing', exact: true }).click()
-  await page.getByRole('button', { name: 'Private · Change', exact: true }).waitFor()
+  await page.getByRole('button', { name: /^Book sharing: Private/ }).waitFor()
   expect(writes[0].sharing === 'private', 'one book sends its explicit sharing choice')
 
+  await page.route('**/api/books/97*', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (/^\/api\/books\/\d+$/.test(path)) return route.fulfill({ json: { ...book, id: Number(path.split('/').at(-1)), sharing: 'shared' } })
+    return route.fallback()
+  })
   await page.goto(`${base}/library`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Select books', exact: true }).click()
-  await page.getByRole('button', { name: 'Select visible books', exact: true }).click()
+  await page.getByText('More', { exact: true }).click()
+  await page.getByRole('button', { name: 'Change sharing for several books', exact: true }).click()
+  await page.getByRole('button', { name: 'Select visible books I acquired', exact: true }).click()
   expect(await page.getByRole('checkbox', { name: /^Select / }).count() === 8, 'bulk selection shows only shelf books')
   await page.getByRole('button', { name: 'Make private', exact: true }).click()
   await page.getByRole('alert').getByText('Sharing temporarily unavailable').waitFor()
   expect((await page.getByRole('checkbox', { name: /^Select / }).evaluateAll((inputs) => inputs.filter((input) => input.checked).length)) === 8, 'failed bulk save keeps the selected books')
   await page.getByRole('button', { name: 'Make private', exact: true }).click()
-  await page.getByRole('status').getByText(/Selected books are now private/).waitFor()
+  await page.getByRole('status').getByText(/Your sharing for the selected books is now private/).waitFor()
   expect(writes.at(-1).bookIds.length === 8 && writes.at(-1).sharing === 'private', 'bulk sharing sends selected ids and choice')
   for (const theme of ['paper', 'ink']) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)

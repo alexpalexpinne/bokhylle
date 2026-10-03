@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, Check } from 'lucide-react'
+import { Bell, Check, ChevronRight } from 'lucide-react'
 import { type Notification } from '../api/notifications'
 import { coverUrl } from '../api/library'
 import {
@@ -12,6 +12,26 @@ import { useMutation } from '../lib/useMutation'
 import { decideDemoRequest } from '../api/demo'
 import { useAuth } from '../auth/useAuth'
 import { Button } from './ui/Button'
+
+function notificationDestination(item: Notification, isChild: boolean, demo: boolean): string | null {
+  const request = ['request', 'approved', 'declined'].includes(item.kind)
+  if ((request && !(demo && !isChild)) || (isChild && !['ready', 'sent'].includes(item.kind))) {
+    const params = new URLSearchParams()
+    if (item.bookId != null) params.set('book', String(item.bookId))
+    if (item.acquisitionId) params.set('acquisition', item.acquisitionId)
+    return params.size ? `/requests?${params}` : '/requests'
+  }
+  if (!isChild && !demo && item.acquisitionId && !['ready', 'sent'].includes(item.kind)) {
+    const params = new URLSearchParams({ acquisition: item.acquisitionId })
+    if (item.kind === 'needs_selection') params.set('choose', item.acquisitionId)
+    return `/activity?${params}`
+  }
+  if (item.bookId != null) return `/library/${item.bookId}`
+  if (!isChild && !demo && item.acquisitionId) {
+    return `/activity?${new URLSearchParams({ acquisition: item.acquisitionId })}`
+  }
+  return null
+}
 
 function formatWhen(seconds: number): string {
   const date = new Date(seconds * 1000)
@@ -46,7 +66,8 @@ export function NotificationMenu({
   onDecided: (id: number) => void
 }) {
   const [open, setOpen] = useState(false)
-  const { demo } = useAuth()
+  const { demo, user } = useAuth()
+  const isChild = user?.profileType === 'child'
   const containerRef = useRef<HTMLDivElement>(null)
   const decision = useMutation()
 
@@ -135,19 +156,25 @@ export function NotificationMenu({
                 <ul className="mt-2 space-y-2">
                   {pendingRequestItems.map((request) => (
                     <li key={request.id} className="flex items-center gap-3">
-                      <img
-                        src={coverUrl(request.bookId)}
-                        alt=""
-                        loading="lazy"
-                        className="h-12 w-8 shrink-0 rounded-[2px] object-cover"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-ink">{request.title}</p>
-                        <p className="truncate text-xs text-ink-muted">
-                          {request.authors[0] ?? 'Unknown author'} · asked by{' '}
-                          {request.requester}
-                        </p>
-                      </div>
+                      <Link
+                        to={demo ? `/library/${request.bookId}` : `/requests?request=${request.id}`}
+                        onClick={() => setOpen(false)}
+                        className="group flex min-w-0 flex-1 items-center gap-3 rounded-[2px]"
+                      >
+                        <img
+                          src={coverUrl(request.bookId)}
+                          alt=""
+                          loading="lazy"
+                          className="h-12 w-8 shrink-0 rounded-[2px] object-cover"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-ink group-hover:text-accent">{request.title}</p>
+                          <p className="truncate text-xs text-ink-muted">
+                            {request.authors[0] ?? 'Unknown author'} · asked by{' '}
+                            {request.requester}
+                          </p>
+                        </div>
+                      </Link>
                       <div className="flex shrink-0 gap-1">
                         <Button
                           variant="primary"
@@ -181,24 +208,38 @@ export function NotificationMenu({
                 Nothing new. Books you request will report back here.
               </p>
             ) : (
-              items.map((item) => (
-                <div
-                  key={item.id}
-                  className={`border-b border-line/60 px-4 py-3 last:border-0 ${
-                    item.read ? '' : 'bg-surface-2/40'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium text-ink">{item.title}</p>
-                    <span className="shrink-0 text-xs text-ink-faint">
-                      {formatWhen(item.createdAt)}
-                    </span>
+              items.map((item) => {
+                const to = notificationDestination(item, isChild, !!demo)
+                const className = `block border-b border-line/60 px-4 py-3 last:border-0 ${item.read ? '' : 'bg-surface-2/40'}`
+                const content = (
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-medium text-ink">{item.title}</p>
+                        <span className="shrink-0 text-xs text-ink-faint">
+                          {formatWhen(item.createdAt)}
+                        </span>
+                      </div>
+                      {item.body && (
+                        <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{item.body}</p>
+                      )}
+                    </div>
+                    {to && <ChevronRight size={15} className="shrink-0 text-ink-faint" aria-hidden />}
                   </div>
-                  {item.body && (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{item.body}</p>
-                  )}
-                </div>
-              ))
+                )
+                return to ? (
+                  <Link
+                    key={item.id}
+                    to={to}
+                    onClick={() => setOpen(false)}
+                    className={`${className} transition-colors hover:bg-surface-2 focus-visible:-outline-offset-2`}
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div key={item.id} className={className}>{content}</div>
+                )
+              })
             )}
           </div>
 

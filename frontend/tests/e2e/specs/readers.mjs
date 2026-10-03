@@ -46,6 +46,9 @@ const BOOK = {
 async function mockReaderJourney(page) {
   await page.route(`**/api/books/${BOOK_ID}**`, (route) => {
     const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/acquisitions')) {
+      return route.fulfill({ json: [] })
+    }
     if (url.pathname.endsWith('/related')) {
       return route.fulfill({
         status: 200,
