@@ -50,8 +50,16 @@ are added alongside existing files, whose reading positions remain intact.
 `GET /api/discover/releases` is a read-only preview evaluated against the
 profile's accepted languages and requested format. It also accepts
 `provider=local&providerKey=local:<book-id>` for an accessible library record.
-Selectable versions include an opaque `selectionKey`; disabled versions
-include `unavailableReason`. Browsing creates no acquisition or ownership.
+Selectable versions include an opaque `selectionKey`. Preview responses omit
+rejected releases and HTTP sources; normal acquisition candidate responses also
+omit those rows while retaining the original candidate `index`. Administrator
+`technical=true` responses retain rejected rows for diagnostics. `recommended`
+uses the same book-identity rules as automatic acquisition. `needsReview` marks
+incomplete identity or collections, which require an explicit choice and are
+never automatically recommended. Clear author, title and volume conflicts are
+rejected. Persisted candidate choices are re-evaluated using the acquisition's
+saved language/format intent, including before selection after an upgrade.
+Browsing creates no acquisition or ownership.
 Pass a chosen key as `releaseKey` to either acquisition creation endpoint.
 The server journals that choice, freezes the request preferences, searches
 again, and queues only the same identity if it is still suitable. If the chosen
@@ -312,7 +320,7 @@ Adult owners update their own sharing with `PUT /api/books/{id}/sharing` and `{ 
 
 Acquired ownership outlives shelf membership. Coowners retain separate ownership of the same title; changing one sharing choice never changes another. Shelf-only adult borrowers depend on current household sharing and lose app/file access when no owner shares the book. Explicit child assignments remain shelf scoped. Existing unmanaged library imports remain shared. Migration 0006 derives ownership from acquisition participants and creators; for previously managed books without acquisition history, it preserves the earliest known adult as owner. Shelf-only grants cannot keep a book shared. Administrative maintenance, import review, acquisition oversight, backups, and the library filesystem remain operator tools.
 
-The frontend download preference is account specific: `acquisitionMode: "automatic"` selects the best suitable release, while `"ask"` shows candidates in the current book dialog before downloading. Activity uses the same candidate selection operation. The optional `askBeforeDownload` API override remains available for explicit additional-version requests. Joining active work does not change its original requester, mode, language intent or selected release.
+The frontend download preference is account specific: `acquisitionMode: "automatic"` selects the best suitable release, while `"ask"` shows one proposed version before downloading, with alternatives in a separate picker. Possible matches require deliberate review before Get. Activity uses the same candidate selection operation. The optional `askBeforeDownload` API override remains available for explicit additional-version requests. Joining active work does not change its original requester, mode, language intent or selected release.
 
 ## Book download status and scheduled sends
 

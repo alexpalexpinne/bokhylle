@@ -29,13 +29,16 @@ assignments and independent owners retain their access. Restore the backup with
 the previous image if rolling back; do not run an older image against the migrated
 database.
 
-Version 0.3.1 upgrades 0.1.0, 0.2.0, and 0.3.0 installations in place. Back up
+Version 0.3.2 upgrades 0.1.0, 0.2.0, 0.3.0, and 0.3.1 installations in place. Back up
 config and library first. Migration `0008_catalogue_covers.sql` retains the
 catalogue artwork identity when a title becomes a local book, including matching
 artwork already present in the metadata cache. Missing automatic covers can be
 recovered from the book file or catalogue; manually chosen or cleared covers
 remain authoritative. Accounts, shelves, sharing, and scheduled sends are
 preserved. To roll back, restore the pre-upgrade backup with the previous image.
+
+Version 0.3.2 adds no database migration. Pending version choices are rechecked
+using the saved request preferences; incomplete book identity requires review.
 
 ## Server administration
 
@@ -164,7 +167,7 @@ Unix timestamp as `BOKHYLLE_BUILD_TIME`.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.3.1`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.3.2`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 

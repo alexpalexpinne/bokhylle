@@ -152,10 +152,7 @@ impl TorznabClient {
                 continue;
             }
             let evaluated = evaluator::rank(book, &candidates);
-            if evaluated
-                .iter()
-                .any(|release| !release.rejected() && release.confidence >= 0.6)
-            {
+            if evaluated.iter().any(evaluator::is_confident_match) {
                 return Ok(SearchOutcome {
                     queries,
                     candidates,

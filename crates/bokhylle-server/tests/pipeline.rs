@@ -219,6 +219,109 @@ async fn create_acquisition(test_app: &common::TestApp, cookie: &str, book_id: i
 }
 
 #[tokio::test]
+async fn previews_omit_wrong_authors_and_mark_missing_identity_for_review() {
+    let mut rows = strong_candidates();
+    rows.push(release(
+        "Project Hail Mary EPUB - John Smith",
+        2_000_000,
+        90,
+        true,
+    ));
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (app, _library, cookie, book_id) = app_with_book(
+        Arc::new(FakeIndexerProvider::with_candidates(rows)),
+        downloader.clone(),
+    )
+    .await;
+    let (status, preview) = get_json(
+        &app,
+        &format!("/api/discover/releases?provider=local&providerKey=local:{book_id}&format=epub"),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let choices = preview["releases"].as_array().unwrap();
+    assert_eq!(choices.len(), 2);
+    assert_eq!(choices[0]["recommended"], true);
+    assert_eq!(choices[0]["needsReview"], false);
+    assert_eq!(choices[1]["recommended"], false);
+    assert_eq!(choices[1]["needsReview"], true);
+    assert!(choices.iter().all(|choice| choice["rejected"] == false));
+    assert!(downloader.added().is_empty());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM acquisitions")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn persisted_choices_are_rechecked_without_changing_candidate_indexes() {
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (app, _library, cookie, book_id) = app_with_book(
+        Arc::new(FakeIndexerProvider::with_candidates(ambiguous_candidates())),
+        downloader.clone(),
+    )
+    .await;
+    let id = create_acquisition(&app, &cookie, book_id).await;
+    wait_for_status(&app, &cookie, &id, &["NEEDS_SELECTION"]).await;
+    let current = bokhylle_server::acquisition::get(&app.state.db, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    let expected =
+        bokhylle_server::acquisition_pipeline::load_expected_book(&app.state, book_id, &current)
+            .await
+            .unwrap();
+    let mut old_row = bokhylle_acquisition::evaluator::evaluate(
+        &expected,
+        &release("Project Hail Mary EPUB - John Smith", 2_000_000, 90, true),
+    );
+    old_row.rejection_reasons.clear(); // A result admitted before the stricter evaluator.
+    let good = bokhylle_acquisition::evaluator::evaluate(&expected, &strong_candidates()[0]);
+    bokhylle_server::acquisition::log_event(
+        &app.state.db,
+        &id,
+        "acquisition.candidates.evaluated",
+        Some(json!({ "candidates": [old_row, good] })),
+    )
+    .await
+    .unwrap();
+    let (status, normal) =
+        get_json(&app, &format!("/api/acquisitions/{id}/candidates"), &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(normal.as_array().unwrap().len(), 1);
+    assert_eq!(normal[0]["index"], 1);
+    assert_eq!(normal[0]["recommended"], true);
+    let (_, technical) = get_json(
+        &app,
+        &format!("/api/acquisitions/{id}/candidates?technical=true"),
+        &cookie,
+    )
+    .await;
+    assert_eq!(technical[0]["index"], 0);
+    assert_eq!(technical[0]["rejected"], true);
+    let (status, _) = post_json(
+        &app,
+        &format!("/api/acquisitions/{id}/select"),
+        &cookie,
+        json!({ "index": 0 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(downloader.added().is_empty());
+    let (status, _) = post_json(
+        &app,
+        &format!("/api/acquisitions/{id}/select"),
+        &cookie,
+        json!({ "index": 1 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(downloader.added().len(), 1);
+}
+
+#[tokio::test]
 async fn preview_selection_downloads_the_requested_version() {
     let mut candidates = strong_candidates();
     candidates.push(release(

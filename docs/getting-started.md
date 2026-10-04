@@ -144,10 +144,18 @@ In **Profile → Reading preferences → Download selection**, choose **Let Bokh
 choose** or **Show available versions**. The normal **Get** action follows this
 account preference. Automatic selection uses your language and format preferences
 and only asks if it cannot choose confidently. Show available versions keeps you
-in the book dialog while the search finishes, then shows one selectable list with
-release names, format, language, size, source, and torrent availability. Nothing
-downloads before you choose. Activity tracks the subsequent download and can also
-resume a pending choice.
+in the book dialog while the search finishes, then proposes one confidently
+matched version with its filename, format, language, size, source and availability.
+Use **Change version** to compare alternatives in a dialog on desktop or a scrolling
+sheet on mobile. **Use this version** returns to the book; **Get** or **Get & send**
+starts the download. Cancelling keeps your previous choice. If the identity is
+uncertain, **Review possible matches** requires a deliberate choice and Get waits
+for that review. With no suitable results, the book says **No matching version
+found**. Activity tracks the subsequent download and can resume a pending choice.
+
+![A compact proposed version for a fictional book](media/version-choices-desktop.png)
+
+![The scrolling mobile picker with possible matches requiring review](media/version-picker-mobile.png)
 
 For a downloaded book, use **More → Find another version** to deliberately open
 the same chooser for an additional file. The new
@@ -192,7 +200,7 @@ To import files dropped on disk, enable **Watch an import folder** under Setting
 
 If you use an existing download client, its completed files must be visible inside the Bokhylle container under `/downloads`. Configure the client's reported path to match that mount; a path that only exists on the host cannot be imported. Imports default to hardlinking so completed torrents can remain available for seeding. Copy and move are configurable alternatives. EPUB, PDF, and CBZ content can be imported, including when wrapped in ZIP or RAR archives. CBZ pages and archives have additional size and entry limits.
 
-Release search accepts a result that includes EPUB, PDF, or CBZ alongside other formats. It rejects unrelated titles and releases larger than 1 GB; partial title matches require review before downloading. The size limit applies to the whole release, including archives.
+Release search accepts a result that includes EPUB, PDF, or CBZ alongside other formats. It rejects unrelated titles, clear author or volume conflicts, and releases larger than 1 GB. Recommendations and automatic downloads need a strong title and author match, or the exact requested ISBN in the release name. Missing or partial identity remains a possible match requiring deliberate review, even when only one result exists. Collections also require review. Rejected results are omitted from normal choices and remain available in administrator diagnostics. The size limit applies to the whole release, including archives.
 
 ## Notifications
 

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use bokhylle_core::identity::{normalize_text, phrase_ratio};
+use bokhylle_core::identity::{normalize_isbn, normalize_text, parse_isbn, phrase_ratio};
 
 use crate::model::{
     EvaluatedRelease, ExpectedBook, RejectionReason, ReleaseCandidate, ScoreReason, Selection,
@@ -191,7 +191,7 @@ fn detect(
     Detection {
         format: format.map(str::to_string),
         language,
-        volume: detect_volume(tokens),
+        volume: detect_volume(name),
         retail,
         is_collection,
         is_audiobook,
@@ -284,24 +284,39 @@ fn normalize_fragment(fragment: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn detect_volume(tokens: &[String]) -> Option<String> {
-    for (index, token) in tokens.iter().enumerate() {
-        let word = token.trim_start_matches('#');
-        if VOLUME_WORDS.contains(&word) {
-            if let Some(next) = tokens.get(index + 1)
-                && next.chars().all(|character| character.is_ascii_digit())
+fn detect_volume(name: &str) -> Option<String> {
+    let lowered = name.to_ascii_lowercase();
+    for (index, character) in lowered.char_indices() {
+        let rest = &lowered[index..];
+        let number = if character == '#' {
+            Some(&rest[1..])
+        } else if index == 0 || !lowered[..index].chars().next_back()?.is_alphanumeric() {
+            VOLUME_WORDS.iter().find_map(|word| {
+                rest.strip_prefix(word).filter(|suffix| {
+                    suffix
+                        .chars()
+                        .next()
+                        .is_some_and(|next| !next.is_alphabetic())
+                })
+            })
+        } else {
+            None
+        };
+        if let Some(number) = number {
+            let number = number.trim_start_matches(|character: char| {
+                character.is_whitespace() || matches!(character, '.' | '_' | '-' | ':' | '#')
+            });
+            let bytes = number.as_bytes();
+            let mut end = 0;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_digit()
+                    || (bytes[end] == b'.' && bytes.get(end + 1).is_some_and(u8::is_ascii_digit)))
             {
-                return Some(next.clone());
+                end += 1;
             }
-            let trailing: String = word.chars().skip_while(|c| !c.is_ascii_digit()).collect();
-            if !trailing.is_empty() {
-                return Some(trailing);
+            if end > 0 {
+                return Some(number[..end].to_string());
             }
-        }
-        if let Some(number) = word.strip_prefix('#')
-            && number.chars().all(|character| character.is_ascii_digit())
-        {
-            return Some(number.to_string());
         }
     }
     None
@@ -329,6 +344,179 @@ fn neighbor_ignorable(neighbor: Option<&String>, token: &str, excluded: &HashSet
         || neighbor.chars().all(|character| character.is_ascii_digit())
         || FORMAT_TOKENS.iter().any(|(key, _)| key == neighbor)
         || RETAIL_TOKENS.contains(&neighbor.as_str())
+        || release_metadata(neighbor)
+}
+
+fn release_metadata(token: &str) -> bool {
+    FORMAT_TOKENS.iter().any(|(key, _)| *key == token)
+        || LANGUAGE_NAMES.iter().any(|(key, _)| *key == token)
+        || LANGUAGE_CODES.iter().any(|(key, _)| *key == token)
+        || RETAIL_TOKENS.contains(&token)
+        || matches!(
+            token,
+            "ebook" | "ebooks" | "digital" | "edition" | "illustrated"
+        )
+        || token.chars().all(|character| character.is_ascii_digit())
+}
+
+fn name_fragment(tokens: &[&str]) -> Option<String> {
+    let words: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|word| !release_metadata(word) || LANGUAGE_CODES.iter().any(|(key, _)| key == word))
+        .filter(|word| !matches!(*word, "lang" | "language"))
+        .collect();
+    // Infer an author only from a short name beside an exact title. Longer
+    // phrases and subtitle syntax are not evidence of a conflicting author.
+    ((2..=6).contains(&words.len())
+        && words
+            .iter()
+            .all(|word| word.chars().all(char::is_alphabetic))
+        && !words.iter().any(|word| {
+            matches!(
+                *word,
+                "the"
+                    | "a"
+                    | "an"
+                    | "and"
+                    | "of"
+                    | "for"
+                    | "with"
+                    | "complete"
+                    | "collection"
+                    | "volume"
+                    | "book"
+                    | "part"
+                    | "series"
+                    | "by"
+            )
+        }))
+    .then(|| words.join(" "))
+}
+
+fn filename_author(name: &str, variants: &[String]) -> Option<String> {
+    let lowered = name.to_ascii_lowercase();
+    if let Some((before, after)) = lowered.rsplit_once(" by ")
+        && variants
+            .iter()
+            .any(|variant| phrase_ratio(variant, &normalize_text(before)) >= 1.0)
+    {
+        let normalized = normalize_text(after);
+        if let Some(author) = name_fragment(&normalized.split_whitespace().collect::<Vec<_>>()) {
+            return Some(author);
+        }
+    }
+    let normalized = normalize_text(name);
+    let words: Vec<_> = normalized.split_whitespace().collect();
+    for variant in variants {
+        let title: Vec<_> = variant.split_whitespace().collect();
+        if title.is_empty() || title.len() > words.len() {
+            continue;
+        }
+        for (index, window) in words.windows(title.len()).enumerate() {
+            if window != title {
+                continue;
+            }
+            if let Some(author) = name_fragment(&words[..index]) {
+                return Some(author);
+            }
+            // A trailing name needs explicit syntax; an arbitrary subtitle is
+            // not an author. Dot-separated author-first releases work above.
+            if name.contains(" - ")
+                || name.contains(" — ")
+                || name.contains(" – ")
+                || name.contains(" by ")
+            {
+                let suffix = &words[index + title.len()..];
+                let suffix = suffix.strip_prefix(&["by"]).unwrap_or(suffix);
+                if let Some(author) = name_fragment(suffix) {
+                    return Some(author);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn filename_title(name: &str, authors: &[String]) -> Option<String> {
+    let separated = name.replace(['—', '–'], "-");
+    let parts: Vec<_> = separated.split(" - ").collect();
+    let author_index = parts.iter().position(|part| {
+        authors
+            .iter()
+            .any(|author| author_matches(author, part) && author_matches(part, author))
+    })?;
+    let title = parts.get(author_index + 1).or_else(|| {
+        author_index
+            .checked_sub(1)
+            .and_then(|index| parts.get(index))
+    })?;
+    let core = normalize_text(&bokhylle_core::identity::core_title(title));
+    let words: Vec<_> = core.split_whitespace().collect();
+    let volume_start = words.windows(2).position(|pair| {
+        VOLUME_WORDS.contains(&pair[0])
+            && pair[1].chars().all(|character| character.is_ascii_digit())
+    });
+    let end = volume_start.or_else(|| {
+        words
+            .iter()
+            .rposition(|word| !release_metadata(word))
+            .map(|index| index + 1)
+    })?;
+    Some(words[..end].join(" "))
+}
+
+fn author_matches(expected: &str, actual: &str) -> bool {
+    let expected = normalize_text(expected);
+    let actual = normalize_text(actual);
+    let actual: HashSet<_> = actual.split_whitespace().collect();
+    !expected.is_empty()
+        && expected
+            .split_whitespace()
+            .all(|word| actual.contains(word))
+}
+
+fn author_compatible(expected: &str, actual: &str) -> bool {
+    if author_matches(expected, actual) {
+        return true;
+    }
+    let expected = normalize_text(expected);
+    let actual = normalize_text(actual);
+    let expected: Vec<_> = expected.split_whitespace().collect();
+    let actual: Vec<_> = actual.split_whitespace().collect();
+    let Some(surname) = expected.last() else {
+        return false;
+    };
+    if !actual.contains(surname) {
+        return false;
+    }
+    // An omitted middle initial or an abbreviated first name is missing
+    // evidence, rather than proof that this is a different author.
+    actual.iter().filter(|word| *word != surname).all(|word| {
+        expected[..expected.len() - 1].iter().any(|expected| {
+            word == expected
+                || ((word.len() == 1 || expected.len() == 1)
+                    && word.chars().next() == expected.chars().next())
+        })
+    })
+}
+
+fn exact_title_present(variant: &str, release: &[String], excluded: &HashSet<String>) -> bool {
+    let title: Vec<_> = variant.split_whitespace().collect();
+    !title.is_empty()
+        && title.len() <= release.len()
+        && release
+            .windows(title.len())
+            .enumerate()
+            .any(|(index, window)| {
+                window.iter().map(String::as_str).eq(title.iter().copied())
+                    && neighbor_ignorable(release.get(index.wrapping_sub(1)), title[0], excluded)
+                    && neighbor_ignorable(
+                        release.get(index + title.len()),
+                        title[title.len() - 1],
+                        excluded,
+                    )
+            })
 }
 
 pub fn title_variants(title: &str) -> Vec<String> {
@@ -369,6 +557,9 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
                 .split_whitespace()
                 .map(str::to_string),
         );
+    }
+    if book.series_number.is_some() {
+        excluded.extend(VOLUME_WORDS.iter().map(|word| word.to_string()));
     }
 
     let detection = detect(
@@ -438,7 +629,39 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
             && author_tokens
                 .iter()
                 .all(|token| token_set.contains(token.as_str()))
+    }) || candidate.detected_author.as_deref().is_some_and(|actual| {
+        book.authors
+            .iter()
+            .any(|author| author_matches(author, actual))
     });
+    let stated_author = candidate
+        .detected_author
+        .clone()
+        .filter(|author| !author.trim().is_empty())
+        .or_else(|| filename_author(&candidate.title, &title_variants));
+    let author_conflict = !book.authors.is_empty()
+        && stated_author.as_deref().is_some_and(|actual| {
+            !book
+                .authors
+                .iter()
+                .any(|author| author_compatible(author, actual))
+        });
+    let isbn_match = book
+        .isbn
+        .as_deref()
+        .and_then(normalize_isbn)
+        .is_some_and(|isbn| parse_isbn(&candidate.title).as_deref() == Some(isbn.as_str()));
+    let strong_title = title_variants
+        .iter()
+        .any(|variant| exact_title_present(variant, &release_tokens, &excluded));
+    let title_conflict = !detection.is_collection
+        && (filename_title(&candidate.title, &book.authors)
+            .is_some_and(|title| !title_variants.contains(&title))
+            || candidate.detected_title.as_deref().is_some_and(|title| {
+                !self::title_variants(title)
+                    .iter()
+                    .any(|variant| title_variants.contains(variant))
+            }));
 
     let expected_languages: Vec<String> = if book.languages.is_empty() {
         book.language
@@ -467,6 +690,23 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
 
     let mut rejection_reasons = Vec::new();
 
+    if author_conflict {
+        rejection_reasons.push(RejectionReason::AuthorMismatch);
+    }
+    if title_conflict {
+        rejection_reasons.push(RejectionReason::UnrelatedTitle);
+    }
+    let expected_volume = book
+        .series_number
+        .as_deref()
+        .map(|number| number.trim().to_string());
+    if let (Some(detected), Some(expected)) =
+        (detection.volume.as_deref(), expected_volume.as_deref())
+        && detected != expected
+    {
+        rejection_reasons.push(RejectionReason::WrongVolume);
+    }
+
     if let Some(detected) = detection.language.as_deref()
         && !expected_languages.is_empty()
         && !expected_languages
@@ -490,10 +730,10 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
     // A weak partial title without the expected author is too easy to
     // confuse with a different book in a broad indexer search.
     let minimum_title_ratio = if author_match { 0.25 } else { 0.6 };
-    if has_title_tokens && title_ratio < minimum_title_ratio && !contains_phrase {
+    if has_title_tokens && title_ratio < minimum_title_ratio && !contains_phrase && !isbn_match {
         rejection_reasons.push(RejectionReason::UnrelatedTitle);
     }
-    if single_token_satisfied == Some(false) && !contains_phrase {
+    if single_token_satisfied == Some(false) && !contains_phrase && !isbn_match {
         rejection_reasons.push(RejectionReason::UnrelatedTitle);
     }
     if candidate.size_bytes > MAX_RELEASE_BYTES {
@@ -521,7 +761,7 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
     };
 
     if rejection_reasons.is_empty() {
-        if title_ratio >= 1.0 || contains_phrase {
+        if strong_title {
             add(40, "strong title match", &mut score, &mut reasons);
         } else if title_ratio >= 0.6 {
             add(20, "partial title match", &mut score, &mut reasons);
@@ -529,6 +769,9 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
 
         if author_match {
             add(30, "author match", &mut score, &mut reasons);
+        }
+        if isbn_match {
+            add(50, "isbn match", &mut score, &mut reasons);
         }
         if format_match {
             add(25, "preferred format", &mut score, &mut reasons);
@@ -566,7 +809,6 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
             add(-30, "collection or pack", &mut score, &mut reasons);
         }
 
-        let expected_volume = book.series_number.as_deref().map(normalize_text);
         match (detection.volume.as_deref(), expected_volume.as_deref()) {
             (Some(detected), Some(expected)) if detected != expected => {
                 add(-40, "possible wrong volume", &mut score, &mut reasons);
@@ -579,7 +821,11 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
     }
 
     let confidence = if rejection_reasons.is_empty() {
-        confidence(title_ratio, author_match, format_match, language_match)
+        confidence(title_ratio, author_match, format_match, language_match).max(if isbn_match {
+            0.9
+        } else {
+            0.0
+        })
     } else {
         0.0
     };
@@ -646,6 +892,7 @@ pub fn rank(book: &ExpectedBook, candidates: &[ReleaseCandidate]) -> Vec<Evaluat
     evaluated.sort_by(|left, right| {
         left.rejected()
             .cmp(&right.rejected())
+            .then(is_confident_match(right).cmp(&is_confident_match(left)))
             .then(left.format_tier.cmp(&right.format_tier))
             // Within a format, earlier entries in the language list win
             // before any quality score can flip the order.
@@ -662,13 +909,54 @@ pub fn rank(book: &ExpectedBook, candidates: &[ReleaseCandidate]) -> Vec<Evaluat
     evaluated
 }
 
+/// Book identity is decided before format, language and source quality.
+/// Missing authors remain possible matches; seed counts cannot make them
+/// safe to recommend. This also works with historical serialized candidates.
+pub fn is_confident_match(release: &EvaluatedRelease) -> bool {
+    let has_reason = |reason: &str| {
+        release
+            .score_reasons
+            .iter()
+            .any(|item| item.reason == reason)
+    };
+    !release.rejected()
+        && !release
+            .candidate
+            .method
+            .as_ref()
+            .is_some_and(|method| method.kind() == "http")
+        && !release.candidate.is_collection
+        && release
+            .candidate
+            .detected_format
+            .as_deref()
+            .is_some_and(|format| SUPPORTED_FORMATS.contains(&format))
+        && !has_reason("possible wrong volume")
+        && (has_reason("isbn match")
+            || (has_reason("strong title match") && has_reason("author match")))
+}
+
 pub fn select(evaluated: &[EvaluatedRelease]) -> Selection {
     let mut viable: Vec<(usize, &EvaluatedRelease)> = evaluated
         .iter()
         .enumerate()
-        .filter(|(_, release)| !release.rejected())
+        .filter(|(_, release)| {
+            !release.rejected()
+                && !release
+                    .candidate
+                    .method
+                    .as_ref()
+                    .is_some_and(|method| method.kind() == "http")
+        })
         .collect();
 
+    if viable.is_empty() {
+        return Selection::None;
+    }
+    viable.retain(|(_, release)| is_confident_match(release));
+    if viable.is_empty() {
+        return Selection::NeedsSelection;
+    }
     // Releases with zero seeders are a last resort: when anything with
     // seeders (or unknown availability) is viable, ignore the dead ones.
     let any_available = viable
@@ -678,35 +966,7 @@ pub fn select(evaluated: &[EvaluatedRelease]) -> Selection {
         viable.retain(|(_, release)| release.candidate.seeders != Some(0));
     }
 
-    let Some((index, best)) = viable.first().copied() else {
-        return Selection::None;
-    };
-
-    // A partial title can be offered for review, but must not start a
-    // download automatically even when it is the only candidate.
-    if !best
-        .score_reasons
-        .iter()
-        .any(|reason| reason.reason == "strong title match")
-    {
-        return Selection::NeedsSelection;
-    }
-
-    if best.confidence >= 0.85 {
-        return Selection::Auto { index };
-    }
-
-    if best.confidence >= 0.6 {
-        let gap = viable
-            .get(1)
-            .map(|(_, runner_up)| best.score - runner_up.score)
-            .unwrap_or(i32::MAX);
-        if gap >= 15 {
-            return Selection::Auto { index };
-        }
-    }
-
-    Selection::NeedsSelection
+    Selection::Auto { index: viable[0].0 }
 }
 
 #[cfg(test)]

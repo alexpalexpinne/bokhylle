@@ -110,6 +110,8 @@ pub enum RejectionReason {
     ComicOrManga,
     UnsupportedFormat,
     UnrelatedTitle,
+    AuthorMismatch,
+    WrongVolume,
     OversizedRelease,
 }
 
@@ -121,6 +123,8 @@ impl RejectionReason {
             Self::ComicOrManga => "comic_or_manga",
             Self::UnsupportedFormat => "unsupported_format",
             Self::UnrelatedTitle => "unrelated_title",
+            Self::AuthorMismatch => "author_mismatch",
+            Self::WrongVolume => "wrong_volume",
             Self::OversizedRelease => "oversized_release",
         }
     }
