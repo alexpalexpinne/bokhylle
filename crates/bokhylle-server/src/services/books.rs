@@ -215,9 +215,42 @@ pub async fn add_catalogue_with_sharing(
     sharing: Option<crate::services::sharing::BookSharing>,
     ask_before_download: Option<bool>,
 ) -> Result<CatalogueAcquisitionOutcome, AppError> {
+    add_catalogue_with_release(
+        state,
+        user,
+        provider,
+        provider_key,
+        preferred_format,
+        preferred_language,
+        send_to_reader,
+        sharing,
+        ask_before_download,
+        None,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn add_catalogue_with_release(
+    state: &AppState,
+    user: &User,
+    provider: &str,
+    provider_key: &str,
+    preferred_format: Option<String>,
+    preferred_language: Option<String>,
+    send_to_reader: bool,
+    sharing: Option<crate::services::sharing::BookSharing>,
+    ask_before_download: Option<bool>,
+    release_key: Option<String>,
+    target_id: Option<i64>,
+) -> Result<CatalogueAcquisitionOutcome, AppError> {
+    super::releases::validate_choice(release_key.as_deref())?;
     if !crate::auth::can_acquire(&state.db, user).await? {
         return Err(AppError::Forbidden);
     }
+    let destination =
+        super::delivery::acquisition_destination(state, user, send_to_reader, target_id).await?;
     let provider_key = provider_key.trim();
     if provider_key.is_empty() {
         return Err(AppError::BadRequest(
@@ -238,17 +271,19 @@ pub async fn add_catalogue_with_sharing(
         Some(language) if !language.trim().is_empty() => vec![language.trim().to_string()],
         _ => profile_languages,
     };
-    let (acquisition, duplicate) = crate::acquisition::create_with_languages(
-        &state.db,
+    let (acquisition, duplicate) = super::delivery::create_acquisition(
+        state,
+        user,
         book_id,
-        Some(user.id),
         preferred_format.or(profile_format),
         languages,
         send_to_reader,
-        ask_before_download.unwrap_or(user.acquisition_mode == "ask"),
+        release_key.is_some() || ask_before_download.unwrap_or(user.acquisition_mode == "ask"),
+        destination,
     )
     .await?;
     if !duplicate {
+        super::releases::record_choice(state, &acquisition.id, release_key.as_deref()).await?;
         crate::acquisition_pipeline::spawn(state, acquisition.id.clone());
     }
     Ok(CatalogueAcquisitionOutcome {

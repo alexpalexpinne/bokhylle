@@ -230,6 +230,8 @@ try {
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-desktop.png', 1440, 1000, 'Where Maps End'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-mobile.png', 390, 844, 'Where Maps End'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'reader-setup-desktop.png', 1440, 1000, 'Where Maps End'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'reader-setup-mobile.png', 390, 844, 'Where Maps End'],
     ['/library/77', 'book-detail-desktop.png', 1440, 1000, 'Where Maps End'],
     ['/library/77', 'book-detail-mobile.png', 390, 844, 'Where Maps End'],
     ['/library/77', 'book-pending-desktop.png', 1440, 1000, 'Downloading · 42%'],
@@ -248,6 +250,7 @@ try {
       hasTouch: path === '/login' && width < 700,
       isMobile: path === '/login' && width < 700,
     })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.clock.setFixedTime(new Date('2026-01-15T10:00:00Z'))
     const reviewPreview = path === '/library/review'
     const correctionsPreview = name.startsWith('metadata-corrections-')
@@ -272,11 +275,19 @@ try {
         body: JSON.stringify(responseFor(url, adminPreview)),
       })
     })
-    if (name.startsWith('version-choices-') || name.startsWith('book-detail-') || name.startsWith('book-pending-')) {
+    const cataloguePreview = name.startsWith('version-choices-') || name.startsWith('reader-setup-')
+    if (cataloguePreview || name.startsWith('book-detail-') || name.startsWith('book-pending-')) {
       const versions = await mockVersionChoices(page)
       versions.user.acquisitionMode = 'ask'
       versions.book.hasCover = true
-      if (!name.startsWith('version-choices-')) versions.book.subjects = ['Adventure', 'Maps', 'Mystery', 'Travel', 'Exploration'].map((name) => ({ name, normalized: name.toLowerCase() }))
+      if (cataloguePreview) {
+        await page.route('**/api/discover/book**', (route) => route.fulfill({ json: {
+          ...versions.book, provider: 'openlibrary', providerKey: '/works/FICTIONAL', status: 'NOT_IN_LIBRARY',
+          ownedBookId: null, ownedFileId: null, coverId: 'fictional-maps', languages: ['en'], onShelf: false,
+        } }))
+        await page.route('**/api/discover/cover/**', (route) => route.fulfill({ contentType: 'image/svg+xml', body: coverSvg(versions.book) }))
+      }
+      if (!cataloguePreview) versions.book.subjects = ['Adventure', 'Maps', 'Mystery', 'Travel', 'Exploration'].map((name) => ({ name, normalized: name.toLowerCase() }))
       if (name.startsWith('book-pending-')) {
         versions.book.files = []
         versions.acquisitions = [versions.newAcquisition({ status: 'DOWNLOADING', progress: 42, preferredLanguage: 'en', selectedReleaseFormat: 'epub' })]
@@ -285,9 +296,13 @@ try {
     }
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
-    if (name.startsWith('version-choices-')) {
-      await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
+    if (cataloguePreview) {
       await page.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
+      await page.getByRole('radio').first().check()
+      if (name.startsWith('reader-setup-')) {
+        await page.getByRole('button', { name: 'Get & send…', exact: true }).click()
+        await page.getByRole('dialog', { name: 'Get & send', exact: true }).getByLabel('Reader email address', { exact: true }).waitFor()
+      }
     }
     if (name === 'profile-marks-mobile.png') await page.getByRole('button', { name: 'Change picture', exact: true }).click()
     if (name.startsWith('child-')) {
@@ -353,7 +368,7 @@ try {
       await page.getByRole('button', { name: 'Fix details', exact: true }).click()
       await page.getByRole('dialog', { name: 'Fix details', exact: true }).waitFor()
     }
-    await page.screenshot({ path: join(output, name), fullPage: name !== 'server-mobile.png' && (path === '/' || path === '/series/42' || path.startsWith('/settings') || (reviewPreview && name !== 'import-review-preview-desktop.png')) })
+    await page.screenshot({ path: join(output, name), animations: 'disabled', fullPage: name !== 'server-mobile.png' && (path === '/' || path === '/series/42' || path.startsWith('/settings') || (reviewPreview && name !== 'import-review-preview-desktop.png')) })
     await page.close()
   }
 } finally {

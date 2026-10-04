@@ -1157,6 +1157,9 @@
               }
             ]
           },
+          "sharingManaged": {
+            "type": "boolean"
+          },
           "subjects": {
             "items": {
               "$ref": "#/components/schemas/SubjectName"
@@ -1195,6 +1198,7 @@
           "seriesSortOrder",
           "sharedInHousehold",
           "sharing",
+          "sharingManaged",
           "subjects",
           "title"
         ],
@@ -2653,6 +2657,12 @@
               "null"
             ]
           },
+          "releaseKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sendToReader": {
             "type": [
               "boolean",
@@ -2667,6 +2677,13 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "targetId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
             ]
           }
         },
@@ -2726,6 +2743,12 @@
           "providerKey": {
             "type": "string"
           },
+          "releaseKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sendToReader": {
             "type": [
               "boolean",
@@ -2740,6 +2763,13 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "targetId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
             ]
           }
         },
@@ -6072,6 +6102,9 @@
               "null"
             ]
           },
+          "isCollection": {
+            "type": "boolean"
+          },
           "language": {
             "type": [
               "string",
@@ -6088,6 +6121,12 @@
           "method": {
             "type": "string"
           },
+          "recommended": {
+            "type": "boolean"
+          },
+          "rejected": {
+            "type": "boolean"
+          },
           "releaseName": {
             "type": [
               "string",
@@ -6101,17 +6140,34 @@
               "null"
             ]
           },
+          "selectionKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sizeBytes": {
             "format": "int64",
             "type": "integer"
+          },
+          "unavailableReason": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "format",
+          "isCollection",
           "language",
           "method",
+          "recommended",
+          "rejected",
           "seeders",
-          "sizeBytes"
+          "selectionKey",
+          "sizeBytes",
+          "unavailableReason"
         ],
         "type": "object"
       },
@@ -8279,7 +8335,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.3.0"
+    "version": "0.3.1"
   },
   "openapi": "3.1.0",
   "paths": {

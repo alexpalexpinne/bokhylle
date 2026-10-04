@@ -393,6 +393,7 @@ pub async fn import_candidate(
     )
     .await?;
 
+    library::covers::imported(state, book_id, &canonical, format, &digest).await;
     clear_pending(state, acquisition_id).await?;
 
     acquisition::log_event(
@@ -1170,6 +1171,9 @@ async fn finalize_pending(state: &AppState, acquisition_id: &str) -> Result<bool
         .await?;
     }
 
+    if let Some(format) = BookFormat::from_extension(&format_value) {
+        library::covers::imported(state, book_id, &target, format, &digest).await;
+    }
     clear_pending(state, acquisition_id).await?;
     transition_if(state, acquisition_id, AcquisitionStatus::Ready).await?;
     deliver_if_requested(state, acquisition_id, latest_file_id(state, book_id).await).await;

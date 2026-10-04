@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
@@ -44,14 +45,17 @@ import {
   setBookPreference,
 } from '../api/library'
 import { BookCover } from '../components/BookCover'
-import { BookSharingMarker } from '../components/BookSharingMarker'
+import { ReleasePreviewChoices, type VersionSelection } from '../components/ReleasePreviewChoices'
+import { BookSharingSettings } from './book-detail/BookSharingSettings'
 import { ReleaseChoices } from '../components/ReleaseChoices'
 import { DemoSendDialog } from '../components/DemoSendDialog'
+import { SendToReaderDialog } from '../components/SendToReaderDialog'
 import { useAuth } from '../auth/useAuth'
 import { Button, ButtonLink } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { MetaLine } from '../components/ui/MetaLine'
 import { descriptionText } from '../lib/descriptionText'
+import { languageLabel } from '../lib/languages'
 import { PageHeader } from '../components/ui/PageHeader'
 import { SearchField } from '../components/ui/SearchField'
 import { SectionMark } from '../components/ui/SectionMark'
@@ -71,6 +75,12 @@ const searchTypes: { value: SearchType; label: string; hint: string }[] = [
 
 function shownLanguage(result: DiscoveryResult, preferred: string[]): string | null {
   return result.languages?.find((language) => preferred.includes(language)) ?? result.language
+}
+
+function languageCaption(result: DiscoveryResult, preferred: string[]): string | null {
+  if (result.status === 'IN_LIBRARY') return result.language ? languageLabel(result.language) : null
+  const language = shownLanguage(result, preferred)
+  return language ? `${languageLabel(language)} editions` : null
 }
 
 /// The card shows one of three states; map the acquisition state the backend
@@ -102,7 +112,9 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   const { user, demo } = useAuth()
   const [choosingId, setChoosingId] = useState<string | null>(null)
   const [choiceBusy, setChoiceBusy] = useState(false)
+  const [versionSelection, setVersionSelection] = useState<VersionSelection | null>(null)
   const [hasReader, setHasReader] = useState<boolean | null>(null)
+  const [readerDialogOpen, setReaderDialogOpen] = useState(false)
   const [householdReader, setHouseholdReader] = useState<string | null>(null)
   const [formatOpen, setFormatOpen] = useState(false)
   const [ownedDetail, setOwnedDetail] = useState<BookDetailData | null>(null)
@@ -264,8 +276,10 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
 
   function openDetail(item: DiscoveryResult) {
     setChoosingId(null)
+    setVersionSelection(null)
     setSelected(item)
     setHasReader(null)
+    setReaderDialogOpen(false)
     setDetail(null)
     setOwnedDetail(null)
     setExternalLikedId(null)
@@ -299,18 +313,24 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     if (demo) {
       setHasReader(false)
     } else {
-      fetchDefaultReader()
-        .then((reader) => {
-          setHasReader(reader.address !== null)
-          setHouseholdReader(reader.source === 'household' ? reader.address : null)
-        })
-        .catch((caught: unknown) => console.warn('discover.default_reader.load_failed', caught))
+      void refreshReader()
+    }
+  }
+
+  async function refreshReader() {
+    try {
+      const reader = await fetchDefaultReader()
+      setHasReader(reader.address !== null)
+      setHouseholdReader(reader.source === 'household' ? reader.address : null)
+    } catch (caught) {
+      console.warn('discover.default_reader.load_failed', caught)
     }
   }
 
   function closeDetail() {
     if (choiceBusy) return
     setChoosingId(null)
+    setReaderDialogOpen(false)
     setSelected(null)
     if ((location.state as { backgroundLocation?: unknown } | null)?.backgroundLocation) {
       navigate(-1)
@@ -337,6 +357,18 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     }
     if (demo) {
       setDemoSendBook({ id: ownedBookId, title: ownedDetail?.title || detail?.title || selected?.title || 'Book' })
+      return
+    }
+    if (!hasReader) {
+      setSending('reader')
+      try {
+        if (!ownedDetail) setOwnedDetail(await fetchBook(ownedBookId))
+        setReaderDialogOpen(true)
+      } catch (caught) {
+        setNotice(caught instanceof ApiError ? caught.message : 'Could not load this book for sending')
+      } finally {
+        setSending(null)
+      }
       return
     }
     setSending('reader')
@@ -371,12 +403,16 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
 
   async function add(
     item: DiscoveryResult,
-    options: { preferredFormat?: string; sendToReader?: boolean } = {},
+    options: { preferredFormat?: string; sendToReader?: boolean; targetId?: number } = {},
     action: 'quick' | 'library' | 'reader' = 'quick',
+    reportToDialog = false,
   ) {
     if (adding === item.providerKey || sending !== null || item.status === 'DOWNLOADING') return
     if (action === 'quick') {
-      if (!demo && user?.canAcquire !== false && user?.acquisitionMode === 'ask') openDetail(item)
+      if (!demo && user?.canAcquire !== false && user?.acquisitionMode === 'ask') {
+        openDetail(item)
+        return
+      }
       setAdding(item.providerKey)
     } else {
       setSending(action)
@@ -400,13 +436,18 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
       const bookLabel = title ? `"${title}"` : 'the book'
       let ownedBookId = item.ownedBookId
       let acquisitionId: string
+      const acquisitionOptions = { ...options, ...(showVersionPreview ? { releaseKey: selectedVersionKey ?? undefined, askBeforeDownload: true } : {}) }
+      if (showVersionPreview && !selectedVersionKey) {
+        if (reportToDialog) throw new Error('Select an available version before downloading.')
+        return
+      }
       if (item.ownedBookId) {
-        const created = await createAcquisitionForBook(item.ownedBookId, options)
+        const created = await createAcquisitionForBook(item.ownedBookId, acquisitionOptions)
         status = created.status
         duplicate = created.duplicate
         acquisitionId = created.id
       } else {
-        const created = await createAcquisitionFromDiscovery(item.provider, item.providerKey, options)
+        const created = await createAcquisitionFromDiscovery(item.provider, item.providerKey, acquisitionOptions)
         status = created.status
         duplicate = created.duplicate
         ownedBookId = created.bookId
@@ -423,12 +464,19 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
             ? `On its way — ${bookLabel} will be emailed to your reader when it is ready.`
             : `Getting ${bookLabel} — it will appear on your shelf.`,
       )
+      if (selectedVersionKey) {
+        setSelected(null)
+        setChoosingId(null)
+        navigate('/activity')
+        return
+      }
       if (user?.acquisitionMode === 'ask') {
         setChoosingId(acquisitionId)
         return
       }
       if (!detailOnly) setSelected(null)
     } catch (caught) {
+      if (reportToDialog) throw caught
       setNotice(caught instanceof ApiError ? caught.message : 'Could not add this book')
     } finally {
       setAdding(null)
@@ -464,6 +512,10 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     !(revalidating && authorState !== null) &&
     (authorState?.key !== requestedKey || authorState.partial)
   const selectedStatus = detail?.status ?? selected?.status ?? null
+  const showVersionPreview = !!selected && selectedStatus === 'NOT_IN_LIBRARY' && !demo
+    && user?.canAcquire !== false && user?.profileType !== 'child' && user?.acquisitionMode === 'ask'
+  const versionContext = JSON.stringify([selected?.provider, selected?.providerKey, preferredFormat, defaultLanguages])
+  const selectedVersionKey = versionSelection?.context === versionContext ? versionSelection.key : null
   const ownedBookId = detail?.ownedBookId ?? selected?.ownedBookId ?? null
   const ownedFileId = detail?.ownedFileId ?? selected?.ownedFileId ?? null
   const onShelf = ownedDetail?.onShelf ?? detail?.onShelf ?? selected?.onShelf ?? false
@@ -812,14 +864,15 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           title={ownedDetail?.title || detail?.title || selected.title || 'Loading book…'}
           description={
             detail
-              ? [detail.year ?? selected.year, shownLanguage({ ...selected, language: detail.language, languages: detail.languages }, effectiveLanguages)?.toUpperCase()].filter(Boolean).join(' · ')
+              ? [detail.year ?? selected.year, languageCaption({ ...selected, status: detail.status, language: detail.language, languages: detail.languages }, effectiveLanguages)].filter(Boolean).join(' · ')
               : undefined
           }
           onClose={closeDetail}
           wide
-          headerAside={!choosingId && !demo && user?.profileType !== 'child' && selectedStatus === 'NOT_IN_LIBRARY' ? (
-            <BookSharingMarker value={user?.defaultBookSharing ?? 'shared'}
-              label={`Default: ${user?.defaultBookSharing === 'private' ? 'private' : 'shared with household'}`} />
+          headerAside={!choosingId && !demo && user?.profileType !== 'child' && ownedDetail ? (
+            <BookSharingSettings book={ownedDetail} onUpdated={() => {
+              void fetchBook(ownedDetail.id).then(setOwnedDetail).catch(() => setDetailError('Could not refresh book sharing.'))
+            }} />
           ) : undefined}
           footer={
             <div role="group" aria-label="Book choices" className="grid w-full grid-cols-2 gap-2 [&>button]:h-auto [&>button]:min-h-11 [&>button]:min-w-0 [&>button]:px-3 [&>button]:py-2.5 [&>a]:h-auto [&>a]:min-h-11 [&>a]:min-w-0 [&>a]:px-3 [&>a]:py-2.5 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
@@ -837,33 +890,34 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                 <Button
                   variant={hasReader ? 'secondary' : 'primary'}
                   className={hasReader ? 'border border-ink/20' : 'order-first col-span-2 sm:order-none'}
-                  disabled={detailLoading || sending !== null}
+                  disabled={detailLoading || sending !== null || (showVersionPreview && !selectedVersionKey)}
                   onClick={() => void add(selected, { preferredFormat }, 'library')}
                 >
                   {sending === 'library' ? user?.canAcquire === false ? 'Asking…' : 'Getting…' : user?.canAcquire === false ? 'Ask to add' : 'Get for my shelf'}
                 </Button>
-                {hasReader && user?.canAcquire !== false && (
+                {user?.canAcquire !== false && user?.profileType !== 'child' && (
                   <Button
-                    variant="primary"
-                    className="order-first col-span-2 sm:order-none"
-                    disabled={detailLoading || sending !== null}
-                    onClick={() =>
+                    variant={hasReader ? 'primary' : 'secondary'}
+                    className={hasReader ? 'order-first col-span-2 sm:order-none' : 'border border-ink/20'}
+                    disabled={detailLoading || sending !== null || (showVersionPreview && !selectedVersionKey)}
+                    onClick={() => {
+                      if (!hasReader) { setReaderDialogOpen(true); return }
                       void add(
                         selected,
                         {
-                          preferredFormat: preferredFormat === 'any' ? undefined : preferredFormat,
+                          preferredFormat,
                           sendToReader: true,
                         },
                         'reader',
                       )
-                    }
+                    }}
                   >
                     {sending === 'reader' ? (
                       <Loader2 size={14} className="animate-spin" aria-hidden />
                     ) : (
                       <Send size={14} aria-hidden />
                     )}
-                    Get &amp; Send to My Reader
+                    {hasReader ? 'Get & Send to My Reader' : 'Get & send…'}
                   </Button>
                 )}
               </>
@@ -881,10 +935,10 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                   <Button variant="primary" className="order-first col-span-2 sm:order-none" disabled={sending !== null} onClick={() => void sendOwned()}>
                     <Send size={14} aria-hidden /> Send to Demo Kindle
                   </Button>
-                ) : onShelf && hasReader ? (
+                ) : onShelf && user?.profileType !== 'child' ? (
                   <Button
-                    variant="primary"
-                    className="order-first col-span-2 sm:order-none"
+                    variant={hasReader ? 'primary' : 'secondary'}
+                    className={hasReader ? 'order-first col-span-2 sm:order-none' : 'border border-ink/20'}
                     disabled={!ownedFileId || sending !== null}
                     onClick={() => void sendOwned()}
                   >
@@ -893,7 +947,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                     ) : (
                       <Send size={14} aria-hidden />
                     )}
-                    Send to My Reader
+                    {hasReader ? 'Send to My Reader' : 'Send to a reader…'}
                   </Button>
                 ) : !onShelf ? (
                   <>
@@ -917,14 +971,14 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           }
         >
           {choosingId ? <ReleaseChoices key={choosingId} acquisitionId={choosingId} onBusyChange={setChoiceBusy} onSelected={() => { setSelected(null); setChoosingId(null); navigate('/activity') }} /> : <>
-          {detailOnly && notice && (
-            <p role="status" className="mb-5 border-l-2 border-success pl-4 text-sm text-ink-soft">{notice}</p>
+          {notice && (
+            <p role="status" className="mb-5 text-sm text-ink-soft">{notice}</p>
           )}
           {demo && selectedStatus === 'NOT_IN_LIBRARY' && (
             <p className="mb-5 border-l-2 border-accent pl-4 text-sm text-ink-soft">This title is outside the prepared sample library. Try Get on one of the sample books to follow the demo activity.</p>
           )}
-          <div className="flex items-start gap-5">
-            <div className="w-28 shrink-0 self-start overflow-hidden rounded-[3px] bg-surface-2 shadow-card sm:w-32">
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-start gap-x-5 sm:grid-cols-[8rem_minmax(0,1fr)] sm:grid-rows-[min-content_1fr]">
+            <div className="w-28 self-start overflow-hidden rounded-[3px] bg-surface-2 shadow-card sm:row-span-2 sm:w-32">
               {selectedCover ? (
                 <BookCover
                   src={selectedCover}
@@ -938,7 +992,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
               )}
             </div>
 
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0">
               {(() => {
                 const authors = detail?.authors ?? ownedDetail?.authors ?? selected.authors
                 if (authors.length === 0) {
@@ -1050,21 +1104,18 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
                 </div>
               )}
 
-              {!demo && hasReader === false && (selectedStatus === 'NOT_IN_LIBRARY' || selectedStatus === 'IN_LIBRARY') && (
-                <p className="mt-4 text-xs text-ink-faint">
-                  To send books to a device,{' '}
-                  <Link to="/profile/readers" className="text-accent hover:text-accent-strong">
-                    add a reader
-                  </Link>
-                  .
-                </p>
-              )}
               {householdReader && selectedStatus === 'NOT_IN_LIBRARY' && (
                 <p className="mt-4 text-xs text-ink-faint">
                   Will be sent to the household reader ({householdReader}).
                 </p>
               )}
             </div>
+            {showVersionPreview && selected && !detailLoading && <div className="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2">
+              <ReleasePreviewChoices key={versionContext}
+                provider={selected.provider} providerKey={selected.providerKey} format={preferredFormat}
+                context={versionContext} selected={selectedVersionKey} disabled={sending !== null}
+                onChange={setVersionSelection} />
+            </div>}
           </div>
 
           {(detail?.description ?? ownedDetail?.description) && (
@@ -1076,6 +1127,15 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
         </Modal>
       )}
       {demoSendBook && <DemoSendDialog bookId={demoSendBook.id} title={demoSendBook.title} onClose={() => setDemoSendBook(null)} />}
+      {selected && readerDialogOpen && createPortal(selectedStatus === 'IN_LIBRARY' && ownedBookId && ownedFileId
+        ? <SendToReaderDialog bookId={ownedBookId} fileId={ownedFileId}
+            format={ownedDetail?.files.find((file) => file.id === ownedFileId)?.format ?? 'epub'}
+            onClose={() => { setReaderDialogOpen(false); void refreshReader() }}
+            onSent={() => { void refreshReader(); setNotice(`Sent "${selected.title}" to your reader.`) }} />
+        : <SendToReaderDialog onGetAndSend={(targetId) => add(selected, { preferredFormat, sendToReader: true, targetId }, 'reader', true)}
+            onClose={() => { setReaderDialogOpen(false); void refreshReader() }}
+            onSent={() => { setReaderDialogOpen(false); void refreshReader() }} />,
+        document.body)}
     </section>
   )
 }
@@ -1156,7 +1216,7 @@ function DiscoveryCard({
       </p>
       <MetaLine
         className="mt-1"
-        items={[result.year ? String(result.year) : null, shownLanguage(result, preferredLanguages)?.toUpperCase()]}
+        items={[result.year ? String(result.year) : null, languageCaption(result, preferredLanguages)]}
       />
       {result.series && (
         <p className="mt-1 line-clamp-1 text-xs text-ink-faint">

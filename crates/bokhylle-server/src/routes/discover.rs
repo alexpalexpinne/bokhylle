@@ -5,14 +5,8 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use bokhylle_acquisition::evaluator;
-use bokhylle_acquisition::model::ExpectedBook;
-
 use crate::AppState;
 use crate::auth::AuthUser;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
 use super::image_cache;
 use crate::discovery::{self, DiscoveryResult, SearchKind};
@@ -54,12 +48,14 @@ pub struct LikedDiscovery {
 #[serde(rename_all = "camelCase")]
 pub struct CreateFromDiscovery {
     pub ask_before_download: Option<bool>,
+    pub release_key: Option<String>,
     pub sharing: Option<crate::services::sharing::BookSharing>,
     pub provider: String,
     pub provider_key: String,
     pub preferred_format: Option<String>,
     pub preferred_language: Option<String>,
     pub send_to_reader: Option<bool>,
+    pub target_id: Option<i64>,
 }
 
 pub async fn create_acquisition(
@@ -67,7 +63,7 @@ pub async fn create_acquisition(
     State(state): State<AppState>,
     Json(body): Json<CreateFromDiscovery>,
 ) -> Result<StatusJson<crate::services::books::CatalogueAcquisitionOutcome, 202>, AppError> {
-    let result = crate::services::books::add_catalogue_with_sharing(
+    let result = crate::services::books::add_catalogue_with_release(
         &state,
         &user,
         &body.provider,
@@ -77,6 +73,8 @@ pub async fn create_acquisition(
         body.send_to_reader.unwrap_or(false),
         body.sharing,
         body.ask_before_download,
+        body.release_key,
+        body.target_id,
     )
     .await?;
     Ok(StatusJson(result))
@@ -413,214 +411,23 @@ pub struct ReleaseParams {
     pub format: Option<String>,
 }
 
-/// Availability previews are operational data: cache them briefly and make
-/// concurrent checks for the same book wait for the first one instead of
-/// firing duplicate indexer searches.
-const RELEASE_TTL: Duration = Duration::from_secs(300);
-const RELEASE_CACHE_CAP: usize = 256;
-
-#[derive(Clone)]
-struct ReleasePreview {
-    release_name: String,
-    method: String,
-    format: Option<String>,
-    language: Option<String>,
-    size_bytes: i64,
-    seeders: Option<i64>,
-    leechers: Option<i64>,
-    indexer: Option<String>,
-}
-
-#[derive(Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ReleaseView {
-    method: String,
-    format: Option<String>,
-    language: Option<String>,
-    size_bytes: i64,
-    seeders: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    release_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    leechers: Option<Option<i64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    indexer: Option<Option<String>>,
-}
-
-#[derive(Serialize, schemars::JsonSchema)]
-pub struct ReleasesResponse {
-    releases: Vec<ReleaseView>,
-}
-
-type ReleaseCache = HashMap<String, (Instant, Vec<ReleasePreview>)>;
-static RELEASE_CACHE: OnceLock<Mutex<ReleaseCache>> = OnceLock::new();
-static RELEASE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
-    OnceLock::new();
-
-fn release_lock(key: &str) -> Arc<tokio::sync::Mutex<()>> {
-    let mut locks = RELEASE_LOCKS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .expect("release lock map");
-    if locks.len() >= RELEASE_CACHE_CAP {
-        locks.retain(|_, lock| Arc::strong_count(lock) > 1);
-        if locks.len() >= RELEASE_CACHE_CAP {
-            locks.clear();
-        }
-    }
-    locks.entry(key.to_string()).or_default().clone()
-}
-
-/// Insert with pruning so the process-global preview cache stays bounded.
-fn cache_release(key: String, releases: Vec<ReleasePreview>) {
-    let mut cache = RELEASE_CACHE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .expect("release cache");
-    cache.retain(|_, (stored_at, _)| stored_at.elapsed() < RELEASE_TTL);
-    if cache.len() >= RELEASE_CACHE_CAP
-        && let Some(oldest) = cache
-            .iter()
-            .min_by_key(|(_, (stored_at, _))| *stored_at)
-            .map(|(key, _)| key.clone())
-    {
-        cache.remove(&oldest);
-    }
-    cache.insert(key, (Instant::now(), releases));
-}
+pub use crate::services::releases::ReleasesResponse;
 
 pub async fn releases(
-    user: AuthUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Query(params): Query<ReleaseParams>,
 ) -> Result<Json<ReleasesResponse>, AppError> {
-    let Some(detail) = discovery::detail_visible(
-        &state,
-        params.provider.as_deref(),
-        &params.provider_key,
-        user.0.id,
-    )
-    .await?
-    else {
-        return Err(AppError::NotFound("book not found".to_string()));
-    };
-
-    let cache_key = format!(
-        "{}|{}|{}",
-        detail.provider,
-        params.provider_key,
-        params
-            .format
-            .clone()
-            .unwrap_or_else(|| "epub".to_string())
-            .to_ascii_lowercase()
-    );
-    let can_choose = crate::auth::can_acquire(&state.db, &user.0).await?;
-    if let Some((stored_at, cached)) = RELEASE_CACHE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .expect("release cache")
-        .get(&cache_key)
-        && stored_at.elapsed() < RELEASE_TTL
-    {
-        return Ok(Json(ReleasesResponse {
-            releases: release_views(cached, can_choose),
-        }));
-    }
-
-    // Single-flight: the second request for the same book waits here and
-    // then finds the fresh cache entry.
-    let lock = release_lock(&cache_key);
-    let _guard = lock.lock().await;
-    if let Some((stored_at, cached)) = RELEASE_CACHE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .expect("release cache")
-        .get(&cache_key)
-        && stored_at.elapsed() < RELEASE_TTL
-    {
-        return Ok(Json(ReleasesResponse {
-            releases: release_views(cached, can_choose),
-        }));
-    }
-
-    let Some(factory) = state.providers.as_ref() else {
-        return Err(AppError::Unavailable(
-            "the indexer is not configured".to_string(),
-        ));
-    };
-    let Some(indexer) = factory.indexer(&state).await? else {
-        return Err(AppError::Unavailable(
-            "the indexer is not configured".to_string(),
-        ));
-    };
-
-    let book = ExpectedBook {
-        languages: Vec::new(),
-        title: detail.title.clone(),
-        authors: detail.authors.clone(),
-        year: detail.year,
-        isbn: detail.isbn13.clone().or(detail.isbn10.clone()),
-        language: detail.language.clone(),
-        preferred_format: Some(
-            params
-                .format
-                .unwrap_or_else(|| "epub".to_string())
-                .to_ascii_lowercase(),
-        ),
-        series_number: detail.series_number.clone(),
-    };
-
-    let outcome = indexer.search_book(&book).await.map_err(|error| {
-        tracing::warn!(%error, "discovery.releases.search_failed");
-        AppError::Unavailable("release search failed".to_string())
-    })?;
-
-    let evaluated = evaluator::rank(&book, &outcome.candidates);
-    let releases: Vec<ReleasePreview> = evaluated
-        .iter()
-        .filter(|release| !release.rejected())
-        .take(5)
-        .map(|release| ReleasePreview {
-            release_name: release.candidate.title.clone(),
-            method: release
-                .candidate
-                .method
-                .as_ref()
-                .map(|method| method.kind())
-                .unwrap_or("torrent")
-                .to_string(),
-            format: release.candidate.detected_format.clone(),
-            language: release.candidate.detected_language.clone(),
-            size_bytes: release.candidate.size_bytes,
-            seeders: release.candidate.seeders,
-            leechers: release.candidate.leechers,
-            indexer: release.candidate.indexer.clone(),
-        })
-        .collect();
-
-    let response = release_views(&releases, can_choose);
-    cache_release(cache_key, releases);
-
-    Ok(Json(ReleasesResponse { releases: response }))
-}
-
-/// Adults who can acquire books see the source information needed to choose
-/// a version. Other profiles receive the availability summary.
-fn release_views(cached: &[ReleasePreview], can_choose: bool) -> Vec<ReleaseView> {
-    cached
-        .iter()
-        .map(|release| ReleaseView {
-            method: release.method.clone(),
-            format: release.format.clone(),
-            language: release.language.clone(),
-            size_bytes: release.size_bytes,
-            seeders: release.seeders,
-            release_name: can_choose.then(|| release.release_name.clone()),
-            leechers: can_choose.then_some(release.leechers),
-            indexer: can_choose.then(|| release.indexer.clone()),
-        })
-        .collect()
+    Ok(Json(
+        crate::services::releases::preview(
+            &state,
+            &user,
+            params.provider.as_deref(),
+            &params.provider_key,
+            params.format,
+        )
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -708,26 +515,9 @@ pub async fn cover(
         return Ok(placeholder_response(params.title.as_deref()));
     };
 
-    let covers_dir = state.paths.config_dir.join("cache").join("provider-covers");
     let large = params.size.as_deref() == Some("large");
-    // Cover identifiers only mean something to their provider, so the cache
-    // key carries the provider too; the bytes decide the media type.
-    let mut provider_tag: String = provider
-        .chars()
-        .filter(|character| {
-            character.is_ascii_alphanumeric() || *character == '_' || *character == '-'
-        })
-        .take(24)
-        .collect();
-    if provider_tag.is_empty() {
-        provider_tag = "unknown".to_string();
-    }
-    // A provider key can be a URL. Stripping punctuation and truncating it
-    // made distinct URLs collide; the digest keeps the full identity.
-    let digest = hex::encode(Sha256::digest(cover_id.as_bytes()));
-    let variant = if large { "large" } else { "medium" };
-    let cached_path = covers_dir.join(format!("cover-{provider_tag}-{digest}-{variant}"));
-    let missing_path = covers_dir.join(format!("cover-{provider_tag}-{digest}-{variant}.missing"));
+    let cached_path = provider_cover_cache_path(&state, provider, &cover_id, large);
+    let missing_path = cached_path.with_extension("missing");
 
     if let Ok(bytes) = tokio::fs::read(&cached_path).await
         && bokhylle_library::covers::usable_cover(&bytes)
@@ -760,6 +550,42 @@ pub async fn cover(
             tracing::warn!(%error, cover_id, "discovery.cover.fetch_failed");
             Ok(placeholder_response(params.title.as_deref()))
         }
+    }
+}
+
+pub(crate) fn provider_cover_cache_path(
+    state: &AppState,
+    provider: &str,
+    cover_id: &str,
+    large: bool,
+) -> std::path::PathBuf {
+    let mut provider_tag: String = provider
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || *character == '_' || *character == '-'
+        })
+        .take(24)
+        .collect();
+    if provider_tag.is_empty() {
+        provider_tag = "unknown".into();
+    }
+    let digest = hex::encode(Sha256::digest(cover_id.as_bytes()));
+    let variant = if large { "large" } else { "medium" };
+    state
+        .paths
+        .config_dir
+        .join("cache")
+        .join("provider-covers")
+        .join(format!("cover-{provider_tag}-{digest}-{variant}"))
+}
+
+pub(crate) fn image_extension(bytes: &[u8]) -> &'static str {
+    match image_content_type(bytes) {
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/bmp" => "bmp",
+        _ => "jpg",
     }
 }
 

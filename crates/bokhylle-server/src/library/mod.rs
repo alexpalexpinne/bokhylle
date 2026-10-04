@@ -15,6 +15,7 @@ use crate::error::AppError;
 use metadata_fields::{MetadataField as Field, Scope};
 use serde_json::json;
 
+pub mod covers;
 pub mod import_metadata;
 pub mod metadata_fields;
 pub mod queries;

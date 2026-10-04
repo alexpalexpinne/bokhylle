@@ -120,6 +120,7 @@ pub struct BookDetail {
     pub description: Option<String>,
     pub publication_year: Option<i64>,
     pub sharing: Option<sharing::BookSharing>,
+    pub sharing_managed: bool,
     pub shared_in_household: bool,
     pub on_shelf: bool,
     pub preference: Option<String>,
@@ -1177,14 +1178,17 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
         return Ok(None);
     };
 
-    let (description, reading_direction, legacy_series_text): (
+    let (description, reading_direction, legacy_series_text, sharing_managed): (
         Option<String>,
         Option<String>,
         Option<String>,
-    ) = sqlx::query_as("SELECT description, reading_direction, series FROM books WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+        bool,
+    ) = sqlx::query_as(
+        "SELECT description, reading_direction, series, sharing_managed FROM books WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
 
     let edition_rows: Vec<EditionRow> = sqlx::query_as(
         "SELECT id, title, language, publication_year, isbn10, isbn13, publisher, is_unknown,
@@ -1337,6 +1341,7 @@ pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, 
         description,
         publication_year,
         sharing: None,
+        sharing_managed,
         shared_in_household: true,
         on_shelf: false,
         preference: None,

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1 — 2026-10-04
+
+- Show available versions when opening an undownloaded book for adults using that preference. Keep the picker in the details column on desktop and full width on mobile; opening it does not start a download.
+- Use the selected release when getting a book, rechecking it against the saved language and format preferences. Ask for another choice if that release becomes unavailable or unsuitable instead of silently replacing it.
+- Make sharing icons visibly interactive for owners and explain read-only sharing states. Hide the default sharing marker until a catalogue book is added.
+- Preserve covers after acquisition and sending. Extract embedded artwork during import and recovery, retain catalogue artwork identities, and repair older missing automatic covers without overriding manual choices.
+- Open reader setup from Get & send when no reader is saved, using the same reader records as Profile. Save the chosen destination with the acquisition request so later default-reader changes do not redirect the send.
+- Replace repeated reader-setup hints with the optional send action. Keep setup in the send dialog and handle stacked dialogs consistently.
+- Show role-appropriate guidance when book downloading is not configured, and keep Try again beside temporary version-search errors.
+- Label catalogue language availability as English editions or the matching language. Use the actual file language for downloaded books; catalogue descriptions keep their original text.
+
+Upgrade 0.1.0, 0.2.0, or 0.3.0 in place after backing up config and library.
+A forward-only migration retains catalogue cover identities. See
+[upgrade details](docs/operations.md#database-compatibility). Use
+`ghcr.io/alexpalexpinne/bokhylle:v0.3.1` for the amd64/arm64 image.
+
 ## 0.3.0 — 2026-10-03
 
 - Make notifications open their book, request, or matching Activity item, including the version chooser when a selection is needed. Keep child links within their requests and assigned books.

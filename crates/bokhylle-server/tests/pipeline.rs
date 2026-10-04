@@ -219,6 +219,109 @@ async fn create_acquisition(test_app: &common::TestApp, cookie: &str, book_id: i
 }
 
 #[tokio::test]
+async fn preview_selection_downloads_the_requested_version() {
+    let mut candidates = strong_candidates();
+    candidates.push(release(
+        "Andy.Weir.Project.Hail.Mary.Retail.EN.EPUB.Alternative",
+        4_000_000,
+        2,
+        true,
+    ));
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (app, _library, cookie, book_id) = app_with_book(
+        Arc::new(FakeIndexerProvider::with_candidates(candidates)),
+        downloader.clone(),
+    )
+    .await;
+    let (status, preview) = get_json(
+        &app,
+        &format!("/api/discover/releases?provider=local&providerKey=local:{book_id}&format=epub"),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let choice = preview["releases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|release| {
+            release["releaseName"]
+                .as_str()
+                .unwrap()
+                .ends_with("Alternative")
+        })
+        .unwrap();
+    assert!(choice["selectionKey"].is_string());
+    assert!(downloader.added().is_empty());
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM acquisitions")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 0, "preview must not start an acquisition");
+
+    let (status, created) = post_json(
+        &app,
+        &format!("/api/books/{book_id}/acquisitions"),
+        &cookie,
+        json!({ "preferredFormat": "epub", "releaseKey": choice["selectionKey"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let view = wait_for_status(&app, &cookie, created["id"].as_str().unwrap(), &["QUEUED"]).await;
+    assert_eq!(view["selectedReleaseName"], choice["releaseName"]);
+    assert_eq!(downloader.added().len(), 1);
+}
+
+#[tokio::test]
+async fn missing_preview_selection_requires_another_choice() {
+    let indexer = Arc::new(FakeIndexerProvider::with_candidates(strong_candidates()));
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (app, _library, cookie, book_id) = app_with_book(indexer.clone(), downloader.clone()).await;
+    let (_, preview) = get_json(
+        &app,
+        &format!("/api/discover/releases?provider=local&providerKey=local:{book_id}&format=epub"),
+        &cookie,
+    )
+    .await;
+    let key = preview["releases"][0]["selectionKey"].as_str().unwrap();
+    indexer.set_candidates(vec![release(
+        "Andy.Weir.Project.Hail.Mary.Retail.EN.EPUB.Replacement",
+        4_000_000,
+        12,
+        true,
+    )]);
+    let (status, created) = post_json(
+        &app,
+        &format!("/api/books/{book_id}/acquisitions"),
+        &cookie,
+        json!({ "preferredFormat": "epub", "releaseKey": key }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let id = created["id"].as_str().unwrap();
+    let view = wait_for_status(&app, &cookie, id, &["NEEDS_SELECTION"]).await;
+    assert!(downloader.added().is_empty(), "a replacement needs consent");
+    assert_eq!(view["errorCode"], "requested_version_unavailable");
+    let (status, _) = post_json(
+        &app,
+        &format!("/api/acquisitions/{id}/select"),
+        &cookie,
+        json!({ "index": 0 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let view = wait_for_status(&app, &cookie, id, &["QUEUED"]).await;
+    assert!(view["errorCode"].is_null());
+    assert!(
+        view["selectedReleaseName"]
+            .as_str()
+            .unwrap()
+            .ends_with("Replacement")
+    );
+    assert_eq!(downloader.added().len(), 1);
+}
+
+#[tokio::test]
 async fn pipeline_queues_high_confidence_release() {
     let indexer = Arc::new(FakeIndexerProvider::with_candidates(strong_candidates()));
     let downloader = Arc::new(FakeDownloadProvider::default());

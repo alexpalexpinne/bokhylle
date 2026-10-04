@@ -1036,14 +1036,16 @@ pub async fn detail_visible(
     let mut status = DiscoveryStatus::NotInLibrary;
     let mut owned_book_id = None;
     let mut owned_file_id = None;
+    let mut language = metadata.language.clone();
+    let mut languages = metadata.languages.clone();
     if let Some(book_id) = find_owned_book(&state.db, &metadata).await?
         && crate::services::sharing::can_access(&state.db, viewer_id, book_id).await?
     {
         owned_book_id = Some(book_id);
         if has_files(&state.db, book_id).await? {
             status = DiscoveryStatus::InLibrary;
-            owned_file_id = sqlx::query_scalar(
-                "SELECT f.id FROM book_files f
+            let file: Option<(i64, Option<String>)> = sqlx::query_as(
+                "SELECT f.id, e.language FROM book_files f
                  JOIN editions e ON e.id = f.edition_id
                  WHERE e.book_id = ?
                  ORDER BY CASE f.format WHEN 'epub' THEN 0 ELSE 1 END, f.id
@@ -1051,6 +1053,16 @@ pub async fn detail_visible(
             )
             .bind(book_id)
             .fetch_optional(&state.db)
+            .await?;
+            owned_file_id = file.as_ref().map(|(id, _)| *id);
+            language = file.and_then(|(_, language)| language);
+            languages = sqlx::query_scalar(
+                "SELECT DISTINCT e.language FROM book_files f
+                 JOIN editions e ON e.id = f.edition_id
+                 WHERE e.book_id = ? AND e.language IS NOT NULL ORDER BY e.language",
+            )
+            .bind(book_id)
+            .fetch_all(&state.db)
             .await?;
         } else if has_active_acquisition(&state.db, book_id).await? {
             status = DiscoveryStatus::Downloading;
@@ -1063,8 +1075,8 @@ pub async fn detail_visible(
         title: metadata.title,
         authors: metadata.authors,
         year: metadata.year,
-        language: metadata.language,
-        languages: metadata.languages,
+        language,
+        languages,
         isbn10: metadata.isbn10,
         isbn13: metadata.isbn13,
         series: metadata.series,

@@ -7,11 +7,12 @@ export async function mockVersionChoices(page) {
     user: { id: 88, username: 'mira', displayName: 'Mira', role: 'user', profileType: 'adult', canAcquire: true,
       preferredLanguages: ['en'], preferredFormat: 'epub', defaultBookSharing: 'private', acquisitionMode: 'automatic' },
     writes: [], acquisitions: [], failSelection: false, duplicate: false, initialStatus: 'NEEDS_SELECTION',
+    targets: [],
   }
   const book = { id: 77, title: 'Where Maps End', authors: ['Nora Vale'], authorRefs: [], language: 'en', availableLanguages: ['en'],
     description: 'A fictional journey through forgotten coastlines.', publicationYear: 2024, subjects: [], editions: [], metadataSources: [],
     series: null, seriesNumber: null, rating: null, ratingCount: null, hasCover: false, onShelf: true, preference: null,
-    sharing: 'private', sharedInHousehold: false, files: [{ id: 10, format: 'epub', size: 420000, filename: 'Where Maps End.epub' }] }
+    sharing: 'private', sharingManaged: true, sharedInHousehold: false, files: [{ id: 10, format: 'epub', size: 420000, filename: 'Where Maps End.epub' }] }
   state.book = book
   const candidates = [
     { index: 0, method: 'torrent', format: 'epub', language: 'en', sizeBytes: 4200000, seeders: 30, leechers: 2, indexer: 'Reading Room', releaseName: 'Nora.Vale.Where.Maps.End.2024.Retail.EPUB', rejected: false },
@@ -40,12 +41,13 @@ export async function mockVersionChoices(page) {
     if (path === '/api/profile/onboarding') return json({ onboarded: true, interests: [] })
     if (path === '/api/discover/book') return json({ provider: 'openlibrary', providerKey: '/works/FICTIONAL', ...book,
       status: 'NOT_IN_LIBRARY', ownedBookId: null, ownedFileId: null, coverId: null, liked: false, onShelf: false })
-    if (path === '/api/discover/releases') return json({ releases: candidates.slice(0, 2) })
+    if (path === '/api/discover/releases') return json({ releases: candidates.map((candidate, index) => ({ ...candidate, selectionKey: candidate.rejected ? null : String.fromCharCode(97 + index).repeat(64), recommended: index === 0, unavailableReason: candidate.rejected ? 'Outside your accepted languages' : null, isCollection: false })) })
     if (path === '/api/books/77/acquisitions' && request.method() === 'GET') return json(state.acquisitions)
     if (path === '/api/discover/acquisitions' || path === '/api/books/77/acquisitions') {
       const input = request.postDataJSON()
       state.writes.push({ path, input })
-      if (!state.duplicate) state.acquisitions = [state.newAcquisition({ status: state.initialStatus, askBeforeDownload: input.askBeforeDownload ?? (state.user.acquisitionMode === 'ask') })]
+      if (input.releaseKey && state.failSelection) { state.failSelection = false; return json({ code: 'unavailable', message: 'Source temporarily unavailable' }, 503) }
+      if (!state.duplicate) state.acquisitions = [state.newAcquisition({ status: input.releaseKey ? 'QUEUED' : state.initialStatus, askBeforeDownload: input.askBeforeDownload ?? (state.user.acquisitionMode === 'ask') })]
       return json({ id: state.acquisitions[0].id, bookId: 77, status: state.acquisitions[0].status, duplicate: state.duplicate }, 202)
     }
     if (path === '/api/acquisitions') return json(state.acquisitions)
@@ -60,7 +62,14 @@ export async function mockVersionChoices(page) {
     if (path === '/api/activity/direct') return json({ items: [] })
     if (path === '/api/books/77') return json(book)
     if (path === '/api/books/77/related') return json({ series: [], author: [], similar: [] })
-    if (path === '/api/delivery-targets/default') return json({ address: null, source: null })
+    if (path === '/api/delivery-targets/default') return json({ address: state.targets[0]?.address ?? null, source: state.targets.length ? 'personal' : 'none', senderAddress: null })
+    if (path === '/api/delivery-targets' && request.method() === 'POST') {
+      const input = request.postDataJSON()
+      const target = { id: 501 + state.targets.length, userId: 88, enabled: true, isDefault: state.targets.length === 0, ...input }
+      state.targets.push(target)
+      return json(target, 201)
+    }
+    if (path === '/api/delivery-targets') return json(state.targets)
     if (path.endsWith('/cover')) return route.fulfill({ status: 404 })
     return json([])
   })
@@ -74,16 +83,12 @@ export default async function versionChoices(page, { base }) {
   await page.goto(discover, { waitUntil: 'networkidle' })
   state.user.acquisitionMode = 'ask'
   await page.reload({ waitUntil: 'networkidle' })
-  state.initialStatus = 'REQUESTED'
-  await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
-  await page.getByRole('status').getByText(/You will choose before anything downloads/).waitFor()
-  state.acquisitions[0].status = 'NEEDS_SELECTION'
   state.initialStatus = 'NEEDS_SELECTION'
   let dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
   await dialog.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
-  expect(state.writes[0].input.askBeforeDownload === undefined && state.writes[0].input.sharing === undefined, 'Get follows saved download and sharing preferences')
+  expect(state.writes.length === 0, 'opening the book follows the preference without starting acquisition')
   expect(state.user.acquisitionMode === 'ask', 'Get preserves the account default')
-  expect(await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(2).isDisabled(), 'unavailable releases cannot be selected')
+  expect(await dialog.getByRole('radio').nth(2).isDisabled(), 'unavailable releases cannot be selected')
   expect(await page.getByRole('button', { name: /diagnostics/i }).count() === 0, 'adult choices do not expose admin diagnostics')
   for (const theme of ['paper', 'ink']) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)
@@ -98,12 +103,13 @@ export default async function versionChoices(page, { base }) {
     }
   }
   state.failSelection = true
-  await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(1).click()
-  await dialog.getByRole('alert').getByText('Source temporarily unavailable').waitFor()
-  expect(state.acquisitions[0].status === 'NEEDS_SELECTION', 'a failed choice stays available for retry')
-  await dialog.getByRole('button', { name: 'Get this version', exact: true }).nth(1).click()
+  await dialog.getByRole('radio').nth(1).check()
+  await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
+  await dialog.getByRole('status').getByText('Source temporarily unavailable').waitFor()
+  expect(state.acquisitions.length === 0, 'a failed choice stays available for retry')
+  await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
   await dialog.waitFor({ state: 'detached' })
-  expect(state.writes.at(-1).input.index === 1, 'the selected release is sent by its candidate index')
+  expect(state.writes.at(-1).input.releaseKey === 'b'.repeat(64), 'Get sends the exact previewed release identity')
   expect(!new URL(page.url()).searchParams.has('choose'), 'successful choice clears the chooser URL')
 
   state.user.acquisitionMode = 'automatic'
@@ -115,9 +121,8 @@ export default async function versionChoices(page, { base }) {
   expect(await page.getByRole('button', { name: /^Show available versions/ }).getAttribute('aria-pressed') === 'true', 'an adult can save Show available versions as their account default')
   await page.goto(discover, { waitUntil: 'networkidle' })
   expect(await page.getByRole('button', { name: 'Choose a version', exact: true }).count() === 0, 'the account preference uses the normal Get action')
-  await page.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
   await dialog.waitFor()
-  expect(state.writes.at(-1).input.askBeforeDownload === undefined, 'normal Get follows the account preference')
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isDisabled(), 'normal Get waits for a version choice')
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   await dialog.waitFor({ state: 'detached' })
 
@@ -139,6 +144,30 @@ export default async function versionChoices(page, { base }) {
   dialog = page.getByRole('dialog', { name: 'Available versions', exact: true })
   await page.getByRole('status').getByText(/already has a shared download in progress/).waitFor()
   expect(await dialog.getByRole('button', { name: 'Get this version', exact: true }).count() === 0 && state.acquisitions[0].askBeforeDownload === false, 'joining an active download preserves its existing choice')
+
+  state.duplicate = false
+  state.acquisitions = []
+  state.user.acquisitionMode = 'ask'
+  await page.goto(discover, { waitUntil: 'networkidle' })
+  dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
+  await dialog.getByRole('radio').first().check()
+  const beforeReaderSetup = state.writes.length
+  await dialog.getByRole('button', { name: 'Get & send…', exact: true }).click()
+  let readerDialog = page.getByRole('dialog', { name: 'Get & send', exact: true })
+  await readerDialog.getByLabel('Reader email address', { exact: true }).waitFor()
+  expect(state.writes.length === beforeReaderSetup && state.targets.length === 0, 'opening reader setup does not acquire or save a reader')
+  expect(await readerDialog.getByRole('button', { name: 'Get & send', exact: true }).isDisabled(), 'reader setup waits for a destination')
+  await page.keyboard.press('Escape')
+  await readerDialog.waitFor({ state: 'detached' })
+  await dialog.waitFor()
+  expect(await dialog.getByRole('radio').first().isChecked(), 'closing setup preserves the selected version and book dialog')
+  await dialog.getByRole('button', { name: 'Get & send…', exact: true }).click()
+  readerDialog = page.getByRole('dialog', { name: 'Get & send', exact: true })
+  await readerDialog.getByLabel('Reader email address', { exact: true }).fill('mira@reader.example')
+  await readerDialog.getByRole('button', { name: 'Get & send', exact: true }).click()
+  await readerDialog.waitFor({ state: 'detached' })
+  expect(state.targets.length === 1 && state.targets[0].address === 'mira@reader.example', 'reader setup saves a reader shared with Profile')
+  expect(state.writes.at(-1).input.sendToReader === true && state.writes.at(-1).input.targetId === 501 && state.writes.at(-1).input.releaseKey === 'a'.repeat(64), 'Get & send keeps both the chosen version and reader')
 
   state.user.canAcquire = false
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })

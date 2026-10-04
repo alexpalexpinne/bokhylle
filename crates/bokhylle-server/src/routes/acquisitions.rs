@@ -206,10 +206,12 @@ async fn load_evaluated(
 pub struct CreateAcquisition {
     /// Overrides the profile default for this new acquisition only.
     pub ask_before_download: Option<bool>,
+    pub release_key: Option<String>,
     pub sharing: Option<crate::services::sharing::BookSharing>,
     pub preferred_format: Option<String>,
     pub preferred_language: Option<String>,
     pub send_to_reader: Option<bool>,
+    pub target_id: Option<i64>,
 }
 
 pub async fn create(
@@ -218,9 +220,17 @@ pub async fn create(
     Path(book_id): Path<i64>,
     Json(body): Json<CreateAcquisition>,
 ) -> Result<StatusJson<AcquisitionStart, 202>, AppError> {
+    crate::services::releases::validate_choice(body.release_key.as_deref())?;
     if !crate::auth::can_acquire(&state.db, &user).await? {
         return Err(AppError::Forbidden);
     }
+    let destination = crate::services::delivery::acquisition_destination(
+        &state,
+        &user,
+        body.send_to_reader.unwrap_or(false),
+        body.target_id,
+    )
+    .await?;
     let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM books WHERE id = ?")
         .bind(book_id)
         .fetch_optional(&state.db)
@@ -242,19 +252,28 @@ pub async fn create(
         _ => profile_languages,
     };
     let preferred_format = body.preferred_format.or(profile_format);
-    let (acquisition, duplicate) = acquisition::create_with_languages(
-        &state.db,
+    let (acquisition, duplicate) = crate::services::delivery::create_acquisition(
+        &state,
+        &user,
         book_id,
-        Some(user.id),
         preferred_format,
         languages,
         body.send_to_reader.unwrap_or(false),
-        body.ask_before_download
-            .unwrap_or(user.acquisition_mode == "ask"),
+        body.release_key.is_some()
+            || body
+                .ask_before_download
+                .unwrap_or(user.acquisition_mode == "ask"),
+        destination,
     )
     .await?;
 
     if !duplicate {
+        crate::services::releases::record_choice(
+            &state,
+            &acquisition.id,
+            body.release_key.as_deref(),
+        )
+        .await?;
         acquisition_pipeline::spawn(&state, acquisition.id.clone());
     }
 

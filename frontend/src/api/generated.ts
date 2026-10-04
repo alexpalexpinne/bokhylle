@@ -2828,6 +2828,7 @@ export interface components {
             seriesSortOrder: number | null;
             sharedInHousehold: boolean;
             sharing: components["schemas"]["BookSharing"] | null;
+            sharingManaged: boolean;
             subjects: components["schemas"]["SubjectName"][];
             title: string;
         };
@@ -3192,8 +3193,11 @@ export interface components {
             askBeforeDownload?: boolean | null;
             preferredFormat?: string | null;
             preferredLanguage?: string | null;
+            releaseKey?: string | null;
             sendToReader?: boolean | null;
             sharing?: components["schemas"]["BookSharing"] | null;
+            /** Format: int64 */
+            targetId?: number | null;
         };
         CreateAgentToken: {
             name?: string | null;
@@ -3208,8 +3212,11 @@ export interface components {
             preferredLanguage?: string | null;
             provider: string;
             providerKey: string;
+            releaseKey?: string | null;
             sendToReader?: boolean | null;
             sharing?: components["schemas"]["BookSharing"] | null;
+            /** Format: int64 */
+            targetId?: number | null;
         };
         CreateHttpAcquisition: {
             format?: string | null;
@@ -4059,15 +4066,20 @@ export interface components {
         ReleaseView: {
             format: string | null;
             indexer?: string | null;
+            isCollection: boolean;
             language: string | null;
             /** Format: int64 */
             leechers?: number | null;
             method: string;
+            recommended: boolean;
+            rejected: boolean;
             releaseName?: string | null;
             /** Format: int64 */
             seeders: number | null;
+            selectionKey: string | null;
             /** Format: int64 */
             sizeBytes: number;
+            unavailableReason: string | null;
         };
         ReleasesResponse: {
             releases: components["schemas"]["ReleaseView"][];

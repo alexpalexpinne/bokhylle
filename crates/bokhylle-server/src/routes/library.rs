@@ -1587,6 +1587,44 @@ pub async fn get_cover(
             .into_response());
     }
 
+    let manual: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM book_metadata_fields
+        WHERE book_id = ? AND field = 'cover' AND manual = 1)",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+    if manual {
+        return Ok(library_cover_placeholder(&target.title, &target.authors));
+    }
+
+    // Repair older acquisitions too: a saved catalogue identity survives the
+    // switch from Discover to the library, even when a work has no ISBN.
+    match crate::library::covers::restore(&state, id).await {
+        Ok(Some(path)) => {
+            if let Ok(bytes) = tokio::fs::read(&path).await
+                && bokhylle_library::covers::usable_cover(&bytes)
+            {
+                return Ok((
+                    [
+                        (
+                            header::CONTENT_TYPE,
+                            HeaderValue::from_static(content_type_for(&path.to_string_lossy())),
+                        ),
+                        (
+                            header::CACHE_CONTROL,
+                            HeaderValue::from_static("private, no-store"),
+                        ),
+                    ],
+                    bytes,
+                )
+                    .into_response());
+            }
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, book_id = id, "library.cover.restore_failed"),
+    }
+
     // No usable embedded cover: try Open Library by ISBN and cache the result.
     if let Some(isbn) = target.isbn.as_deref() {
         let covers_dir = state.paths.config_dir.join("artwork").join("covers");
@@ -1632,8 +1670,12 @@ pub async fn get_cover(
         }
     }
 
-    let placeholder = bokhylle_library::covers::placeholder_svg(&target.title, &target.authors);
-    Ok((
+    Ok(library_cover_placeholder(&target.title, &target.authors))
+}
+
+fn library_cover_placeholder(title: &str, authors: &[String]) -> Response {
+    let placeholder = bokhylle_library::covers::placeholder_svg(title, authors);
+    (
         [
             (
                 header::CONTENT_TYPE,
@@ -1643,7 +1685,7 @@ pub async fn get_cover(
         ],
         placeholder,
     )
-        .into_response())
+        .into_response()
 }
 
 pub async fn start_scan(
@@ -1711,6 +1753,7 @@ fn content_type_for(path: &str) -> &'static str {
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "bmp" => "image/bmp",
         "svg" => "image/svg+xml",
         _ => "application/octet-stream",
     }
