@@ -104,6 +104,22 @@ pub async fn upsert_book_from_metadata(
     if let Some(key) = provider_key(metadata) {
         crate::external_ids::link_book_tx(&mut tx, book_id, &metadata.provider, key).await?;
     }
+    if let Some(cover_id) = metadata
+        .cover_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+    {
+        sqlx::query(
+            "INSERT INTO book_cover_sources (book_id, provider, cover_id) VALUES (?, ?, ?)
+            ON CONFLICT(book_id) DO UPDATE SET provider = excluded.provider,
+                cover_id = excluded.cover_id, updated_at = unixepoch()",
+        )
+        .bind(book_id)
+        .bind(&metadata.provider)
+        .bind(cover_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     for language in metadata
         .languages
         .iter()

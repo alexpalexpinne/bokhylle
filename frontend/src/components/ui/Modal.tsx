@@ -15,6 +15,9 @@ type ModalProps = {
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+const modalStack: HTMLElement[] = []
+let originalOverflow = ''
+
 export function Modal({ title, description, onClose, children, headerAside, footer, wide }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
@@ -26,12 +29,22 @@ export function Modal({ title, description, onClose, children, headerAside, foot
 
   useEffect(() => {
     restoreRef.current = document.activeElement as HTMLElement | null
+    const frame = panelRef.current?.parentElement
+    if (!frame) return
+    const previous = modalStack.at(-1)
+    if (previous) {
+      previous.inert = true
+      previous.setAttribute('aria-hidden', 'true')
+    } else {
+      originalOverflow = document.body.style.overflow
+    }
+    modalStack.push(frame)
     panelRef.current?.focus()
 
-    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
     function onKeyDown(event: KeyboardEvent) {
+      if (modalStack.at(-1) !== frame) return
       if (event.key === 'Escape') {
         closeRef.current()
         return
@@ -65,8 +78,16 @@ export function Modal({ title, description, onClose, children, headerAside, foot
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = previousOverflow
-      restoreRef.current?.focus()
+      const index = modalStack.indexOf(frame)
+      if (index !== -1) modalStack.splice(index, 1)
+      const active = modalStack.at(-1)
+      if (active) {
+        active.inert = false
+        active.removeAttribute('aria-hidden')
+      } else {
+        document.body.style.overflow = originalOverflow
+      }
+      if (restoreRef.current?.isConnected) restoreRef.current.focus()
     }
     // Deliberately mount-only: depending on `onClose` (usually an inline
     // arrow) would re-run the cleanup on every parent render and steal

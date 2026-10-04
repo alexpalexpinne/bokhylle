@@ -47,11 +47,46 @@ acquisition. Joining active work preserves its original requester, selection,
 and mode. A completed book can start another acquisition; distinct file bytes
 are added alongside existing files, whose reading positions remain intact.
 
+`GET /api/discover/releases` is a read-only preview evaluated against the
+profile's accepted languages and requested format. It also accepts
+`provider=local&providerKey=local:<book-id>` for an accessible library record.
+Selectable versions include an opaque `selectionKey`; disabled versions
+include `unavailableReason`. Browsing creates no acquisition or ownership.
+Pass a chosen key as `releaseKey` to either acquisition creation endpoint.
+The server journals that choice, freezes the request preferences, searches
+again, and queues only the same identity if it is still suitable. If the chosen
+version disappears or is rejected, the request requires another selection or
+reports that no suitable release exists. Joining active work preserves the
+original requester's choice.
+
+Release previews return 503 with `code: "indexer_not_configured"` when no
+search source is configured. This setup state is distinct from a temporary
+search failure (`service_unavailable`), which can be retried.
+
+Both acquisition creation endpoints accept `targetId` with `sendToReader: true`.
+The target must be enabled and owned by the caller. Its address commits with
+the caller's request, including when joining existing work; later default
+changes cannot redirect that send. Omitted targets retain default-reader
+behavior. The creation endpoints share this destination logic with the
+catalogue acquisition service.
+
+Discovery details for a downloaded book return its file's `language` and the
+languages of its local files. Other entries return catalogue edition languages.
+The provider's description is independent of those edition languages.
+
 Adults allowed to acquire books see release names, sources, and seeder counts
 in discovery previews, matching administrators. Adults needing approval see
 availability summaries. Only the original requester or an administrator can
 select a candidate. Technical scoring and acquisition
 diagnostics remain administrator operations.
+
+Book details include `sharingManaged`: `false` identifies a shared library
+import without a personal owner. Only an owner's own sharing grant is editable.
+Catalogue cover identities remain attached to local book records. Acquisition
+imports extract embedded artwork before becoming ready, including recovery;
+cover requests repair missing artwork on older acquisitions using embedded
+artwork first and the saved catalogue identity as a fallback. Automatic cover
+updates preserve manual corrections.
 
 Administrators can select `integrations.indexer.provider` (`auto`, `prowlarr`,
 `torznab`, or `newznab`) and configure each source through the settings API.

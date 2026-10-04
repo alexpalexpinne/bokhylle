@@ -20,6 +20,8 @@ pub enum AppError {
     Unprocessable(String),
     #[error("{0}")]
     Unavailable(String),
+    #[error("Book downloading isn't set up yet.")]
+    IndexerNotConfigured,
     #[error("too many requests")]
     RateLimited,
     #[error("cryptographic operation failed")]
@@ -47,6 +49,7 @@ impl AppError {
             Self::Conflict(_) => "conflict",
             Self::Unprocessable(_) => "unprocessable_entity",
             Self::Unavailable(_) => "service_unavailable",
+            Self::IndexerNotConfigured => "indexer_not_configured",
             Self::RateLimited => "rate_limited",
             Self::Crypto => "internal_error",
             Self::Library(_) => "internal_error",
@@ -62,7 +65,7 @@ impl AppError {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Unprocessable(_) => StatusCode::UNPROCESSABLE_ENTITY,
-            Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable(_) | Self::IndexerNotConfigured => StatusCode::SERVICE_UNAVAILABLE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Crypto => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Library(_) => StatusCode::INTERNAL_SERVER_ERROR,

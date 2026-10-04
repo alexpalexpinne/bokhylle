@@ -24,8 +24,8 @@ The previews show the isolated demo's selected classics and their covers from [S
 
 - **One collection, personal shelves.** Each adult chooses private or shared books, with an account default and controls for individual or selected titles. Personal shelves and reading progress stay private.
 - **Discover something you want to read.** Home opens with local books and saved suggestions, with fresh catalogue picks prepared in the background for your next visit. Suggestions draw on your shelf, likes, reading interests, and followed authors. Search the household collection or the public catalogue, and request a missing book.
-- **Choose what to download.** Adults who can get books choose a download preference: let Bokhylle pick, or show available versions before downloading. Find another version under More keeps existing files and reading progress.
-- **Read wherever you prefer.** Open EPUB, PDF, and CBZ in the browser with saved progress. Download a file, send it to an email-capable reader, or connect a reading app through OPDS or KOReader sync.
+- **Choose what to download.** Adults who can get books choose a download preference: let Bokhylle pick, or see available versions when opening a book and select a file before pressing Get. Find another version under More keeps existing files and reading progress.
+- **Read wherever you prefer.** Open EPUB, PDF, and CBZ in the browser with saved progress. Download a file, send it to an email-capable reader, or connect a reading app through OPDS or KOReader sync. Get & send lets you set up a reader before starting the download.
 - **Give children their own shelves.** Adults choose their books and decide whether they can search or explore for more. Children read from their assigned shelves; requests need adult approval. Public catalogue search is not age filtered.
 - **Keep a useful catalogue.** Group comics and manga by series and reading order. Review imports and correct book details; your corrections survive later scans and metadata refreshes.
 - **Connect an AI assistant.** Use [MCP](#connect-an-assistant-with-mcp) to search books, explore your shelf, and get or send books through a compatible assistant.
@@ -80,6 +80,17 @@ The chooser below uses fictional books and releases.
   <img src="docs/media/version-choices-desktop.png" alt="An adult choosing a torrent or file directly in the book dialog" width="100%">
 </p>
 
+Get &amp; send opens reader setup when no reader is saved. The same saved
+readers are available in Profile.
+
+<p align="center">
+  <img src="docs/media/reader-setup-desktop.png" alt="Adding a reader before getting and sending a fictional book" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/media/reader-setup-mobile.png" alt="Reader setup from the Get and send action on a phone" width="280">
+</p>
+
 </details>
 
 ## Start with your books
@@ -110,7 +121,7 @@ chmod 600 .env
 chmod 700 data/config
 ```
 
-Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.3.0`. Then start the app:
+Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.3.1`. Then start the app:
 
 ```sh
 docker compose -f compose.yaml -f compose.image.yaml pull bokhylle

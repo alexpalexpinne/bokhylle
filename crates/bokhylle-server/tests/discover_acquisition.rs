@@ -266,6 +266,15 @@ async fn release_preview_lists_seeders_before_acquiring() {
     );
     assert_eq!(body["releases"][0]["leechers"], 6);
     assert_eq!(body["releases"][0]["indexer"], "IPTorrents");
+    assert_eq!(
+        body["releases"][0]["selectionKey"].as_str().unwrap().len(),
+        64
+    );
+    let acquisitions: i64 = sqlx::query_scalar("SELECT count(*) FROM acquisitions")
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(acquisitions, 0);
 
     sqlx::query("UPDATE users SET can_acquire = 0 WHERE username = 'reader'")
         .execute(&test_app.state.db)
@@ -283,6 +292,7 @@ async fn release_preview_lists_seeders_before_acquiring() {
         "a cached preview must still apply the viewer's permissions"
     );
     assert!(restricted["releases"][0]["indexer"].is_null());
+    assert!(restricted["releases"][0]["selectionKey"].is_null());
 
     test_app
         .state
@@ -303,6 +313,96 @@ async fn release_preview_lists_seeders_before_acquiring() {
     assert_eq!(
         admin_body, body,
         "adults who can acquire and admins see the same choices"
+    );
+}
+
+#[tokio::test]
+async fn missing_indexer_has_a_setup_error_distinct_from_search_failure() {
+    let app =
+        common::test_app_with_metadata(Arc::new(FakeMetadataProvider::new(vec![hail_mary()])))
+            .await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    let (status, error) = get_json(
+        &app,
+        "/api/discover/releases?provider=fake&providerKey=/works/OL1W",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error["code"], "indexer_not_configured");
+
+    let library = tempfile::tempdir().unwrap();
+    let failing = common::test_app_full(
+        library.path().to_path_buf(),
+        Arc::new(FakeMetadataProvider::new(vec![hail_mary()])),
+        Arc::new(FakeIndexerProvider::failing()),
+        Arc::new(FakeDownloadProvider::default()),
+    )
+    .await;
+    failing
+        .state
+        .auth
+        .create_user("reader", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&failing, "reader", "password123").await;
+    let (status, error) = get_json(
+        &failing,
+        "/api/discover/releases?provider=fake&providerKey=/works/OL1W",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(error["code"], "service_unavailable");
+}
+
+#[tokio::test]
+async fn foreign_or_disabled_reader_cannot_create_a_catalogue_acquisition() {
+    let app =
+        common::test_app_with_metadata(Arc::new(FakeMetadataProvider::new(vec![hail_mary()])))
+            .await;
+    app.state
+        .auth
+        .create_user("alice", "password123", Role::User)
+        .await
+        .unwrap();
+    app.state
+        .auth
+        .create_user("bob", "password123", Role::User)
+        .await
+        .unwrap();
+    let alice = common::login(&app, "alice", "password123").await;
+    let bob = common::login(&app, "bob", "password123").await;
+    let (status, target) = post_json(
+        &app,
+        "/api/delivery-targets",
+        &bob,
+        json!({"address": "bob@kindle.example"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let payload = json!({"provider": "fake", "providerKey": "/works/OL1W", "sendToReader": true, "targetId": target["id"]});
+    let (status, _) = post_json(&app, "/api/discover/acquisitions", &alice, payload.clone()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    sqlx::query("UPDATE delivery_targets SET enabled = 0 WHERE id = ?")
+        .bind(target["id"].as_i64().unwrap())
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let (status, _) = post_json(&app, "/api/discover/acquisitions", &bob, payload).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM books")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "reader validation must precede catalogue mutation"
     );
 }
 

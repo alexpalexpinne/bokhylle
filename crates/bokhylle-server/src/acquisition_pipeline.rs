@@ -167,7 +167,37 @@ pub async fn run(state: &AppState, acquisition_id: &str) -> Result<(), AppError>
         .await?
         .map(|acquisition| acquisition.ask_before_download)
         .unwrap_or(false);
-    let selection = if ask_before_download {
+    let requested = acquisition::latest_event_detail(
+        &state.db,
+        acquisition_id,
+        "acquisition.release.requested",
+    )
+    .await?
+    .and_then(|detail| {
+        detail
+            .get("selectionKey")
+            .and_then(|key| key.as_str())
+            .map(str::to_owned)
+    });
+    let selection = if let Some(key) = requested.as_deref() {
+        // Re-search and evaluate the exact requested identity under the frozen
+        // request preferences. Never substitute another release silently.
+        match evaluated.iter().position(|release| {
+            !release.rejected()
+                && !release
+                    .candidate
+                    .method
+                    .as_ref()
+                    .is_some_and(|method| method.kind() == "http")
+                && crate::services::releases::selection_key(release) == key
+        }) {
+            Some(index) => Selection::Auto { index },
+            None => match evaluator::select(&evaluated) {
+                Selection::None => Selection::None,
+                _ => Selection::NeedsSelection,
+            },
+        }
+    } else if ask_before_download {
         match evaluator::select(&evaluated) {
             Selection::None => Selection::None,
             _ => Selection::NeedsSelection,
@@ -211,19 +241,28 @@ pub async fn run(state: &AppState, acquisition_id: &str) -> Result<(), AppError>
                 .ok();
         }
         Selection::NeedsSelection => {
-            acquisition::transition(
-                &state.db,
+            let changed = requested.as_ref().map(|_| "The version you selected is no longer available or suitable. Choose another version.");
+            let mut tx = state.db.begin().await?;
+            acquisition::transition_tx(
+                &mut tx,
                 acquisition_id,
+                AcquisitionStatus::Evaluating,
                 AcquisitionStatus::NeedsSelection,
                 Some(json!({ "candidates": evaluated.len() })),
             )
             .await?;
+            if let Some(message) = changed {
+                sqlx::query("UPDATE acquisitions SET error_code = 'requested_version_unavailable',
+                    error_message = ?, updated_at = unixepoch() WHERE id = ? AND status = 'NEEDS_SELECTION'")
+                    .bind(message).bind(acquisition_id).execute(&mut *tx).await?;
+            }
+            tx.commit().await?;
             crate::notifications::for_requesters(
                 &state.db,
                 acquisition_id,
                 "needs_selection",
                 "Choose a version",
-                None,
+                changed,
             )
             .await
             .ok();
@@ -278,6 +317,8 @@ pub async fn select_candidate(
         ));
     }
 
+    let key = crate::services::releases::selection_key(release);
+    crate::services::releases::record_choice(state, acquisition_id, Some(&key)).await?;
     queue_release(state, acquisition_id, release).await
 }
 

@@ -562,6 +562,190 @@ async fn covers_fall_back_to_the_metadata_provider() {
 }
 
 #[tokio::test]
+async fn catalogue_cover_repairs_missing_artwork_without_an_isbn_and_respects_manual_clear() {
+    let library = tempfile::tempdir().unwrap();
+    bokhylle_library::fixtures::generate_library(library.path(), 1).unwrap();
+    let metadata = Arc::new(FakeMetadataProvider::new(vec![]));
+    let artwork = vec![0xFF; 4096];
+    metadata.set_cover(artwork.clone());
+    let app = common::test_app_full(
+        library.path().to_path_buf(),
+        metadata,
+        Arc::new(FakeIndexerProvider::default()),
+        Arc::new(FakeDownloadProvider::default()),
+    )
+    .await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::Admin)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    assert_eq!(trigger_scan(&app, &cookie).await, StatusCode::ACCEPTED);
+    wait_for_scan(&app, &cookie).await;
+    let book_id: i64 = sqlx::query_scalar("SELECT id FROM books WHERE title = 'Project Hail Mary'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE editions SET isbn10 = NULL, isbn13 = NULL WHERE book_id = ?")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let missing = app.state.paths.config_dir.join("missing-cover.jpg");
+    sqlx::query("UPDATE books SET cover_path = ? WHERE id = ?")
+        .bind(missing.to_string_lossy().as_ref())
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO book_cover_sources (book_id, provider, cover_id) VALUES (?, 'fake', 'saved-cover')").bind(book_id).execute(&app.state.db).await.unwrap();
+    let response = get(&app, &format!("/api/books/{book_id}/cover"), &cookie).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(bytes.as_ref(), artwork);
+    let path: String = sqlx::query_scalar("SELECT cover_path FROM books WHERE id = ?")
+        .bind(book_id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_ne!(path, missing.to_string_lossy());
+    assert_eq!(std::fs::read(&path).unwrap(), artwork);
+
+    sqlx::query("UPDATE books SET cover_path = NULL WHERE id = ?")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE book_metadata_fields SET manual = 1 WHERE book_id = ? AND field = 'cover'")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let response = get(&app, &format!("/api/books/{book_id}/cover"), &cookie).await;
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/svg+xml"
+    );
+    let path: Option<String> = sqlx::query_scalar("SELECT cover_path FROM books WHERE id = ?")
+        .bind(book_id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert!(
+        path.is_none(),
+        "a manually cleared cover must remain cleared"
+    );
+}
+
+#[tokio::test]
+async fn older_book_recovers_embedded_cover_only_inside_the_library() {
+    use std::io::{Read, Write};
+    let library = tempfile::tempdir().unwrap();
+    let files = bokhylle_library::fixtures::generate_library(library.path(), 1).unwrap();
+    let epub = files
+        .iter()
+        .find(|path| path.extension().is_some_and(|ext| ext == "epub"))
+        .unwrap();
+    let mut original = zip::ZipArchive::new(std::fs::File::open(epub).unwrap()).unwrap();
+    let mut output = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let mut artwork = Vec::new();
+    for index in 0..original.len() {
+        let mut entry = original.by_index(index).unwrap();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        if entry.name() == "OEBPS/cover.png" {
+            bytes.resize(4096, 0);
+            artwork = bytes.clone();
+        }
+        output
+            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .unwrap();
+        output.write_all(&bytes).unwrap();
+    }
+    assert_eq!(artwork.len(), 4096);
+    std::fs::write(epub, output.finish().unwrap().into_inner()).unwrap();
+    std::fs::copy(
+        epub,
+        library
+            .path()
+            .join("duplicates")
+            .join(epub.file_name().unwrap()),
+    )
+    .unwrap();
+    let app = common::test_app_with_library_root(library.path().to_path_buf()).await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::Admin)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    assert_eq!(trigger_scan(&app, &cookie).await, StatusCode::ACCEPTED);
+    wait_for_scan(&app, &cookie).await;
+    let book_id: i64 = sqlx::query_scalar("SELECT id FROM books WHERE title = 'Project Hail Mary'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE books SET cover_path = NULL WHERE id = ?")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let response = get(&app, &format!("/api/books/{book_id}/cover"), &cookie).await;
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/png"
+    );
+    assert_eq!(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .as_ref(),
+        artwork
+    );
+    let saved: String = sqlx::query_scalar("SELECT cover_path FROM books WHERE id = ?")
+        .bind(book_id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(saved).unwrap(), artwork);
+
+    let outside = tempfile::tempdir().unwrap();
+    let file_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT f.id FROM book_files f JOIN editions e ON e.id = f.edition_id WHERE e.book_id = ?",
+    )
+    .bind(book_id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    for file_id in file_ids {
+        let outside_epub = outside.path().join(format!("{file_id}.epub"));
+        std::fs::copy(epub, &outside_epub).unwrap();
+        sqlx::query("UPDATE book_files SET path = ? WHERE id = ?")
+            .bind(outside_epub.to_string_lossy().as_ref())
+            .bind(file_id)
+            .execute(&app.state.db)
+            .await
+            .unwrap();
+    }
+    sqlx::query("UPDATE books SET cover_path = NULL WHERE id = ?")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE editions SET isbn10 = NULL, isbn13 = NULL WHERE book_id = ?")
+        .bind(book_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let response = get(&app, &format!("/api/books/{book_id}/cover"), &cookie).await;
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/svg+xml"
+    );
+}
+
+#[tokio::test]
 async fn facets_and_filters_reflect_the_library() {
     let library_dir = tempfile::tempdir().unwrap();
     bokhylle_library::fixtures::generate_library(library_dir.path(), 12).unwrap();

@@ -19,15 +19,17 @@ export type AcquisitionDiagnostics = components['schemas']['AcquisitionDiagnosti
 /// books), so no provider resolution is needed.
 export function createAcquisitionForBook(
   bookId: number,
-  options: { preferredFormat?: string; sendToReader?: boolean; sharing?: 'private' | 'shared'; askBeforeDownload?: boolean } = {},
+  options: { preferredFormat?: string; sendToReader?: boolean; targetId?: number; sharing?: 'private' | 'shared'; askBeforeDownload?: boolean; releaseKey?: string } = {},
 ) {
   return apiRoute('/api/books/{book_id}/acquisitions', `/api/books/${bookId}/acquisitions`, {
     method: 'POST',
     json: {
       preferredFormat: options.preferredFormat,
       sendToReader: options.sendToReader,
+      targetId: options.targetId,
       sharing: options.sharing,
       askBeforeDownload: options.askBeforeDownload,
+      releaseKey: options.releaseKey,
     },
   })
 }
@@ -42,7 +44,7 @@ export function createHttpAcquisitionForBook(bookId: number, url: string, format
 export function createAcquisitionFromDiscovery(
   provider: string,
   providerKey: string,
-  options: { preferredFormat?: string; sendToReader?: boolean; sharing?: 'private' | 'shared'; askBeforeDownload?: boolean } = {},
+  options: { preferredFormat?: string; sendToReader?: boolean; targetId?: number; sharing?: 'private' | 'shared'; askBeforeDownload?: boolean; releaseKey?: string } = {},
 ) {
   return apiRoute('/api/discover/acquisitions', '/api/discover/acquisitions', {
     method: 'POST',
@@ -51,8 +53,10 @@ export function createAcquisitionFromDiscovery(
       providerKey,
       preferredFormat: options.preferredFormat,
       sendToReader: options.sendToReader,
+      targetId: options.targetId,
       sharing: options.sharing,
       askBeforeDownload: options.askBeforeDownload,
+      releaseKey: options.releaseKey,
     },
   })
 }

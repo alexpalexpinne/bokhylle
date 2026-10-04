@@ -112,15 +112,40 @@ and real cover art. It remains a useful web application, not a magazine.
   selected states and 48px touch targets.
 - Pair a compact cover with the title on mobile so actions remain easy to
   reach. Keep the larger desktop cover beside the title and action area.
+- Keep sending discoverable through the book action. Without a saved reader,
+  Get & send opens the same reader selection/setup used for available files;
+  confirmation starts the download with that destination. Existing readers
+  keep their shortcut. Reader setup instructions belong in this dialog and
+  Profile, rather than a repeated message in every book's metadata.
 - Show actual Private or Shared visibility at the top right of the book header,
   aligned with the Library back link, using a lock
   or household icon with an accessible name and tooltip. Owners open this
-  icon to edit sharing in a dialog with an explicit Save action. Borrowers see
-  a read-only icon.
-- Before adding a catalogue book, show the saved sharing default as a read-only
-  lock or household icon in the dialog header, with a tooltip and accessible
-  label. Keep download-preference explanations in settings; the version chooser
-  explains the selection when it opens.
+  icon to edit sharing in a dialog with an explicit Save action. Editable icons
+  have a pointer cursor, a visible hover/focus background, and a tooltip naming
+  the action. Borrowers and shared imports have a quieter marker whose tooltip
+  explains who controls sharing; tapping it reveals that explanation on mobile.
+- Show a sharing marker only for actual library visibility. Keep the default
+  for future additions in Profile settings.
+- When an adult chooses Show available versions, opening an undownloaded book
+  loads a read-only version list within its details. Select a file, then Get or
+  Get & Send; opening or selecting alone never starts an acquisition. Show
+  format, language, size, source, availability, and a reason for disabled choices.
+  Keep versions in the details column beside the cover on desktop; on mobile,
+  let the list span the full width below the cover and book information.
+  Missing download setup is a neutral status with Set up downloading for
+  administrators and an explanation for other adults. Temporary search
+  failures offer Try again beside the message, wrapping on narrow screens.
+  Automatic selection keeps the normal Get action. Existing files remain the
+  focus on downloaded books; Find another version stays under More.
+- Preserve catalogue artwork while a book is acquired and extract embedded
+  artwork before marking its file ready. Discover and Library use the same
+  durable cover after a book gets a local identity. Manual cover corrections
+  remain authoritative.
+- Catalogue language captions name editions (for example, English editions).
+  Downloaded books show their file's language. Catalogue descriptions are
+  independent provider text; an edition language never describes the language
+  of that text. Preserve the supplied description when no verified replacement
+  for the same book is available.
 - Keep subjects in the header beneath the author and metadata, above download
   status and actions. Preserve the small uppercase catalogue styling. Let the
   subject row span the full header width on mobile. Show three on mobile and six

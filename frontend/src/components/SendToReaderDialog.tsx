@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { ApiError } from '../api/client'
 import { scheduleAcquisitionDelivery } from '../api/acquisitions'
 import { Input } from '../components/ui/Field'
@@ -18,13 +18,15 @@ type Destination =
   | { kind: 'new' }
 
 type SendToReaderDialogProps = {
-  bookId: number
   onClose: () => void
   onSent: () => void
   scheduled?: boolean
   initialAddress?: string | null
-} & ({ fileId: number; format: string; acquisitionId?: never }
-  | { acquisitionId: string; fileId?: never; format?: never })
+} & (
+  { bookId: number; fileId: number; format: string; acquisitionId?: never; onGetAndSend?: never }
+  | { bookId: number; acquisitionId: string; fileId?: never; format?: never; onGetAndSend?: never }
+  | { onGetAndSend: (targetId?: number) => Promise<void>; bookId?: never; fileId?: never; format?: never; acquisitionId?: never }
+)
 
 export function SendToReaderDialog({
   bookId,
@@ -35,7 +37,9 @@ export function SendToReaderDialog({
   initialAddress,
   onClose,
   onSent,
+  onGetAndSend,
 }: SendToReaderDialogProps) {
+  const addressId = useId()
   const [targets, setTargets] = useState<DeliveryTarget[]>([])
   const [savedAddress] = useState(initialAddress)
   // One unambiguous destination: the radio shown as selected is always the
@@ -157,13 +161,18 @@ export function SendToReaderDialog({
         return
       }
 
+      if (onGetAndSend) {
+        await onGetAndSend(targetId)
+        onSent()
+        return
+      }
       if (acquisitionId) {
         await scheduleAcquisitionDelivery(acquisitionId, true, targetId)
         setResult('scheduled')
         onSent()
         return
       }
-      const delivery = await deliverBook(bookId, fileId!, targetId)
+      const delivery = await deliverBook(bookId!, fileId!, targetId)
       if (delivery.status === 'SENT') {
         setResult('sent')
         onSent()
@@ -172,7 +181,7 @@ export function SendToReaderDialog({
         setError(delivery.errorMessage ?? 'The delivery failed')
       }
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not send the book')
+      setError(caught instanceof ApiError || (onGetAndSend && caught instanceof Error) ? caught.message : 'Could not send the book')
     } finally {
       setSending(false)
     }
@@ -218,8 +227,8 @@ export function SendToReaderDialog({
 
   return (
     <Modal
-      title={acquisitionId ? 'Send when ready' : 'Send to your reader'}
-      description={acquisitionId ? 'Choose a reader. This book will be emailed there after it is added to the library.' : `The ${format!.toUpperCase()} file is emailed to your ${deviceNoun}.`}
+      title={onGetAndSend ? 'Get & send' : acquisitionId ? 'Send when ready' : 'Send to your reader'}
+      description={onGetAndSend || acquisitionId ? 'Choose a reader. This book will be emailed there after it is added to the library.' : `The ${format!.toUpperCase()} file is emailed to your ${deviceNoun}.`}
       onClose={() => { if (!sending) onClose() }}
       footer={
         result === 'sent' || result === 'scheduled' ? (
@@ -228,16 +237,17 @@ export function SendToReaderDialog({
           </Button>
         ) : (
           <>
+          {onGetAndSend && <Button variant="ghost" disabled={sending} onClick={onClose}>Cancel</Button>}
           {acquisitionId && scheduled && <Button variant="ghost" disabled={sending} onClick={() => void cancelScheduledSend()}>Cancel scheduled send</Button>}
           <Button variant="primary" onClick={() => void send()} disabled={!canSend}>
-            {sending ? acquisitionId ? 'Scheduling…' : 'Sending…' : acquisitionId ? 'Send when ready' : 'Send'}
+            {sending ? onGetAndSend ? 'Getting…' : acquisitionId ? 'Scheduling…' : 'Sending…' : onGetAndSend ? 'Get & send' : acquisitionId ? 'Send when ready' : 'Send'}
           </Button>
           </>
         )
       }
     >
       {error && (
-        <p className="mb-4 rounded-card bg-surface-2 px-3.5 py-2.5 text-sm text-danger">{error}</p>
+        <p role="alert" className="mb-4 text-sm text-danger">{error}</p>
       )}
 
       {warning && (
@@ -312,8 +322,8 @@ export function SendToReaderDialog({
             </label>
           )}
 
-          <label className="block pt-2">
-            <span className="mb-1.5 block text-xs text-ink-muted">Or add another reader address</span>
+          <div className="pt-2">
+            {enabledTargets.length === 0 && !householdReader && <p className="mb-3 text-sm text-ink-muted">Enter the email address supplied by your reader or reading app. It will also be saved in My readers in your Profile.</p>}
             <div className="mb-2 flex flex-wrap gap-1.5">
               {(
                 [
@@ -342,7 +352,11 @@ export function SendToReaderDialog({
                 </button>
               ))}
             </div>
+            <label htmlFor={addressId} className="mb-1.5 block text-xs text-ink-muted">{enabledTargets.length > 0 || householdReader ? 'Or add another reader address' : 'Reader email address'}</label>
             <Input
+              id={addressId}
+              type="email"
+              autoComplete="email"
               value={newAddress}
               onChange={(event) => changeNewAddress(event.target.value)}
               placeholder={
@@ -353,7 +367,7 @@ export function SendToReaderDialog({
                     : 'reader@example.com'
               }
             />
-          </label>
+          </div>
 
           {deviceLabel === 'Kindle' && senderAddress && (
             <p className="pt-2 text-xs text-ink-faint">

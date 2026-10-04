@@ -1111,6 +1111,8 @@ pub(crate) async fn set_selected_tx(
             selected_release_format = ?,
             selected_release_seeders = ?,
             selected_release_key = ?,
+            error_code = NULL,
+            error_message = NULL,
             updated_at = unixepoch()
          WHERE id = ?",
     )

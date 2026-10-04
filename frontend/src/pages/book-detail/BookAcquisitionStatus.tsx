@@ -9,6 +9,7 @@ import {
 import { ApiError } from '../../api/client'
 import { useAuth } from '../../auth/useAuth'
 import { SendToReaderDialog } from '../../components/SendToReaderDialog'
+import { ReleasePreviewChoices, type VersionSelection } from '../../components/ReleasePreviewChoices'
 import { Button } from '../../components/ui/Button'
 import { useMutation } from '../../lib/useMutation'
 
@@ -34,6 +35,7 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
   const [readError, setReadError] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [sendId, setSendId] = useState<string | null>(null)
+  const [versionSelection, setVersionSelection] = useState<VersionSelection | null>(null)
   const mutation = useMutation()
   const canAcquire = user?.role === 'admin' || !!user?.canAcquire
 
@@ -66,19 +68,26 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
   const latest = items?.[0]
   const failed = latest && ['NO_RELEASE_FOUND', 'DOWNLOAD_FAILED', 'IMPORT_FAILED'].includes(latest.status)
   const stopped = pending.length === 0 && latest && (failed || (!hasFile && latest.status === 'CANCELLED')) ? latest : null
+  const format = user?.preferredFormat ?? 'epub'
+  const versionContext = JSON.stringify(['local', bookId, format, user?.preferredLanguages, user?.preferredLanguage])
+  const selectedVersionKey = versionSelection?.context === versionContext ? versionSelection.key : null
+  const manual = canAcquire && user?.acquisitionMode === 'ask' && !hasFile
+  const preview = manual ? <ReleasePreviewChoices key={versionContext} provider="local" providerKey={`local:${bookId}`}
+    format={format} context={versionContext} selected={selectedVersionKey} disabled={!!mutation.busyKey} onChange={setVersionSelection} /> : null
 
   function update(item: Acquisition) {
     setItems((current) => [item, ...(current ?? []).filter((other) => other.id !== item.id)])
   }
 
   function getBook() {
+    if (manual && !selectedVersionKey) return
     void mutation.run('get', async () => {
-      const start = await createAcquisitionForBook(bookId)
+      const start = await createAcquisitionForBook(bookId, manual ? { preferredFormat: format, releaseKey: selectedVersionKey ?? undefined, askBeforeDownload: true } : {})
       return fetchAcquisition(start.id)
     }, 'Could not start downloading this book', (item) => {
       update(item)
       onReady()
-      if (item.askBeforeDownload && (user?.role === 'admin' || item.requestedByUserId === user?.id)) onChoose(item.id)
+      if (!selectedVersionKey && item.askBeforeDownload && (user?.role === 'admin' || item.requestedByUserId === user?.id)) onChoose(item.id)
     })
   }
 
@@ -95,6 +104,7 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
         <div role="status" className="space-y-1 text-sm">
           {hasFile && <p className="text-xs text-ink-muted">Another version is being added. Your current file is ready to read or send.</p>}
           <p className="font-medium text-ink">{downloadPhrase(item)}</p>
+          {item.status === 'NEEDS_SELECTION' && item.errorMessage && <p className="text-xs text-ink-muted">{item.errorMessage}</p>}
           {item.preferredLanguage && <p className="text-xs text-ink-muted">{item.preferredLanguage.toUpperCase()}{item.selectedReleaseFormat ? ` · ${item.selectedReleaseFormat.toUpperCase()}` : ''}</p>}
           {item.deliverOnReady && <button type="button" title="Change or cancel your scheduled send" className="min-h-11 break-words text-left text-xs text-ink-soft underline decoration-line underline-offset-4 hover:text-ink" onClick={() => setSendId(item.id)}>{item.scheduledDeliveryAddress ? `Will send to ${item.scheduledDeliveryAddress} when ready.` : 'Will send to your default reader when ready.'}</button>}
           {item.status === 'NEEDS_SELECTION' && !canManage && <p className="text-xs text-ink-muted">{item.requestedBy ?? 'The requester'} or an administrator can select the file.</p>}
@@ -111,16 +121,18 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
       {hasFile && <p className="text-xs text-ink-muted">Your current file is still ready to read or send.</p>}
       {stopped.errorMessage && <p className="break-words text-ink-muted">{stopped.errorMessage}</p>}
       {stopped.keepLooking && <p className="text-xs text-ink-muted">Bokhylle will try again automatically.</p>}
+      {preview}
       <div className="flex flex-wrap items-center gap-4">
-        {canAcquire && (user?.role === 'admin' || stopped.requestedByUserId === user?.id) && stopped.status !== 'CANCELLED' && <Button variant={hasFile ? 'secondary' : 'primary'} disabled={!!mutation.busyKey}
+        {canAcquire && !manual && (user?.role === 'admin' || stopped.requestedByUserId === user?.id) && stopped.status !== 'CANCELLED' && <Button variant={hasFile ? 'secondary' : 'primary'} disabled={!!mutation.busyKey}
           onClick={() => void mutation.run('retry', () => retryAcquisition(stopped.id), 'Could not try again', update)}>Try again</Button>}
-        {canAcquire && stopped.status === 'CANCELLED' && <Button variant="primary" disabled={!!mutation.busyKey} onClick={getBook}>Get for my shelf</Button>}
+        {canAcquire && (manual || stopped.status === 'CANCELLED') && <Button variant="primary" disabled={!!mutation.busyKey || (manual && !selectedVersionKey)} onClick={getBook}>Get for my shelf</Button>}
         <Link to={user?.role === 'admin' && !stopped.requestedByMe ? '/activity?scope=household' : '/activity'} className="inline-flex min-h-11 items-center text-accent hover:text-accent-strong">View in Activity</Link>
       </div>
     </div>}
     {!hasFile && items && !readError && pending.length === 0 && !stopped && <div className="space-y-3">
       <p role="status" className="text-sm text-ink-muted">No downloaded file is available yet.</p>
-      {canAcquire && <Button variant="primary" size="lg" disabled={!!mutation.busyKey} onClick={getBook}><Download size={16} aria-hidden />{mutation.busyKey === 'get' ? 'Getting…' : 'Get for my shelf'}</Button>}
+      {preview}
+      {canAcquire && <Button variant="primary" size="lg" disabled={!!mutation.busyKey || (manual && !selectedVersionKey)} onClick={getBook}><Download size={16} aria-hidden />{mutation.busyKey === 'get' ? 'Getting…' : 'Get for my shelf'}</Button>}
     </div>}
     {mutation.error && <p role="alert" className="text-sm text-danger">{mutation.error}</p>}
     {sendId && <SendToReaderDialog bookId={bookId} acquisitionId={sendId} scheduled={items?.find((item) => item.id === sendId)?.deliverOnReady} initialAddress={items?.find((item) => item.id === sendId)?.scheduledDeliveryAddress} onClose={() => setSendId(null)} onSent={() => setReload((value) => value + 1)} />}

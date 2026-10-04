@@ -148,11 +148,7 @@ export default async function readers(page, { base }) {
   )
 
   // FE-34: adding a reader from the dialog creates it as the chosen device type.
-  const addSection = dialog.locator('label').filter({ hasText: 'Or add another reader address' })
-  await addSection
-    .locator('button[aria-pressed]')
-    .filter({ hasText: 'PocketBook' })
-    .click()
+  await dialog.getByRole('button', { name: 'PocketBook', exact: true }).click()
   await dialog.getByPlaceholder('name@pbsync.com').fill('e2e-inline@pbsync.example')
   const [createResponse] = await Promise.all([
     page.waitForResponse(
@@ -232,10 +228,7 @@ export default async function readers(page, { base }) {
   await page.getByRole('button', { name: /Send to my reader/ }).first().click()
   const mismatchDialog = page.getByRole('dialog', { name: 'Send to your reader' })
   await mismatchDialog.waitFor({ state: 'visible', timeout: 8000 })
-  const mismatchSection = mismatchDialog
-    .locator('label')
-    .filter({ hasText: 'Or add another reader address' })
-  await mismatchSection.locator('button[aria-pressed]').filter({ hasText: 'PocketBook' }).click()
+  await mismatchDialog.getByRole('button', { name: 'PocketBook', exact: true }).click()
   await mismatchDialog.getByPlaceholder('name@pbsync.com').fill('new@pbsync.example')
   const mismatchText = await mismatchDialog.innerText()
   expect(

@@ -82,6 +82,7 @@ export function ReleaseChoices({ acquisitionId, onSelected, onBusyChange }: {
         <Link to="/activity" className="text-accent hover:text-accent-strong">Follow in Activity</Link>
       </div>}
       {acquisition?.status === 'NEEDS_SELECTION' && canChoose && <>
+        {acquisition.errorMessage && <p role="status" className="text-sm text-ink-muted">{acquisition.errorMessage}</p>}
         <p className="text-sm text-ink-muted">Pick the torrent or file to download. Existing library files will be kept.</p>
         {!candidates && !error && <p role="status" className="text-sm text-ink-muted">Loading versions…</p>}
         {candidates?.length === 0 && <p className="text-sm text-ink-muted">No versions are available.</p>}

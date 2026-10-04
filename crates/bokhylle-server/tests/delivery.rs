@@ -708,6 +708,101 @@ async fn default_reader_reports_the_household_fallback() {
 }
 
 #[tokio::test]
+async fn acquisition_keeps_its_explicit_reader_without_changing_another_requester() {
+    let (app, _library, cookie, book_id, _file_id) = app_with_book().await;
+    let alice = app
+        .state
+        .auth
+        .verify_login("reader", "password123")
+        .await
+        .unwrap()
+        .unwrap();
+    let bob = app
+        .state
+        .auth
+        .create_user("bob", "password123", Role::User)
+        .await
+        .unwrap();
+    let (status, target) = post_json(
+        &app,
+        "/api/delivery-targets",
+        &cookie,
+        json!({"address": "chosen@kindle.example"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let target_id = target["id"].as_i64().unwrap();
+    let destination = bokhylle_server::services::delivery::acquisition_destination(
+        &app.state,
+        &alice,
+        true,
+        Some(target_id),
+    )
+    .await
+    .unwrap();
+    let (acquisition, duplicate) = bokhylle_server::services::delivery::create_acquisition(
+        &app.state,
+        &alice,
+        book_id,
+        Some("epub".into()),
+        vec!["en".into()],
+        true,
+        true,
+        destination,
+    )
+    .await
+    .unwrap();
+    assert!(!duplicate);
+    let (shared, duplicate) = bokhylle_server::acquisition::create_with_languages(
+        &app.state.db,
+        book_id,
+        Some(bob.id),
+        Some("epub".into()),
+        vec!["en".into()],
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(duplicate);
+    assert_eq!(shared.id, acquisition.id);
+    let (status, new_default) = post_json(
+        &app,
+        "/api/delivery-targets",
+        &cookie,
+        json!({"address": "new-default@kindle.example"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _) = post_json(
+        &app,
+        &format!("/api/delivery-targets/{}/default", new_default["id"]),
+        &cookie,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    sqlx::query("UPDATE delivery_targets SET address = 'edited@kindle.example' WHERE id = ?")
+        .bind(target_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    let requests: Vec<(i64, bool, Option<i64>, Option<String>)> = sqlx::query_as("SELECT user_id, deliver_on_ready, delivery_target_id, delivery_address FROM acquisition_requests WHERE acquisition_id = ? ORDER BY user_id").bind(&acquisition.id).fetch_all(&app.state.db).await.unwrap();
+    assert_eq!(
+        requests,
+        vec![
+            (
+                alice.id,
+                true,
+                Some(target_id),
+                Some("chosen@kindle.example".into())
+            ),
+            (bob.id, false, None, None)
+        ]
+    );
+}
+
+#[tokio::test]
 async fn smtp_connection_test_requires_admin_and_works() {
     let (test_app, _library_dir, _admin_cookie, _book_id, _file_id) = app_with_book().await;
     let smtp = start_smtp().await;
