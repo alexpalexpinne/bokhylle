@@ -2999,6 +2999,8 @@ export interface components {
             /** Format: int64 */
             leechers: number | null;
             method: string;
+            needsReview: boolean;
+            recommended: boolean;
             rejected: boolean;
             rejectionReasons?: components["schemas"]["RejectionReason"][] | null;
             releaseName: string;
@@ -4028,7 +4030,7 @@ export interface components {
             lines: string[];
         };
         /** @enum {string} */
-        RejectionReason: "language_mismatch" | "audiobook" | "comic_or_manga" | "unsupported_format" | "unrelated_title" | "oversized_release";
+        RejectionReason: "language_mismatch" | "audiobook" | "comic_or_manga" | "unsupported_format" | "unrelated_title" | "author_mismatch" | "wrong_volume" | "oversized_release";
         RelatedBooks: {
             author: components["schemas"]["BookSummary"][];
             series: components["schemas"]["BookSummary"][];
@@ -4071,6 +4073,7 @@ export interface components {
             /** Format: int64 */
             leechers?: number | null;
             method: string;
+            needsReview: boolean;
             recommended: boolean;
             rejected: boolean;
             releaseName?: string | null;

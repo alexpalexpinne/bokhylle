@@ -1885,6 +1885,12 @@
           "method": {
             "type": "string"
           },
+          "needsReview": {
+            "type": "boolean"
+          },
+          "recommended": {
+            "type": "boolean"
+          },
           "rejected": {
             "type": "boolean"
           },
@@ -1937,6 +1943,8 @@
           "language",
           "leechers",
           "method",
+          "needsReview",
+          "recommended",
           "rejected",
           "releaseName",
           "seeders",
@@ -5908,6 +5916,8 @@
           "comic_or_manga",
           "unsupported_format",
           "unrelated_title",
+          "author_mismatch",
+          "wrong_volume",
           "oversized_release"
         ],
         "type": "string"
@@ -6121,6 +6131,9 @@
           "method": {
             "type": "string"
           },
+          "needsReview": {
+            "type": "boolean"
+          },
           "recommended": {
             "type": "boolean"
           },
@@ -6162,6 +6175,7 @@
           "isCollection",
           "language",
           "method",
+          "needsReview",
           "recommended",
           "rejected",
           "seeders",
@@ -8335,7 +8349,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.3.1"
+    "version": "0.3.2"
   },
   "openapi": "3.1.0",
   "paths": {

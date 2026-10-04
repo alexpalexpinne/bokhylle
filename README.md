@@ -74,10 +74,17 @@ This example book is fictional.
 <details>
 <summary>See the version chooser</summary>
 
-The chooser below uses fictional books and releases.
+Review the proposed copy and use Change version for alternatives. These previews use fictional books and releases.
 
 <p align="center">
-  <img src="docs/media/version-choices-desktop.png" alt="An adult choosing a torrent or file directly in the book dialog" width="100%">
+  <img src="docs/media/version-choices-desktop.png" alt="A compact proposed version of a fictional book with Change version for alternatives" width="100%">
+</p>
+
+The alternatives open in a separate picker; choosing a file returns to the book
+before Get starts downloading.
+
+<p align="center">
+  <img src="docs/media/version-picker-desktop.png" alt="A separate picker with matching versions and labelled possible matches" width="100%">
 </p>
 
 Get &amp; send opens reader setup when no reader is saved. The same saved
@@ -121,7 +128,7 @@ chmod 600 .env
 chmod 700 data/config
 ```
 
-Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.3.1`. Then start the app:
+Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.3.2`. Then start the app:
 
 ```sh
 docker compose -f compose.yaml -f compose.image.yaml pull bokhylle

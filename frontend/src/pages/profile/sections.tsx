@@ -209,7 +209,7 @@ export function ProfilePreferences(props: PreferencesProps) {
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {([
             ['automatic', 'Let Bokhylle choose', 'Get picks the best suitable file using your language and format preferences. Bokhylle asks when it is unsure.'],
-            ['ask', 'Show available versions', 'Opening a book shows the available torrents and files. Choose a version, then Get to download it.'],
+            ['ask', 'Show available versions', 'Review the proposed version before Get. Change version opens the other files; uncertain matches need your review.'],
           ] as const).map(([value, label, description]) => (
             <button
               key={value}

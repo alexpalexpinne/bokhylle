@@ -127,16 +127,22 @@ and real cover art. It remains a useful web application, not a magazine.
 - Show a sharing marker only for actual library visibility. Keep the default
   for future additions in Profile settings.
 - When an adult chooses Show available versions, opening an undownloaded book
-  loads a read-only version list within its details. Select a file, then Get or
-  Get & Send; opening or selecting alone never starts an acquisition. Show
-  format, language, size, source, availability, and a reason for disabled choices.
-  Keep versions in the details column beside the cover on desktop; on mobile,
-  let the list span the full width below the cover and book information.
-  Missing download setup is a neutral status with Set up downloading for
-  administrators and an explanation for other adults. Temporary search
-  failures offer Try again beside the message, wrapping on narrow screens.
-  Automatic selection keeps the normal Get action. Existing files remain the
-  focus on downloaded books; Find another version stays under More.
+  loads a read-only preview and proposes one confidently matched file. Keep its
+  compact filename, format, language, size, source and availability in the details
+  column beside the cover on desktop, and full width below book information on
+  mobile. Change version opens a dedicated dialog on desktop or a scrolling sheet
+  on mobile; choosing Use this version returns to the book without downloading.
+  Get or Get & send starts the acquisition. Cancelling preserves the previous
+  choice. Match identity before ranking formats and availability: reject clear
+  author/title/volume conflicts, omit rejected rows from ordinary choices and
+  label incomplete identity as Possible match. Possible matches require deliberate
+  review and never become automatic recommendations. With no confident result,
+  show the review action instead of proposing an arbitrary file; with no matches,
+  show a neutral empty state. Missing download setup is a neutral status with Set
+  up downloading for administrators and an explanation for other adults.
+  Temporary failures offer Try again beside the message. Automatic selection keeps
+  the normal Get action and asks for review when identity is uncertain. Existing
+  files remain the focus on downloaded books; Find another version stays under More.
 - Preserve catalogue artwork while a book is acquired and extract embedded
   artwork before marking its file ready. Discover and Library use the same
   durable cover after a book gets a local identity. Manual cover corrections

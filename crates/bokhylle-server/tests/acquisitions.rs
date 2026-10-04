@@ -46,7 +46,14 @@ async fn app_with_book() -> (common::TestApp, tempfile::TempDir, String, i64) {
     }
 
     let (_, books) = get_json(&test_app, "/api/books", &cookie).await;
-    let book_id = books["items"][0]["id"].as_i64().unwrap();
+    let book_id = books["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|book| book["title"] == "Project Hail Mary")
+        .expect("named acquisition fixture")["id"]
+        .as_i64()
+        .unwrap();
 
     (test_app, library_dir, cookie, book_id)
 }
@@ -230,6 +237,13 @@ async fn language_variants_do_not_share_a_duplicate() {
 #[tokio::test]
 async fn candidate_lists_from_before_format_tier_still_load() {
     let (test_app, _library_dir, cookie, book_id) = app_with_book().await;
+    let (status, book) = get_json(&test_app, &format!("/api/books/{book_id}"), &cookie).await;
+    assert_eq!(status, StatusCode::OK, "fixture details: {book}");
+    let release_name = format!(
+        "{} - {} EPUB",
+        book["authors"][0].as_str().unwrap(),
+        book["title"].as_str().unwrap()
+    );
     let (_, created) = post_json(
         &test_app,
         &format!("/api/books/{book_id}/acquisitions"),
@@ -244,7 +258,7 @@ async fn candidate_lists_from_before_format_tier_still_load() {
         "candidates": [{
             "candidate": {
                 "id": "legacy-1",
-                "title": "Legacy Release EPUB",
+                "title": release_name,
                 "indexer": "Legacy",
                 "sizeBytes": 1000,
                 "seeders": 5,
@@ -281,8 +295,10 @@ async fn candidate_lists_from_before_format_tier_still_load() {
     );
     let items = candidates.as_array().unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["releaseName"], "Legacy Release EPUB");
+    assert_eq!(items[0]["releaseName"], release_name);
     assert_eq!(items[0]["format"], "epub");
+    assert_eq!(items[0]["recommended"], true);
+    assert_eq!(items[0]["needsReview"], false);
 
     let (status, diagnostics) = get_json(
         &test_app,

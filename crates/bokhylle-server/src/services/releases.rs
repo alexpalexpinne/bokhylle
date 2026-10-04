@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use bokhylle_acquisition::evaluator;
-use bokhylle_acquisition::model::{EvaluatedRelease, ExpectedBook, RejectionReason};
+use bokhylle_acquisition::model::{EvaluatedRelease, ExpectedBook, Selection};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -33,6 +33,7 @@ pub struct ReleaseView {
     is_collection: bool,
     rejected: bool,
     recommended: bool,
+    needs_review: bool,
     unavailable_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_key: Option<String>,
@@ -214,42 +215,27 @@ pub async fn preview(
     // Failed release fingerprints can change while a preview is cached.
     let blocked = crate::acquisition::blocked_release_keys(&state.db).await?;
     let evaluated = crate::acquisition_pipeline::filter_blocked(evaluated, &blocked);
-    let selectable = |release: &EvaluatedRelease| {
-        !release.rejected()
-            && !release
-                .candidate
-                .method
-                .as_ref()
-                .is_some_and(|method| method.kind() == "http")
+    let evaluated: Vec<_> = evaluated
+        .into_iter()
+        .filter(|release| {
+            !release.rejected()
+                && !release
+                    .candidate
+                    .method
+                    .as_ref()
+                    .is_some_and(|method| method.kind() == "http")
+        })
+        .collect();
+    let recommended = match evaluator::select(&evaluated) {
+        Selection::Auto { index } => Some(index),
+        _ => None,
     };
-    let available = evaluated
-        .iter()
-        .any(|release| selectable(release) && release.candidate.seeders != Some(0));
-    let recommended = evaluated.iter().position(|release| {
-        selectable(release) && (!available || release.candidate.seeders != Some(0))
-    });
     Ok(ReleasesResponse {
         releases: evaluated
             .iter()
             .enumerate()
-            .filter(|(_, release)| can_choose || !release.rejected())
             .map(|(index, release)| {
                 let candidate = &release.candidate;
-                let reason = release.rejection_reasons.first().map(|reason| {
-                    match reason {
-                        RejectionReason::LanguageMismatch => "Outside your accepted languages",
-                        RejectionReason::Audiobook => "Audiobooks are not supported",
-                        RejectionReason::ComicOrManga => "This file is not a supported book format",
-                        RejectionReason::UnsupportedFormat => "Unsupported file format",
-                        RejectionReason::UnrelatedTitle => "Does not match this book",
-                        RejectionReason::OversizedRelease => "Exceeds the download size limit",
-                    }
-                    .to_string()
-                });
-                let direct = candidate
-                    .method
-                    .as_ref()
-                    .is_some_and(|method| method.kind() == "http");
                 ReleaseView {
                     method: candidate
                         .method
@@ -262,15 +248,11 @@ pub async fn preview(
                     size_bytes: candidate.size_bytes,
                     seeders: candidate.seeders,
                     is_collection: candidate.is_collection,
-                    rejected: release.rejected() || direct,
-                    recommended: recommended == Some(index) && !direct,
-                    unavailable_reason: if direct {
-                        Some("Use Import from URL for this source".into())
-                    } else {
-                        reason
-                    },
-                    selection_key: (can_choose && !release.rejected() && !direct)
-                        .then(|| selection_key(release)),
+                    rejected: false,
+                    recommended: recommended == Some(index),
+                    needs_review: !evaluator::is_confident_match(release),
+                    unavailable_reason: None,
+                    selection_key: can_choose.then(|| selection_key(release)),
                     release_name: can_choose.then(|| candidate.title.clone()),
                     leechers: can_choose.then_some(candidate.leechers),
                     indexer: can_choose.then(|| candidate.indexer.clone()),

@@ -230,6 +230,8 @@ try {
     ['/catalogues', 'catalogues-mobile.png', 390, 844, 'The open reading room'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-desktop.png', 1440, 1000, 'Where Maps End'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-choices-mobile.png', 390, 844, 'Where Maps End'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-picker-desktop.png', 1440, 1000, 'Where Maps End'],
+    ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'version-picker-mobile.png', 390, 844, 'Where Maps End'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'reader-setup-desktop.png', 1440, 1000, 'Where Maps End'],
     ['/discover?provider=openlibrary&providerKey=%2Fworks%2FFICTIONAL', 'reader-setup-mobile.png', 390, 844, 'Where Maps End'],
     ['/library/77', 'book-detail-desktop.png', 1440, 1000, 'Where Maps End'],
@@ -275,7 +277,7 @@ try {
         body: JSON.stringify(responseFor(url, adminPreview)),
       })
     })
-    const cataloguePreview = name.startsWith('version-choices-') || name.startsWith('reader-setup-')
+    const cataloguePreview = name.startsWith('version-choices-') || name.startsWith('version-picker-') || name.startsWith('reader-setup-')
     if (cataloguePreview || name.startsWith('book-detail-') || name.startsWith('book-pending-')) {
       const versions = await mockVersionChoices(page)
       versions.user.acquisitionMode = 'ask'
@@ -297,8 +299,11 @@ try {
     await page.goto(`${base}${path}`, { waitUntil: 'networkidle' })
     await page.getByText(readyText).first().waitFor()
     if (cataloguePreview) {
-      await page.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
-      await page.getByRole('radio').first().check()
+      await page.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).waitFor()
+      if (name.startsWith('version-picker-')) {
+        await page.getByRole('button', { name: /^Change version/ }).click()
+        await page.getByRole('dialog', { name: 'Available versions', exact: true }).getByRole('radio').first().waitFor()
+      }
       if (name.startsWith('reader-setup-')) {
         await page.getByRole('button', { name: 'Get & send…', exact: true }).click()
         await page.getByRole('dialog', { name: 'Get & send', exact: true }).getByLabel('Reader email address', { exact: true }).waitFor()

@@ -303,7 +303,7 @@ pub async fn select_candidate(
         ));
     };
 
-    let evaluated = acquisition::evaluated_candidates(&detail);
+    let evaluated = reevaluate_candidates(state, &acquisition, &detail).await?;
 
     let Some(release) = evaluated.get(index) else {
         return Err(AppError::BadRequest(
@@ -320,6 +320,20 @@ pub async fn select_candidate(
     let key = crate::services::releases::selection_key(release);
     crate::services::releases::record_choice(state, acquisition_id, Some(&key)).await?;
     queue_release(state, acquisition_id, release).await
+}
+
+/// Recheck persisted chooser rows after upgrades without changing their
+/// indexes or the language/format intent saved on the acquisition.
+pub async fn reevaluate_candidates(
+    state: &AppState,
+    acquisition: &acquisition::Acquisition,
+    detail: &serde_json::Value,
+) -> Result<Vec<EvaluatedRelease>, AppError> {
+    let book = load_expected_book(state, acquisition.book_id, acquisition).await?;
+    Ok(acquisition::evaluated_candidates(detail)
+        .iter()
+        .map(|release| evaluator::evaluate(&book, &release.candidate))
+        .collect())
 }
 
 async fn queue_release(

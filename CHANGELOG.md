@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 — 2026-10-04
+
+- Replace the inline version list with one proposed version and a Change version picker. Desktop uses a dialog and mobile uses a scrolling sheet; reviewing or choosing files does not start a download.
+- Require title and author evidence, or an exact ISBN in the release name, before recommending or automatically choosing a file. Exclude clear author, title and volume conflicts from normal choices; label incomplete matches for deliberate review. Recheck older pending choices using their saved request preferences.
+
 ## 0.3.1 — 2026-10-04
 
 - Show available versions when opening an undownloaded book for adults using that preference. Keep the picker in the details column on desktop and full width on mobile; opening it does not start a download.

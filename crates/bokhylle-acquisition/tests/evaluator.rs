@@ -296,7 +296,7 @@ fn single_word_titles_still_match_exact_releases() {
 }
 
 #[test]
-fn longer_title_sharing_a_prefix_words_does_not_auto_select() {
+fn a_named_different_book_by_the_same_author_is_rejected() {
     let book = ExpectedBook {
         title: "Clean Code".to_string(),
         authors: vec!["Robert C. Martin".to_string()],
@@ -315,7 +315,11 @@ fn longer_title_sharing_a_prefix_words_does_not_auto_select() {
 
     let evaluated = evaluator::evaluate(&book, &release);
 
-    assert!(!evaluated.rejected());
+    assert!(
+        evaluated
+            .rejection_reasons
+            .contains(&RejectionReason::UnrelatedTitle)
+    );
     assert!(
         !evaluated
             .score_reasons
@@ -323,7 +327,7 @@ fn longer_title_sharing_a_prefix_words_does_not_auto_select() {
             .any(|reason| reason.weight == 40)
     );
     assert!(evaluated.confidence < 0.85);
-    assert_eq!(evaluator::select(&[evaluated]), Selection::NeedsSelection);
+    assert_eq!(evaluator::select(&[evaluated]), Selection::None);
 }
 
 #[test]
@@ -398,7 +402,7 @@ fn oversized_release_is_rejected_even_with_exact_title_and_author() {
 }
 
 #[test]
-fn wrong_volume_is_penalized() {
+fn wrong_volume_is_rejected() {
     let mut book = hail_mary();
     book.series_number = Some("2".to_string());
 
@@ -410,10 +414,146 @@ fn wrong_volume_is_penalized() {
     assert_eq!(release.candidate.detected_volume.as_deref(), Some("3"));
     assert!(
         release
-            .score_reasons
-            .iter()
-            .any(|reason| reason.weight == -40 && reason.reason == "possible wrong volume")
+            .rejection_reasons
+            .contains(&RejectionReason::WrongVolume)
     );
+    assert_eq!(evaluator::select(&[release]), Selection::None);
+}
+
+fn alchemy() -> ExpectedBook {
+    ExpectedBook {
+        title: "Alchemy".into(),
+        authors: vec!["Diana Fernando".into()],
+        isbn: Some("9780713726688".into()),
+        language: Some("en".into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn same_title_with_another_author_is_excluded() {
+    for title in [
+        "Rory.Sutherland.Alchemy.EN.EPUB",
+        "Rory Sutherland - Alchemy [EPUB]",
+        "Alchemy [EPUB] - Rory Sutherland",
+        "Alchemy [EPUB] by Rory Sutherland",
+    ] {
+        let release = evaluator::evaluate(&alchemy(), &candidate(title, 2_000_000, 50));
+        assert!(
+            release
+                .rejection_reasons
+                .contains(&RejectionReason::AuthorMismatch),
+            "{title}"
+        );
+        assert!(!evaluator::is_confident_match(&release));
+        assert_eq!(evaluator::select(&[release]), Selection::None);
+    }
+}
+
+#[test]
+fn missing_author_needs_review_even_when_it_is_the_only_seeded_result() {
+    let release = evaluator::evaluate(&alchemy(), &candidate("Alchemy [EN] EPUB", 2_000_000, 200));
+    assert!(!release.rejected());
+    assert!(!evaluator::is_confident_match(&release));
+    assert_eq!(evaluator::select(&[release]), Selection::NeedsSelection);
+}
+
+#[test]
+fn title_and_author_or_exact_isbn_can_be_recommended() {
+    for title in [
+        "Diana Fernando - Alchemy [EN] EPUB",
+        "9780713726688 [EN] EPUB",
+    ] {
+        let release = evaluator::evaluate(&alchemy(), &candidate(title, 2_000_000, 10));
+        assert!(
+            !release.rejected(),
+            "{title}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(evaluator::is_confident_match(&release), "{title}");
+        assert_eq!(evaluator::select(&[release]), Selection::Auto { index: 0 });
+    }
+}
+
+#[test]
+fn matching_identity_outranks_a_possible_match_in_a_preferred_format() {
+    let ranked = evaluator::rank(
+        &alchemy(),
+        &[
+            candidate("Alchemy [EN] EPUB", 2_000_000, 200),
+            candidate("Diana Fernando - Alchemy [EN] PDF", 4_000_000, 5),
+        ],
+    );
+    assert!(evaluator::is_confident_match(&ranked[0]));
+    assert_eq!(ranked[0].candidate.detected_format.as_deref(), Some("pdf"));
+    assert_eq!(evaluator::select(&ranked), Selection::Auto { index: 0 });
+}
+
+#[test]
+fn structured_conflicting_author_is_rejected() {
+    let mut row = candidate("Alchemy [EN] EPUB", 2_000_000, 30);
+    row.detected_author = Some("Rory Sutherland".into());
+    assert!(
+        evaluator::evaluate(&alchemy(), &row)
+            .rejection_reasons
+            .contains(&RejectionReason::AuthorMismatch)
+    );
+}
+
+#[test]
+fn abbreviated_authors_remain_possible_matches() {
+    for title in ["D Fernando - Alchemy [EPUB]", "D.Fernando.Alchemy.EPUB"] {
+        let release = evaluator::evaluate(&alchemy(), &candidate(title, 2_000_000, 30));
+        assert!(
+            !release.rejected(),
+            "{title}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(!evaluator::is_confident_match(&release));
+        assert_eq!(evaluator::select(&[release]), Selection::NeedsSelection);
+    }
+}
+
+#[test]
+fn historical_order_does_not_recommend_a_possible_match_ahead_of_known_identity() {
+    let releases = [
+        evaluator::evaluate(&alchemy(), &candidate("Alchemy EPUB", 2_000_000, 100)),
+        evaluator::evaluate(
+            &alchemy(),
+            &candidate("Diana Fernando - Alchemy EPUB", 2_000_000, 5),
+        ),
+    ];
+    assert_eq!(evaluator::select(&releases), Selection::Auto { index: 1 });
+}
+
+#[test]
+fn seeded_unknown_identity_does_not_replace_a_known_book() {
+    let releases = [
+        evaluator::evaluate(&alchemy(), &candidate("Alchemy EPUB", 2_000_000, 100)),
+        evaluator::evaluate(
+            &alchemy(),
+            &candidate("Diana Fernando - Alchemy EPUB", 2_000_000, 0),
+        ),
+    ];
+    assert_eq!(evaluator::select(&releases), Selection::Auto { index: 1 });
+}
+
+#[test]
+fn decimal_series_numbers_are_preserved_when_comparing_volumes() {
+    let mut book = hail_mary();
+    book.series_number = Some("6.5".into());
+    for title in [
+        "Andy Weir - Project Hail Mary Book 6.5 EPUB",
+        "Andy Weir - Project Hail Mary (#6.5) EPUB",
+    ] {
+        let release = evaluator::evaluate(&book, &candidate(title, 2_000_000, 5));
+        assert_eq!(release.candidate.detected_volume.as_deref(), Some("6.5"));
+        assert!(
+            !release
+                .rejection_reasons
+                .contains(&RejectionReason::WrongVolume)
+        );
+    }
 }
 
 #[test]

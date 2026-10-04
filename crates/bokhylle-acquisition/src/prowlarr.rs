@@ -160,9 +160,7 @@ impl ProwlarrClient {
             }
 
             let evaluated = evaluator::rank(book, &candidates);
-            let suitable = evaluated
-                .iter()
-                .any(|release| !release.rejected() && release.confidence >= 0.6);
+            let suitable = evaluated.iter().any(evaluator::is_confident_match);
 
             if suitable {
                 return Ok(SearchOutcome {

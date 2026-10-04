@@ -38,6 +38,8 @@ pub struct CandidateView {
     is_collection: bool,
     confidence: f32,
     rejected: bool,
+    recommended: bool,
+    needs_review: bool,
     release_name: String,
     indexer: Option<String>,
     seeders: Option<i64>,
@@ -198,7 +200,12 @@ async fn load_evaluated(
         return Ok(None);
     };
 
-    Ok(Some(acquisition::evaluated_candidates(&detail)))
+    let current = acquisition::get(&state.db, id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("acquisition not found".into()))?;
+    Ok(Some(
+        acquisition_pipeline::reevaluate_candidates(state, &current, &detail).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -614,9 +621,22 @@ pub async fn candidates(
         ));
     };
 
+    let recommended = match bokhylle_acquisition::evaluator::select(&evaluated) {
+        bokhylle_acquisition::model::Selection::Auto { index } => Some(index),
+        _ => None,
+    };
     let views: Vec<CandidateView> = evaluated
         .iter()
         .enumerate()
+        .filter(|(_, release)| {
+            params.technical
+                || (!release.rejected()
+                    && !release
+                        .candidate
+                        .method
+                        .as_ref()
+                        .is_some_and(|method| method.kind() == "http"))
+        })
         .map(|(index, release)| CandidateView {
             index,
             method: release
@@ -632,6 +652,8 @@ pub async fn candidates(
             is_collection: release.candidate.is_collection,
             confidence: release.confidence,
             rejected: release.rejected(),
+            recommended: recommended == Some(index),
+            needs_review: !bokhylle_acquisition::evaluator::is_confident_match(release),
             release_name: release.candidate.title.clone(),
             indexer: release.candidate.indexer.clone(),
             seeders: release.candidate.seeders,

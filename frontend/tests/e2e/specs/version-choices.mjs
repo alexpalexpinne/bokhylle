@@ -15,10 +15,11 @@ export async function mockVersionChoices(page) {
     sharing: 'private', sharingManaged: true, sharedInHousehold: false, files: [{ id: 10, format: 'epub', size: 420000, filename: 'Where Maps End.epub' }] }
   state.book = book
   const candidates = [
-    { index: 0, method: 'torrent', format: 'epub', language: 'en', sizeBytes: 4200000, seeders: 30, leechers: 2, indexer: 'Reading Room', releaseName: 'Nora.Vale.Where.Maps.End.2024.Retail.EPUB', rejected: false },
-    { index: 1, method: 'nzb', format: 'pdf', language: 'en', sizeBytes: 8400000, seeders: null, indexer: 'Paper Archive', releaseName: 'Where Maps End — illustrated PDF edition', rejected: false },
+    { index: 0, method: 'torrent', format: 'epub', language: 'en', sizeBytes: 4200000, seeders: 30, leechers: 2, indexer: 'Reading Room', releaseName: 'Nora.Vale.Where.Maps.End.2024.Retail.EPUB', rejected: false, recommended: true, needsReview: false },
+    { index: 1, method: 'nzb', format: 'pdf', language: 'en', sizeBytes: 8400000, seeders: null, indexer: 'Paper Archive', releaseName: 'Where Maps End — illustrated PDF edition', rejected: false, recommended: false, needsReview: true },
     { index: 2, method: 'torrent', format: 'epub', language: 'fr', sizeBytes: 2000000, seeders: 4, indexer: 'Reading Room', releaseName: 'Where.Maps.End.French.EPUB', rejected: true },
   ]
+  state.candidates = candidates
   state.newAcquisition = (overrides = {}) => ({ id: 'maps-version', bookId: 77, bookTitle: book.title, bookAuthors: book.authors,
     status: 'NEEDS_SELECTION', askBeforeDownload: true, requestedByUserId: 88, requestedBy: 'Mira', managedByMe: false,
     progress: 0, deliveryStatus: 'NONE', deliverOnReady: false, requestedByMe: true, scheduledDeliveryAddress: null, errorMessage: null, keepLooking: false, retryAttempts: 0,
@@ -41,7 +42,7 @@ export async function mockVersionChoices(page) {
     if (path === '/api/profile/onboarding') return json({ onboarded: true, interests: [] })
     if (path === '/api/discover/book') return json({ provider: 'openlibrary', providerKey: '/works/FICTIONAL', ...book,
       status: 'NOT_IN_LIBRARY', ownedBookId: null, ownedFileId: null, coverId: null, liked: false, onShelf: false })
-    if (path === '/api/discover/releases') return json({ releases: candidates.map((candidate, index) => ({ ...candidate, selectionKey: candidate.rejected ? null : String.fromCharCode(97 + index).repeat(64), recommended: index === 0, unavailableReason: candidate.rejected ? 'Outside your accepted languages' : null, isCollection: false })) })
+    if (path === '/api/discover/releases') return json({ releases: state.candidates.filter((candidate) => !candidate.rejected).map((candidate) => ({ ...candidate, selectionKey: String.fromCharCode(97 + candidate.index).repeat(64), unavailableReason: null, isCollection: false })) })
     if (path === '/api/books/77/acquisitions' && request.method() === 'GET') return json(state.acquisitions)
     if (path === '/api/discover/acquisitions' || path === '/api/books/77/acquisitions') {
       const input = request.postDataJSON()
@@ -52,7 +53,7 @@ export async function mockVersionChoices(page) {
     }
     if (path === '/api/acquisitions') return json(state.acquisitions)
     if (path === '/api/acquisitions/maps-version') return json(state.acquisitions[0])
-    if (path.endsWith('/candidates')) return json(candidates)
+    if (path.endsWith('/candidates')) return json(state.candidates.filter((candidate) => !candidate.rejected))
     if (path.endsWith('/select')) {
       state.writes.push({ path, input: request.postDataJSON() })
       if (state.failSelection) { state.failSelection = false; return json({ code: 'unavailable', message: 'Source temporarily unavailable' }, 503) }
@@ -85,10 +86,16 @@ export default async function versionChoices(page, { base }) {
   await page.reload({ waitUntil: 'networkidle' })
   state.initialStatus = 'NEEDS_SELECTION'
   let dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
-  await dialog.getByText('Where Maps End — illustrated PDF edition', { exact: true }).waitFor()
+  await dialog.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).waitFor()
   expect(state.writes.length === 0, 'opening the book follows the preference without starting acquisition')
   expect(state.user.acquisitionMode === 'ask', 'Get preserves the account default')
-  expect(await dialog.getByRole('radio').nth(2).isDisabled(), 'unavailable releases cannot be selected')
+  expect(await dialog.getByText('Where Maps End — illustrated PDF edition', { exact: true }).count() === 0, 'alternatives stay out of the compact book summary')
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isEnabled(), 'a confident recommendation is proposed before Get')
+  await dialog.getByRole('button', { name: /^Change version/ }).click()
+  let picker = page.getByRole('dialog', { name: 'Available versions', exact: true })
+  await picker.getByRole('radio').first().waitFor()
+  expect(await picker.getByRole('radio').count() === 2, 'rejected results are omitted')
+  expect(await picker.getByRole('radio').first().isChecked(), 'the proposed version is selected in the picker')
   expect(await page.getByRole('button', { name: /diagnostics/i }).count() === 0, 'adult choices do not expose admin diagnostics')
   for (const theme of ['paper', 'ink']) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value }, theme)
@@ -102,8 +109,18 @@ export default async function versionChoices(page, { base }) {
       expect(violations.length === 0, `Version accessibility (${theme}, ${width}): ${JSON.stringify(violations)}`)
     }
   }
+  await picker.getByRole('radio').nth(1).check()
+  await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await picker.waitFor({ state: 'detached' })
+  expect(await dialog.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).count() === 1, 'cancelling preserves the proposed version')
+  await dialog.getByRole('button', { name: /^Change version/ }).click()
+  picker = page.getByRole('dialog', { name: 'Available versions', exact: true })
   state.failSelection = true
-  await dialog.getByRole('radio').nth(1).check()
+  await picker.getByRole('radio').nth(1).check()
+  await picker.getByRole('button', { name: 'Use this version', exact: true }).click()
+  await picker.waitFor({ state: 'detached' })
+  expect(state.writes.length === 0, 'choosing a possible match does not start acquisition')
+  await dialog.getByText('Possible match', { exact: true }).waitFor()
   await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).click()
   await dialog.getByRole('status').getByText('Source temporarily unavailable').waitFor()
   expect(state.acquisitions.length === 0, 'a failed choice stays available for retry')
@@ -122,7 +139,7 @@ export default async function versionChoices(page, { base }) {
   await page.goto(discover, { waitUntil: 'networkidle' })
   expect(await page.getByRole('button', { name: 'Choose a version', exact: true }).count() === 0, 'the account preference uses the normal Get action')
   await dialog.waitFor()
-  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isDisabled(), 'normal Get waits for a version choice')
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isEnabled(), 'Get uses the compact proposed version')
   await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
   await dialog.waitFor({ state: 'detached' })
 
@@ -150,7 +167,7 @@ export default async function versionChoices(page, { base }) {
   state.user.acquisitionMode = 'ask'
   await page.goto(discover, { waitUntil: 'networkidle' })
   dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
-  await dialog.getByRole('radio').first().check()
+  await dialog.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).waitFor()
   const beforeReaderSetup = state.writes.length
   await dialog.getByRole('button', { name: 'Get & send…', exact: true }).click()
   let readerDialog = page.getByRole('dialog', { name: 'Get & send', exact: true })
@@ -160,7 +177,7 @@ export default async function versionChoices(page, { base }) {
   await page.keyboard.press('Escape')
   await readerDialog.waitFor({ state: 'detached' })
   await dialog.waitFor()
-  expect(await dialog.getByRole('radio').first().isChecked(), 'closing setup preserves the selected version and book dialog')
+  expect(await dialog.getByText('Nora.Vale.Where.Maps.End.2024.Retail.EPUB', { exact: true }).count() === 1, 'closing setup preserves the selected version and book dialog')
   await dialog.getByRole('button', { name: 'Get & send…', exact: true }).click()
   readerDialog = page.getByRole('dialog', { name: 'Get & send', exact: true })
   await readerDialog.getByLabel('Reader email address', { exact: true }).fill('mira@reader.example')
@@ -168,6 +185,45 @@ export default async function versionChoices(page, { base }) {
   await readerDialog.waitFor({ state: 'detached' })
   expect(state.targets.length === 1 && state.targets[0].address === 'mira@reader.example', 'reader setup saves a reader shared with Profile')
   expect(state.writes.at(-1).input.sendToReader === true && state.writes.at(-1).input.targetId === 501 && state.writes.at(-1).input.releaseKey === 'a'.repeat(64), 'Get & send keeps both the chosen version and reader')
+
+  const originals = state.candidates
+  const beforeReview = state.writes.length
+  state.acquisitions = []
+  state.candidates = [...originals, ...Array.from({ length: 24 }, (_, index) => ({
+    ...originals[0], index: index + 3, recommended: false,
+    releaseName: `Nora.Vale.Where.Maps.End.2024.EPUB.Edition.${index + 2}`,
+  }))]
+  await page.goto(discover, { waitUntil: 'networkidle' })
+  dialog = page.getByRole('dialog', { name: 'Where Maps End', exact: true })
+  await dialog.getByRole('button', { name: /^Change version/ }).waitFor()
+  expect(await dialog.getByRole('radio').count() === 0, 'many alternatives never expand the book summary')
+  await dialog.getByRole('button', { name: /^Change version/ }).click()
+  picker = page.getByRole('dialog', { name: 'Available versions', exact: true })
+  expect(await picker.getByRole('radio').count() === 26, 'all selectable alternatives remain reachable')
+  expect(await picker.locator('.overflow-y-auto').evaluate((element) => element.scrollHeight > element.clientHeight), 'long choices scroll inside the picker')
+  await page.keyboard.press('Escape')
+  await picker.waitFor({ state: 'detached' })
+  await dialog.waitFor()
+  expect(state.writes.length === beforeReview, 'opening and closing a long picker stays read-only')
+
+  state.candidates = [{ ...originals[0], releaseName: 'Where.Maps.End.EN.EPUB', recommended: false, needsReview: true }]
+  await page.goto(discover, { waitUntil: 'networkidle' })
+  await dialog.getByText(/No confident match found/).waitFor()
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isDisabled(), 'possible matches are not proposed automatically')
+  await dialog.getByRole('button', { name: 'Review possible matches', exact: true }).click()
+  picker = page.getByRole('dialog', { name: 'Available versions', exact: true })
+  expect(await picker.getByRole('button', { name: 'Use this version', exact: true }).isDisabled(), 'review requires an explicit selection')
+  await picker.getByRole('radio').first().check()
+  await picker.getByRole('button', { name: 'Use this version', exact: true }).click()
+  await picker.waitFor({ state: 'detached' })
+  await dialog.getByText('Possible match', { exact: true }).waitFor()
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isEnabled() && state.writes.length === beforeReview, 'a deliberate reviewed choice enables Get without downloading')
+
+  state.candidates = []
+  await page.goto(discover, { waitUntil: 'networkidle' })
+  await dialog.getByText('No matching version found.', { exact: true }).waitFor()
+  expect(await dialog.getByRole('button', { name: 'Get for my shelf', exact: true }).isDisabled(), 'no results leaves Get unavailable')
+  state.candidates = originals
 
   state.user.canAcquire = false
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })

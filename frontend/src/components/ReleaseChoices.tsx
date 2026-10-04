@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import {
-  type Acquisition, type Candidate, availabilityLabel, fetchAcquisition,
-  fetchCandidates, formatBytes, selectCandidate, statusLabel,
+  type Acquisition, type Candidate, fetchAcquisition,
+  fetchCandidates, selectCandidate, statusLabel,
 } from '../api/acquisitions'
 import { useAuth } from '../auth/useAuth'
 import { Button } from './ui/Button'
+import { ReleaseVersionDetails } from './ReleaseVersionDetails'
 
 /** The same selectable list in Discover, book details and Activity. */
 export function ReleaseChoices({ acquisitionId, onSelected, onBusyChange }: {
@@ -87,23 +88,11 @@ export function ReleaseChoices({ acquisitionId, onSelected, onBusyChange }: {
         {!candidates && !error && <p role="status" className="text-sm text-ink-muted">Loading versions…</p>}
         {candidates?.length === 0 && <p className="text-sm text-ink-muted">No versions are available.</p>}
         <div className="divide-y divide-line">
-          {candidates?.map((candidate, index) => {
-            const availability = availabilityLabel(candidate.seeders, candidate.method)
-            return <div key={candidate.index} className="flex items-start gap-3 py-4">
+          {candidates?.filter((candidate) => !candidate.rejected).map((candidate) => {
+            return <div key={candidate.index} className="flex flex-wrap items-start gap-3 py-4">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">{candidate.releaseName || 'Unnamed release'}</p>
-                <p className="mt-1.5 text-xs text-ink-muted">
-                  {index === 0 && !candidate.rejected && <span className="mr-2 font-medium text-accent-strong">Recommended</span>}
-                  {(candidate.format ?? 'unknown').toUpperCase()}{candidate.language ? ` · ${candidate.language.toUpperCase()}` : ''} · {formatBytes(candidate.sizeBytes)}
-                  {candidate.isCollection ? ' · complete collection' : ''}
-                </p>
-                <p className={`mt-1 text-xs ${availability.className}`}>{availability.label}</p>
-                <p className="mt-1 text-xs text-ink-muted [overflow-wrap:anywhere]">
-                  {candidate.method === 'nzb' ? 'Usenet' : candidate.method === 'http' ? 'Direct download' : 'Torrent'}
-                  {candidate.method === 'torrent' && typeof candidate.seeders === 'number' ? ` · ${candidate.seeders} seeders` : ''}
-                  {candidate.indexer ? ` · ${candidate.indexer}` : ''}
-                </p>
-                {candidate.rejected && <p className="mt-1 text-xs text-ink-muted">Unavailable for this request.</p>}
+                <ReleaseVersionDetails release={candidate} />
+                {candidate.needsReview && <p className="mt-1 text-xs text-ink-muted">Check the title and author. We couldn’t confidently identify this as the requested book.</p>}
               </div>
               <Button size="sm" className="min-h-11 shrink-0" variant="primary" disabled={candidate.rejected || selecting !== null} onClick={() => void choose(candidate.index)}>
                 {selecting === candidate.index ? 'Choosing…' : 'Get this version'}
