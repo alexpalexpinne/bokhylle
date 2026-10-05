@@ -249,8 +249,8 @@ try {
     if (process.env.BOKHYLLE_DOCS_SELECT && !process.env.BOKHYLLE_DOCS_SELECT.split(',').includes(name)) continue
     const page = await browser.newPage({
       viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'light', timezoneId: 'UTC',
-      hasTouch: path === '/login' && width < 700,
-      isMobile: path === '/login' && width < 700,
+      hasTouch: width < 700,
+      isMobile: width < 700,
     })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.clock.setFixedTime(new Date('2026-01-15T10:00:00Z'))

@@ -1,3 +1,4 @@
+use crate::library::subjects;
 use axum::Json;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
@@ -478,19 +479,20 @@ pub async fn set_subject_hidden(
     Path(normalized): Path<String>,
     Json(body): Json<SubjectHiddenUpdate>,
 ) -> Result<StatusCode, AppError> {
-    let normalized = normalized.trim().to_lowercase();
+    let normalized = subjects::normalized(&normalized);
+    let normalized = subjects::concept(&normalized);
     if normalized.is_empty() {
         return Err(AppError::BadRequest("subject is required".to_string()));
     }
     let known: Option<i64> =
-        sqlx::query_scalar("SELECT id FROM subjects WHERE normalized_name = ?")
-            .bind(&normalized)
+        sqlx::query_scalar("SELECT s.id FROM subjects s JOIN subject_concepts c ON c.normalized_name = s.normalized_name WHERE c.concept = ? LIMIT 1")
+            .bind(normalized)
             .fetch_optional(&state.db)
             .await?;
     if known.is_none() {
         return Err(AppError::NotFound("unknown subject".to_string()));
     }
-    queries::set_subject_hidden(&state.db, user.id, &normalized, body.hidden).await?;
+    queries::set_subject_hidden(&state.db, user.id, normalized, body.hidden).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -153,7 +153,7 @@
 }
 
 html {
-  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
 }
 
 .bokhylle-reader[data-reader-theme="paper"] {
@@ -242,10 +242,68 @@ body {
 }
 
 @layer base {
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  button,
+  [role="button"],
+  .pressable {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
   *:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+}
+
+/* Keep small form text readable without shrinking editorial search text. */
+@media (any-pointer: coarse) {
+  :is(input, textarea, select):is(.text-xs, .text-sm) {
+    font-size: max(1rem, 16px);
+  }
+}
+
+/* Pointer feedback stays quiet; keyboard and reduced-motion actions stay still. */
+.pressable:focus-visible {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pressable:active:not(:disabled):not(:focus-visible) {
+    transform: scale(0.98);
+  }
+}
+
+.page-gutters {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.app-layout {
+  --app-header-height: calc(5rem + 1px + env(safe-area-inset-top));
+}
+
+@media (min-width: 640px) {
+  .app-layout {
+    --app-header-height: calc(4.5rem + 1px + env(safe-area-inset-top));
+  }
+
+  .page-gutters {
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-gutters {
+    padding-left: max(2rem, env(safe-area-inset-left));
+    padding-right: max(2rem, env(safe-area-inset-right));
   }
 }
 
@@ -264,13 +322,13 @@ body {
 }
 
 ::view-transition-group(book-cover) {
-  animation-duration: 320ms;
+  animation-duration: 240ms;
   animation-timing-function: var(--ease-smooth);
 }
 
 @keyframes pop {
   from {
-    transform: scale(0.6);
+    transform: scale(0.9);
     opacity: 0;
   }
   to {
@@ -284,6 +342,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .pressable {
+    transform: none;
+    transition-property: background-color, color;
+  }
+
   ::view-transition-group(*),
   ::view-transition-old(*),
   ::view-transition-new(*) {

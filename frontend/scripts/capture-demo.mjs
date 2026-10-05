@@ -20,12 +20,15 @@ export async function captureDemo(views = ['home', 'library', 'reader']) {
     if (!status.ok() || (await status.json()).enabled !== true) throw new Error('Screenshots require an isolated Bokhylle demo')
     await context.addInitScript(() => localStorage.setItem('bokhylle.theme', 'paper'))
     const page = await context.newPage()
+    const pointerEmulation = await context.newCDPSession(page)
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto(base, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'Adult reader', exact: true }).click()
     await page.getByRole('link', { name: 'Library', exact: true }).waitFor()
 
     async function save(view, mobile = false) {
+      // A phone-sized desktop viewport otherwise misses touch-specific styles.
+      await pointerEmulation.send('Emulation.setTouchEmulationEnabled', { enabled: mobile })
       await page.evaluate(async () => {
         await document.fonts.ready
         for (const image of document.images) image.loading = 'eager'
@@ -74,6 +77,10 @@ export async function captureDemo(views = ['home', 'library', 'reader']) {
       await page.close()
       for (const mobile of [false, true]) {
         const reader = await context.newPage()
+        if (mobile) {
+          const pointer = await context.newCDPSession(reader)
+          await pointer.send('Emulation.setTouchEmulationEnabled', { enabled: true })
+        }
         await reader.setViewportSize({ width: mobile ? 390 : 1440, height: mobile ? 1000 : 900 })
         await reader.goto(`${base}/read/${sample.id}/${file.id}`, { waitUntil: 'networkidle' })
         await reader.getByRole('button', { name: 'Contents', exact: true }).click()

@@ -7,7 +7,7 @@ import { ShelfSurface } from './ShelfStructure'
 /** A continuous shelf inside the scrolling content, shared by local and provider books. */
 export function ShelfRail({ children, label, loading = false }: { children: ReactNode; label: string; loading?: boolean }) {
   return (
-    <div className="shelf-rail rail-scroll" role={loading ? undefined : 'region'} aria-label={loading ? undefined : label} aria-hidden={loading || undefined} tabIndex={loading ? undefined : 0}>
+    <div className="shelf-rail rail-scroll" data-browse-rail={loading ? undefined : label} role={loading ? undefined : 'region'} aria-label={loading ? undefined : label} aria-hidden={loading || undefined} tabIndex={loading ? undefined : 0}>
       <div className="shelf-track"><ShelfSurface />{children}</div>
     </div>
   )

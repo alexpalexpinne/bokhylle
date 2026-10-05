@@ -1,3 +1,4 @@
+import { withHomeInvalidation } from '../lib/homeSnapshot'
 import type { components } from './generated'
 import { apiRoute, uploadBinary } from './client'
 import type { ProfileMarkId } from '../lib/profileMarks'
@@ -23,10 +24,10 @@ export function fetchOnboarding() {
 }
 
 export function saveInterests(subjects: string[]) {
-  return apiRoute('/api/profile/interests', '/api/profile/interests', {
+  return withHomeInvalidation(apiRoute('/api/profile/interests', '/api/profile/interests', {
     method: 'PUT',
     json: { subjects },
-  })
+  }))
 }
 
 export function completeOnboarding() {
@@ -34,10 +35,10 @@ export function completeOnboarding() {
 }
 
 export function updateProfile(update: ProfileUpdate) {
-  return apiRoute('/api/profile', '/api/profile', {
+  return withHomeInvalidation(apiRoute('/api/profile', '/api/profile', {
     method: 'PUT',
     json: update,
-  })
+  }))
 }
 
 export function uploadProfilePicture(file: File) {
@@ -90,4 +91,12 @@ export function createAgentToken(
 
 export function revokeAgentToken(id: number) {
   return apiRoute('/api/profile/agent-tokens/{id}', `/api/profile/agent-tokens/${id}`, { method: 'DELETE' })
+}
+
+export function fetchRejectedBooks() {
+  return apiRoute('/api/profile/rejected', '/api/profile/rejected')
+}
+
+export function restoreRejectedBook(id: number) {
+  return withHomeInvalidation(apiRoute('/api/profile/rejected/{id}', `/api/profile/rejected/${id}`, { method: 'DELETE' }))
 }

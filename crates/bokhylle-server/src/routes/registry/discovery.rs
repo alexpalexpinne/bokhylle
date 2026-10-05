@@ -4,6 +4,42 @@ use aide::axum::ApiRouter;
 pub(super) fn router() -> ApiRouter<AppState> {
     ApiRouter::new()
         .api_route(
+            "/api/home/series",
+            aide::axum::routing::get(routes::recommendations::series),
+        )
+        .api_route(
+            "/api/profile/rejected/{id}",
+            aide::axum::routing::delete(routes::recommendations::restore_rejection),
+        )
+        .api_route(
+            "/api/recommendations",
+            aide::axum::routing::get(routes::recommendations::list),
+        )
+        .api_route(
+            "/api/recommendations/impressions",
+            aide::axum::routing::post(routes::recommendations::impressions),
+        )
+        .api_route(
+            "/api/recommendations/diagnostics",
+            aide::axum::routing::get(routes::recommendations::diagnostics),
+        )
+        .api_route(
+            "/api/recommendations/{key}/feedback",
+            aide::axum::routing::post(routes::recommendations::feedback),
+        )
+        .api_route(
+            "/api/recommendations/{key}/feedback/{token}",
+            aide::axum::routing::delete(routes::recommendations::undo_feedback),
+        )
+        .api_route(
+            "/api/discover/preference",
+            aide::axum::routing::post(routes::discover::preference),
+        )
+        .api_route(
+            "/api/profile/rejected",
+            aide::axum::routing::get(routes::auth::rejected_books),
+        )
+        .api_route(
             "/api/requests/search",
             aide::axum::routing::get(routes::requests::search),
         )

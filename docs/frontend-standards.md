@@ -21,6 +21,9 @@ the task over a new abstraction.
   it; detailed diagnostics live with the relevant setting.
 - Author pages return to the browse view that opened them, preserving its
   search and filters. Use a stable library link when opened directly.
+- Back and Forward preserve expanded browsing lists and scroll positions,
+  including horizontal shelves. Keep cached book data scoped to the current
+  profile and clear it when the session ends. Recheck restored Library pages.
 - In book detail sheets, make the available acquisition choice the primary
   button. Show other actions as visible secondary buttons, and expose toggles
   such as Like with a pressed state.
@@ -47,6 +50,10 @@ the task over a new abstraction.
   failure there. Warn before navigation discards edits. The current API saves
   one key at a time, so a failed multi-key save must reload persisted values
   and explain that earlier keys may have been saved.
+- Keep action confirmation and Undo visible in the current viewport when the
+  affected book or shelf disappears. Use the shared desktop popover/mobile sheet
+  for occasional book actions. Failed browsing requests retain useful results
+  and offer a nearby retry; failures must not masquerade as empty shelves.
 - Keep connection testing distinct from saving. Put its result beside that
   connection, with enough detail to act on a failure.
 - Use consistent states: **Not configured**, **Checking**, **Connected**, and
@@ -75,6 +82,25 @@ the task over a new abstraction.
   when a true widget is needed.
 - Ensure keyboard access, visible focus, explicit field labels, and useful
   status announcements. Preserve reduced-motion behavior.
+- Offer Skip to content before the main navigation. A new page focuses its main
+  landmark; returning to a browse page restores the book link when available.
+  Filter changes and opening a book sheet must not steal focus from the control.
+- Mobile navigation and content padding share the same breakpoint and respect
+  device safe areas. Shared buttons, icon buttons and choice controls provide
+  48px targets on narrow phones.
+- Header menus follow the same target sizes, fit short viewports, contain their
+  scrolling, and return keyboard focus to their trigger on Escape. Keep request
+  information above its decision buttons on phones.
+- Small input, select, and textarea text is at least 16px on touch-capable devices;
+  preserve larger editorial search text. Keep pinch zoom available. Search fields
+  request the Search keyboard action.
+- Use dynamic viewport height for the app shell and safe-area padding for the
+  header, page gutters, mobile navigation, and sheets, including sheets without
+  footers. Sticky browse controls use the shared app header height.
+- Shared controls use brief, explicit color and transform transitions. Pointer
+  press feedback stays subtle; keyboard and reduced-motion presses stay still.
+  Browser chrome follows the resolved Paper or Ink canvas, including live system
+  theme changes.
 - Check the changed flow at a narrow mobile width and a desktop width, in
   Paper and Ink. Avoid horizontal page scrolling and keep controls easy to
   tap. Automated accessibility checks supplement keyboard review.
@@ -104,3 +130,6 @@ is implemented.
   unsaved edits in a browser test when those behaviors change.
 - Run the existing accessibility scan and manually check keyboard focus,
   narrow layout, and both themes on the changed pages.
+
+The [design review](design-review.md) records the external guidance used for
+these interaction details and the remaining device checks.

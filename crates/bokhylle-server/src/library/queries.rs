@@ -357,7 +357,7 @@ pub async fn comic_series(
     if volumes.is_empty() {
         return Ok(None);
     }
-    let reading = series_reading(pool, id, reader_user_id, &volumes).await?;
+    let reading = series_reading(pool, Some(id), None, reader_user_id, &volumes).await?;
     Ok(Some(SeriesDetail {
         id,
         name,
@@ -368,9 +368,10 @@ pub async fn comic_series(
     }))
 }
 
-async fn series_reading(
+pub(crate) async fn series_reading(
     pool: &SqlitePool,
-    series_id: i64,
+    series_id: Option<i64>,
+    series_name: Option<&str>,
     user_id: i64,
     volumes: &[BookSummary],
 ) -> Result<SeriesReading, AppError> {
@@ -378,10 +379,12 @@ async fn series_reading(
     let completed: Vec<i64> = sqlx::query_scalar(
         "SELECT c.book_id FROM user_book_completions c
          JOIN books b ON b.id = c.book_id
-         WHERE c.user_id = ? AND b.series_id = ?",
+         WHERE c.user_id = ? AND (b.series_id = ? OR (? IS NULL AND b.series_id IS NULL AND b.series_link_locked=0 AND lower(trim(b.series)) = ?))",
     )
     .bind(user_id)
     .bind(series_id)
+    .bind(series_id)
+    .bind(series_name)
     .fetch_all(pool)
     .await?;
     let finished: HashSet<i64> = completed
@@ -409,12 +412,14 @@ async fn series_reading(
                AND rp.book_id IS NOT NULL AND rp.percentage > 0
          ) activity
          JOIN books b ON b.id = activity.book_id
-         WHERE b.series_id = ?
+         WHERE (b.series_id = ? OR (? IS NULL AND b.series_id IS NULL AND b.series_link_locked=0 AND lower(trim(b.series)) = ?))
          ORDER BY activity.updated_at DESC, activity.source_rank",
     )
     .bind(user_id)
     .bind(user_id)
     .bind(series_id)
+    .bind(series_id)
+    .bind(series_name)
     .fetch_all(pool)
     .await?;
     let current = activity
@@ -430,10 +435,12 @@ async fn series_reading(
     // volume needs an unambiguous positive integer order and matching label.
     let mut numbered: HashMap<i64, Vec<i64>> = HashMap::new();
     for volume in volumes {
-        if let (Some(label), Some(order)) = (&volume.series_number, volume.series_sort_order)
+        if let Some(label) = &volume.series_number
             && let Ok(number) = label.trim().parse::<i64>()
             && number > 0
-            && order == number as f64
+            && volume
+                .series_sort_order
+                .is_none_or(|order| order == number as f64)
         {
             numbered.entry(number).or_default().push(volume.id);
         }
@@ -462,6 +469,86 @@ async fn series_reading(
         next_book_id,
         missing_next_volume,
     })
+}
+
+#[derive(Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesContinuation {
+    pub series_id: Option<i64>,
+    pub series_name: String,
+    pub book: Option<BookSummary>,
+    pub missing_volume: Option<i64>,
+    pub readable: bool,
+}
+
+pub async fn home_series(
+    pool: &SqlitePool,
+    user_id: i64,
+    child: bool,
+) -> Result<Vec<SeriesContinuation>, AppError> {
+    let visibility = sharing::predicate("b.id", user_id);
+    let groups: Vec<(Option<i64>,String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT b.series_id,COALESCE(s.name,b.series) FROM user_book_completions c
+         JOIN books b ON b.id=c.book_id LEFT JOIN series s ON s.id=b.series_id
+         WHERE c.user_id=? AND COALESCE(s.name,b.series) IS NOT NULL AND (b.series_id IS NOT NULL OR b.series_link_locked=0) AND {visibility}
+           AND (?=0 OR EXISTS(SELECT 1 FROM user_books u WHERE u.user_id=c.user_id AND u.book_id=b.id AND u.on_shelf=1))
+         GROUP BY b.series_id,lower(trim(COALESCE(s.name,b.series))) ORDER BY MAX(c.completed_at) DESC LIMIT 24"
+    ))).bind(user_id).bind(child).fetch_all(pool).await?;
+    let mut result = Vec::new();
+    let preferred = serde_json::to_string(&relevance::preferred_languages(pool, user_id).await?)
+        .expect("languages serialize");
+    for (id, name) in groups {
+        let normalized_name = name.trim().to_lowercase();
+        // Eligibility affects the successor, not the completed anchor. Filtering
+        // out anchors before ordering would lose the reader's place.
+        let sql = format!("{BOOK_SELECT} WHERE (b.series_id=? OR (? IS NULL AND b.series_id IS NULL AND b.series_link_locked=0 AND lower(trim(b.series))=?))
+            AND {visibility} AND (?=0 OR EXISTS(SELECT 1 FROM user_books u WHERE u.user_id=? AND u.book_id=b.id AND u.on_shelf=1))");
+        let volumes: Vec<BookSummary> = sqlx::query_as::<_, BookRow>(sqlx::AssertSqlSafe(sql))
+            .bind(id)
+            .bind(id)
+            .bind(&normalized_name)
+            .bind(child)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(BookRow::into_summary)
+            .collect();
+        let reading = series_reading(pool, id, Some(&normalized_name), user_id, &volumes).await?;
+        if reading.current.is_some() {
+            continue;
+        }
+        if let Some(next_id) = reading.next_book_id {
+            let eligible: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "WITH viewer(id) AS (SELECT ?),preferred(language) AS (SELECT lower(value) FROM json_each(?))
+                 SELECT EXISTS(SELECT 1 FROM books b WHERE b.id=? {} {})",relevance::EXCLUSIONS,relevance::LANGUAGE_FILTER
+            ))).bind(user_id).bind(&preferred).bind(next_id).fetch_one(pool).await?;
+            if !eligible {
+                continue;
+            }
+            let readable = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM editions e JOIN book_files f ON f.edition_id=e.id WHERE e.book_id=?)")
+                .bind(next_id).fetch_one(pool).await?;
+            result.push(SeriesContinuation {
+                series_id: id,
+                series_name: name,
+                book: volumes.into_iter().find(|b| b.id == next_id),
+                missing_volume: None,
+                readable,
+            });
+        } else if !child && reading.missing_next_volume.is_some() {
+            result.push(SeriesContinuation {
+                series_id: id,
+                series_name: name,
+                book: None,
+                missing_volume: reading.missing_next_volume,
+                readable: false,
+            });
+        }
+        if result.len() == 8 {
+            break;
+        }
+    }
+    Ok(result)
 }
 
 #[derive(FromRow)]
@@ -651,9 +738,12 @@ impl BookFilters {
                 " AND EXISTS (
                     SELECT 1 FROM book_subjects bs2
                     JOIN subjects s2 ON s2.id = bs2.subject_id
-                    WHERE bs2.book_id = b.id AND s2.normalized_name = ",
+                    JOIN subject_concepts topic ON topic.normalized_name=s2.normalized_name
+                    WHERE bs2.book_id = b.id AND topic.concept = ",
             );
-            query.push_bind(subject.clone()).push(')');
+            query
+                .push_bind(subjects::concept(&subjects::normalized(subject)).to_string())
+                .push(')');
         }
         if let Some(missing) = &self.missing {
             query.push(" AND ").push(match missing.as_str() {
@@ -742,6 +832,7 @@ pub struct FacetValue {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SubjectFacet {
+    pub aliases: Vec<String>,
     pub name: String,
     pub normalized: String,
     pub count: i64,
@@ -870,21 +961,22 @@ pub async fn book_facets_visible(
         .await?;
 
     let subjects_sql = format!(
-        "SELECT s.name, s.normalized_name, count(*) AS count
+        "SELECT COALESCE(MIN(CASE WHEN s.normalized_name=topic.concept THEN s.name END),MIN(s.name)), topic.concept, count(DISTINCT bs.book_id) AS count, json_group_array(DISTINCT s.normalized_name)
          FROM book_subjects bs
          JOIN subjects s ON s.id = bs.subject_id
+         JOIN subject_concepts topic ON topic.normalized_name=s.normalized_name
          WHERE EXISTS (
              SELECT 1 FROM book_files f
              JOIN editions e ON e.id = f.edition_id
              WHERE e.book_id = bs.book_id
          )
          {scope}
-         GROUP BY s.id
-         ORDER BY count DESC, s.name ASC
+         GROUP BY topic.concept
+         ORDER BY count DESC, 1 ASC
          LIMIT 300",
         scope = scope.replace("{column}", "bs.book_id")
     );
-    let subject_rows: Vec<(String, String, i64)> =
+    let subject_rows: Vec<(String, String, i64, String)> =
         sqlx::query_as(sqlx::AssertSqlSafe(subjects_sql))
             .bind(mine)
             .bind(mine)
@@ -892,9 +984,10 @@ pub async fn book_facets_visible(
             .await?;
     let subjects_facets: Vec<SubjectFacet> = subject_rows
         .into_iter()
-        .filter(|(_, normalized, _)| subjects::is_displayable(normalized))
+        .filter(|(_, normalized, _, _)| subjects::is_displayable(normalized))
         .take(60)
-        .map(|(name, normalized, count)| SubjectFacet {
+        .map(|(name, normalized, count, aliases)| SubjectFacet {
+            aliases: serde_json::from_str(&aliases).unwrap_or_default(),
             name,
             normalized,
             count,
@@ -931,8 +1024,12 @@ pub async fn search_books(
         .push_bind(query.trim().to_string())
         .push(")) > 0))");
     filters.push_predicates(&mut query_builder, false, " AND ");
-    query_builder
-        .push(" ORDER BY b.created_at DESC, b.id DESC LIMIT ")
+    let normalized = bokhylle_core::identity::normalize_text(query);
+    query_builder.push(" ORDER BY CASE WHEN b.normalized_title = ").push_bind(normalized.clone())
+        .push(" THEN 0 WHEN EXISTS (SELECT 1 FROM book_authors ba JOIN authors a ON a.id = ba.author_id WHERE ba.book_id = b.id AND a.normalized_name = ")
+        .push_bind(normalized.clone()).push(" ) THEN 1 WHEN instr(b.normalized_title, ").push_bind(normalized)
+        .push(") = 1 THEN 2 ELSE 3 END, COALESCE((SELECT bm25(books_fts) FROM books_fts WHERE rowid = b.id AND books_fts MATCH ")
+        .push_bind(fts_query(query)).push("), 0), b.created_at DESC, b.id DESC LIMIT ")
         .push_bind(limit.clamp(1, 100));
     let rows: Vec<BookRow> = query_builder.build_query_as().fetch_all(pool).await?;
     Ok(rows.into_iter().map(BookRow::into_summary).collect())
@@ -1147,25 +1244,39 @@ pub async fn highlight_books_visible(
     viewer_id: i64,
 ) -> Result<Vec<BookSummary>, AppError> {
     let visibility = sharing::predicate("b.id", viewer_id);
-    let sql = match mine {
-        Some(_) => format!(
-            "{BOOK_SELECT}
-             JOIN user_books ub ON ub.book_id = b.id AND ub.user_id = ? AND ub.on_shelf = 1
-             {OWNED_FILTER} AND {visibility}
-             ORDER BY ((b.id * 1103515245 + ?) % 2147483647) LIMIT ?"
-        ),
-        None => format!(
-            "{BOOK_SELECT} {OWNED_FILTER} AND {visibility}
-             ORDER BY ((b.id * 1103515245 + ?) % 2147483647) LIMIT ?"
-        ),
+    let exclusions = relevance::EXCLUSIONS;
+    let language_filter = relevance::LANGUAGE_FILTER;
+    let preferred = serde_json::to_string(&relevance::preferred_languages(pool, viewer_id).await?)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let shelf = if mine.is_some() {
+        "AND EXISTS (SELECT 1 FROM user_books ub WHERE ub.book_id = b.id AND ub.user_id = ? AND ub.on_shelf = 1)"
+    } else {
+        ""
     };
-    let mut query = sqlx::query_as::<_, BookRow>(sqlx::AssertSqlSafe(sql));
+    let sql = format!("WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?))
+        SELECT b.id FROM books b WHERE EXISTS (SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id WHERE e.book_id = b.id)
+        AND {visibility} {exclusions} {language_filter} {shelf}");
+    let mut query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql))
+        .bind(viewer_id)
+        .bind(preferred);
     if let Some(mine) = mine {
         query = query.bind(mine);
     }
-    query = query.bind(seed.abs());
-    let rows = query.bind(limit.clamp(1, 50)).fetch_all(pool).await?;
-    Ok(rows.into_iter().map(BookRow::into_summary).collect())
+    let mut ids = query.fetch_all(pool).await?;
+    ids.sort_by_cached_key(|id| rediscovery_order(seed as u64, *id));
+    ids.truncate(limit.clamp(1, 50) as usize);
+    let books = books_by_ids(pool, &ids, viewer_id).await?;
+    let mut by_id: std::collections::HashMap<_, _> = books.into_iter().map(|b| (b.id, b)).collect();
+    Ok(ids.into_iter().filter_map(|id| by_id.remove(&id)).collect())
+}
+
+fn rediscovery_order(seed: u64, id: i64) -> u64 {
+    // SplitMix64's avalanche mixes the day into every book's order instead of
+    // adding a constant to fixed book-id residues.
+    let mut value = seed ^ (id as u64).wrapping_mul(0x9e3779b97f4a7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    value ^ (value >> 31)
 }
 
 pub async fn get_book(pool: &SqlitePool, id: i64) -> Result<Option<BookDetail>, AppError> {
@@ -2011,148 +2122,79 @@ pub struct HomeRail {
 /// provides the candidate pool, but each user's own requests and deliveries
 /// lift their interests, and hidden subjects are dropped for that user only.
 pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>, AppError> {
-    let mut rails: Vec<HomeRail> = Vec::new();
-    let mut used: Vec<String> = Vec::new();
-    let hidden = hidden_subjects(pool, user_id).await?;
-
+    let taste = relevance::taste(pool, user_id).await?;
+    let preferred_json =
+        serde_json::to_string(&relevance::preferred_languages(pool, user_id).await?)
+            .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let subject_json = serde_json::to_string(&taste.subjects)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let author_json = serde_json::to_string(&taste.authors)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
     let visibility = sharing::predicate("b.id", user_id);
     let personal = relevance::personal();
     let exclusions = relevance::EXCLUSIONS;
-    let candidates: Vec<(String, String, i64, i64, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "WITH viewer(id) AS (SELECT ?)
-         SELECT s.name, s.normalized_name, count(DISTINCT bs.book_id) AS owned,
-                (SELECT count(DISTINCT a.id) FROM acquisition_requests ar
-                 JOIN acquisitions a ON a.id = ar.acquisition_id
-                 JOIN book_subjects other ON other.book_id = a.book_id
-                 WHERE ar.user_id = (SELECT id FROM viewer) AND other.subject_id = s.id) AS requested,
-                (SELECT count(DISTINCT d.book_id) FROM deliveries d
-                 JOIN book_subjects other ON other.book_id = d.book_id
-                 WHERE d.user_id = (SELECT id FROM viewer) AND d.status = 'SENT'
-                   AND other.subject_id = s.id) AS delivered,
-                (SELECT count(DISTINCT ub.book_id) FROM user_books ub
-                 JOIN book_subjects other ON other.book_id = ub.book_id
-                 WHERE ub.user_id = (SELECT id FROM viewer) AND ub.preference = 'liked'
-                   AND other.subject_id = s.id) AS liked
-         FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id
-         JOIN books b ON b.id = bs.book_id
-         WHERE EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id
-                       WHERE e.book_id = b.id)
-           AND {visibility} {personal} {exclusions}
-         GROUP BY s.id"
-    )))
-    .bind(user_id).fetch_all(pool).await?;
-
-    let mut ranked: Vec<(String, String, i64, i64, i64, i64)> = candidates
-        .into_iter()
-        // A rail needs enough books to be browsable; household abundance is
-        // viability, never affinity.
-        .filter(|(_, normalized, owned, _, _, _)| {
-            *owned >= 3
-                && !hidden.contains(normalized)
-                && subjects::similarity_weight(normalized).is_some()
-        })
-        .collect();
-    ranked.sort_by(|left, right| {
-        let left_score = 5 * left.5 + 3 * left.3 + left.4;
-        let right_score = 5 * right.5 + 3 * right.3 + right.4;
-        right_score
-            .cmp(&left_score)
-            .then_with(|| right.5.cmp(&left.5))
-            .then_with(|| right.2.cmp(&left.2))
-            .then_with(|| left.0.cmp(&right.0))
-    });
-
-    for (name, normalized, _owned, _requested, _delivered, _liked) in ranked {
-        if rails.len() >= 3 {
-            break;
-        }
-        let books = books_for_subject(pool, user_id, &normalized, 12).await?;
-        if books.len() < 3 {
-            continue;
-        }
-        used.push(normalized.clone());
-        rails.push(HomeRail {
-            key: format!("shelf-{normalized}"),
-            title: name,
-            subtitle: Some("Matches your interests".to_string()),
-            subject: Some(normalized.clone()),
-            books,
-        });
-    }
-
-    let requested_subjects: Vec<(String, String, i64)> = sqlx::query_as(
-        "SELECT s.name, s.normalized_name, count(DISTINCT a.id) AS count
-         FROM acquisition_requests ar
-         JOIN acquisitions a ON a.id = ar.acquisition_id
-         JOIN book_subjects bs ON bs.book_id = a.book_id
-         JOIN subjects s ON s.id = bs.subject_id
-         WHERE ar.user_id = ?
-           AND EXISTS (
-               SELECT 1 FROM book_files f
-               JOIN editions e ON e.id = f.edition_id
-               WHERE e.book_id = a.book_id
-           )
-         GROUP BY s.id
-         HAVING count >= 2
-         ORDER BY count DESC, s.name ASC
-         LIMIT 10",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
-
-    for (name, normalized, _) in requested_subjects {
-        if rails.len() >= 5 {
-            break;
-        }
-        if used.contains(&normalized)
-            || hidden.contains(&normalized)
-            || subjects::similarity_weight(&normalized).is_none()
-        {
-            continue;
-        }
-        let books = books_for_subject(pool, user_id, &normalized, 12).await?;
-        if books.len() < 3 {
-            continue;
-        }
-        used.push(normalized.clone());
-        rails.push(HomeRail {
-            key: format!("for-you-{normalized}"),
-            title: format!("Because you requested {name}"),
-            subtitle: None,
-            subject: Some(normalized.clone()),
-            books,
-        });
-    }
-
-    // "Because you liked X": aggregate over every liked book, not just the
-    // most recent one, while still requiring two shared subjects so the rail
-    // stays personal. Liked and not-for-me books are excluded.
-    // The aggregate liked rail is the strongest personal signal; it may add
-    // one rail beyond the subject cap but never replaces one.
-    if rails.len() < 4
-        && let Some((_subject_name, normalized)) = sqlx::query_as::<_, (String, String)>(
-            "SELECT s.name, s.normalized_name
-             FROM user_books ub
-             JOIN book_subjects bs ON bs.book_id = ub.book_id
-             JOIN subjects s ON s.id = bs.subject_id
-             WHERE ub.user_id = ? AND ub.preference = 'liked'
-               AND NOT EXISTS (
-                   SELECT 1 FROM user_subject_prefs usp
-                   WHERE usp.user_id = ub.user_id
-                     AND usp.normalized_name = s.normalized_name
-                     AND usp.hidden = 1
-               )
-             GROUP BY s.id
-             ORDER BY count(*) DESC, s.name
-             LIMIT 1",
+    let language_filter = relevance::LANGUAGE_FILTER;
+    let taste_ctes = relevance::TASTE_CTES;
+    let affinity = relevance::AFFINITY;
+    let informative = subjects::informative_sql("topic.normalized_name");
+    let request_visibility = sharing::predicate("a.book_id", user_id);
+    let sql = format!("WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?)),
+        requests AS (
+            SELECT topic.concept, count(DISTINCT a.book_id) AS count FROM acquisition_requests ar
+            JOIN acquisitions a ON a.id = ar.acquisition_id JOIN book_subjects bs ON bs.book_id = a.book_id
+            JOIN subjects request_subject ON request_subject.id=bs.subject_id
+            JOIN subject_concepts topic ON topic.normalized_name=request_subject.normalized_name
+            WHERE {request_visibility} AND ar.user_id = (SELECT id FROM viewer) AND NOT EXISTS (SELECT 1 FROM user_books rejected
+                WHERE rejected.user_id = ar.user_id AND rejected.book_id = a.book_id AND rejected.preference = 'not_for_me')
+            GROUP BY topic.concept
         )
+        SELECT MIN(s.name), concept.concept, count(DISTINCT b.id), MAX(COALESCE(r.count, 0))
+        FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id JOIN books b ON b.id = bs.book_id
+        JOIN subject_concepts concept ON concept.normalized_name = s.normalized_name
+        LEFT JOIN requests r ON r.concept = concept.concept
+        WHERE EXISTS (SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id WHERE e.book_id = b.id)
+          AND {visibility} {personal} {exclusions} {language_filter}
+        GROUP BY concept.concept HAVING count(DISTINCT b.id) >= 3");
+    let candidates: Vec<(String, String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(user_id)
-        .fetch_optional(pool)
-        .await?
+        .bind(&preferred_json)
+        .fetch_all(pool)
+        .await?;
+    let score = |normalized: &str| {
+        taste
+            .subjects
+            .iter()
+            .filter(|s| s.concept == subjects::concept(normalized))
+            .map(|s| s.weight)
+            .sum::<i64>()
+            * subjects::similarity_weight(normalized).unwrap_or(0) as i64
+    };
+    let mut ranked: Vec<_> = candidates
+        .into_iter()
+        .filter(|(_, n, _, _)| subjects::similarity_weight(n).is_some())
+        .collect();
+    ranked.sort_by(|a, b| {
+        score(&b.1)
+            .cmp(&score(&a.1))
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    let mut rails = Vec::new();
+    let liked_visibility = sharing::predicate("ub2.book_id", user_id);
+    if let Some((_subject_name, normalized)) = sqlx::query_as::<_, (String, String)>(sqlx::AssertSqlSafe(format!(
+        "SELECT MIN(topic.name), c.concept FROM user_books ub
+         JOIN books b ON b.id=ub.book_id
+         JOIN book_subjects bs ON bs.book_id=ub.book_id JOIN subjects topic ON topic.id=bs.subject_id
+         JOIN subject_concepts c ON c.normalized_name=topic.normalized_name
+         WHERE ub.user_id=? AND ub.preference='liked' AND {visibility} AND {informative}
+           AND NOT EXISTS(SELECT 1 FROM user_subject_prefs hidden JOIN subject_concepts hc ON hc.normalized_name=hidden.normalized_name
+             WHERE hidden.user_id=ub.user_id AND hidden.hidden=1 AND hc.concept=c.concept)
+         GROUP BY c.concept ORDER BY count(DISTINCT ub.book_id) DESC, MIN(topic.name) LIMIT 1"
+    )))
+    .bind(user_id).fetch_optional(pool).await?
     {
         let sql = format!(
-            "WITH viewer(id) AS (SELECT ?) {BOOK_SELECT}
+            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?)) {taste_ctes} {BOOK_SELECT}
              WHERE EXISTS (
                    SELECT 1 FROM book_files f
                    JOIN editions e ON e.id = f.edition_id
@@ -2164,22 +2206,28 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
                      AND ub.preference IN ('liked', 'not_for_me')
                )
                AND (
-                   SELECT count(DISTINCT mine.subject_id)
-                   FROM book_subjects mine
-                   WHERE mine.book_id = b.id
-                     AND mine.subject_id IN (
-                         SELECT bs2.subject_id
+                   SELECT count(DISTINCT candidate.concept)
+                   FROM book_subjects mine JOIN subjects topic ON topic.id = mine.subject_id
+                   JOIN subject_concepts candidate ON candidate.normalized_name = topic.normalized_name
+                   WHERE {informative} AND mine.book_id = b.id
+                     AND candidate.concept IN (
+                         SELECT c2.concept
                          FROM user_books ub2
                          JOIN book_subjects bs2 ON bs2.book_id = ub2.book_id
-                         WHERE ub2.user_id = ? AND ub2.preference = 'liked'
+                         JOIN subjects s2 ON s2.id = bs2.subject_id
+                         JOIN subject_concepts c2 ON c2.normalized_name = s2.normalized_name
+                         WHERE ub2.user_id = ? AND ub2.preference = 'liked' AND {liked_visibility}
                      )
                ) >= 2
-             AND {visibility} {personal} {exclusions}
-             ORDER BY b.created_at DESC, b.id DESC
+             AND {visibility} {personal} {exclusions} {language_filter}
+             ORDER BY {affinity} DESC, b.created_at DESC, b.id DESC
              LIMIT 12"
         );
         let rows: Vec<BookRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(user_id)
+            .bind(&preferred_json)
+            .bind(&subject_json)
+            .bind(&author_json)
             .bind(user_id)
             .bind(user_id)
             .fetch_all(pool)
@@ -2196,14 +2244,57 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
         }
     }
 
+    let mut used = std::collections::HashSet::new();
+    let mut ordinary = 0;
+    for requested_pass in [false, true] {
+        for (name, normalized, _, requested) in &ranked {
+            if rails.len() >= 5 || (!requested_pass && ordinary >= 3) {
+                break;
+            }
+            let concept = subjects::concept(normalized).to_string();
+            if used.contains(&concept) || (requested_pass && *requested < 2) {
+                continue;
+            }
+            let books =
+                books_for_subject(pool, user_id, normalized, 12, &taste, &preferred_json).await?;
+            if books.len() < 3
+                || rails.iter().any(|r: &HomeRail| {
+                    let common = books
+                        .iter()
+                        .filter(|b| r.books.iter().any(|other| other.id == b.id))
+                        .count();
+                    common * 4 >= books.len().min(r.books.len()) * 3
+                })
+            {
+                continue;
+            }
+            used.insert(concept);
+            rails.push(HomeRail {
+                key: format!(
+                    "{}-{normalized}",
+                    if requested_pass { "for-you" } else { "shelf" }
+                ),
+                title: if requested_pass {
+                    format!("Because you requested {name}")
+                } else {
+                    name.clone()
+                },
+                subtitle: (!requested_pass).then(|| "Matches your interests".to_string()),
+                subject: Some(normalized.clone()),
+                books,
+            });
+            if !requested_pass {
+                ordinary += 1;
+            }
+        }
+    }
     Ok(rails)
 }
 
 pub async fn hidden_subjects(pool: &SqlitePool, user_id: i64) -> Result<Vec<String>, AppError> {
     Ok(sqlx::query_scalar(
-        "SELECT normalized_name FROM user_subject_prefs
-         WHERE user_id = ? AND hidden = 1
-         ORDER BY normalized_name",
+        "SELECT DISTINCT c.concept FROM user_subject_prefs h JOIN subject_concepts c ON c.normalized_name = h.normalized_name
+         WHERE h.user_id = ? AND h.hidden = 1 ORDER BY c.concept",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -2216,6 +2307,8 @@ pub async fn set_subject_hidden(
     normalized: &str,
     hidden: bool,
 ) -> Result<(), AppError> {
+    let normalized = subjects::normalized(normalized);
+    let normalized = subjects::concept(&normalized);
     if hidden {
         sqlx::query(
             "INSERT INTO user_subject_prefs (user_id, normalized_name, hidden)
@@ -2228,7 +2321,7 @@ pub async fn set_subject_hidden(
         .execute(pool)
         .await?;
     } else {
-        sqlx::query("DELETE FROM user_subject_prefs WHERE user_id = ? AND normalized_name = ?")
+        sqlx::query("DELETE FROM user_subject_prefs WHERE user_id = ? AND normalized_name IN (SELECT normalized_name FROM subject_concepts WHERE concept = ?)")
             .bind(user_id)
             .bind(normalized)
             .execute(pool)
@@ -2242,28 +2335,41 @@ async fn books_for_subject(
     user_id: i64,
     normalized: &str,
     limit: i64,
+    taste: &relevance::Taste,
+    preferred_json: &str,
 ) -> Result<Vec<BookSummary>, AppError> {
     let visibility = sharing::predicate("b.id", user_id);
     let personal = relevance::personal();
     let exclusions = relevance::EXCLUSIONS;
+    let taste_ctes = relevance::TASTE_CTES;
+    let affinity = relevance::AFFINITY;
+    let language_filter = relevance::LANGUAGE_FILTER;
+    let subject_json = serde_json::to_string(&taste.subjects)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let author_json = serde_json::to_string(&taste.authors)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
     let sql = format!(
-        "WITH viewer(id) AS (SELECT ?) {BOOK_SELECT}
+        "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?)) {taste_ctes} {BOOK_SELECT}
          WHERE EXISTS (
              SELECT 1 FROM book_subjects bs
              JOIN subjects s ON s.id = bs.subject_id
-             WHERE bs.book_id = b.id AND s.normalized_name = ?
+             JOIN subject_concepts concept ON concept.normalized_name = s.normalized_name
+             WHERE bs.book_id = b.id AND concept.concept = ?
          )
            AND EXISTS (
                SELECT 1 FROM book_files f
                JOIN editions e ON e.id = f.edition_id
                WHERE e.book_id = b.id
            )
-           AND {visibility} {personal} {exclusions}
-         ORDER BY b.created_at DESC, b.id DESC
+           AND {visibility} {personal} {exclusions} {language_filter}
+         ORDER BY {affinity} DESC, b.created_at DESC, b.id DESC
          LIMIT ?"
     );
     let rows: Vec<BookRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(user_id)
+        .bind(preferred_json)
+        .bind(subject_json)
+        .bind(author_json)
         .bind(normalized)
         .bind(limit.clamp(1, 24))
         .fetch_all(pool)

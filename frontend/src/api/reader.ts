@@ -1,5 +1,6 @@
 import { notifySessionExpired } from '../auth/session'
 import { ApiError, apiRoute } from './client'
+import { withHomeInvalidation } from '../lib/homeSnapshot'
 import type { components } from './generated'
 
 export type BrowserPositionState = components['schemas']['BrowserPositionState']
@@ -7,11 +8,11 @@ export type BrowserPosition = components['schemas']['BrowserPosition']
 export type BookCompletionState = components['schemas']['BookCompletionState']
 
 export function setBookCompletion(bookId: number, completed: boolean) {
-  return apiRoute(
+  return withHomeInvalidation(apiRoute(
     '/api/books/{book_id}/completion',
     `/api/books/${bookId}/completion`,
     { method: 'PUT', json: { completed } },
-  )
+  ))
 }
 
 export function positionUrl(bookId: number, fileId: number): `/api/books/${number}/files/${number}/position` {

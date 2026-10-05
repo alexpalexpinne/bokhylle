@@ -23,6 +23,8 @@ import {
   type LikedBook,
   type ProfileStats,
   fetchLikedBooks,
+  fetchRejectedBooks,
+  restoreRejectedBook,
   fetchProfileStats,
 } from '../api/profile'
 import { Button } from '../components/ui/Button'
@@ -51,7 +53,7 @@ const profileSections = [
   { id: 'preferences', label: 'Reading preferences', description: 'Formats, languages, requests, and notifications.' },
   { id: 'appearance', label: 'Appearance', description: 'Your shelves, decorations, and Spotlight rotation.' },
   { id: 'readers', label: 'Send to readers', description: 'Email destinations and reader app access.' },
-  { id: 'taste', label: 'Your taste', description: 'Liked books and hidden categories.' },
+  { id: 'taste', label: 'Your taste', description: 'Likes, rejected books, and hidden categories.' },
   { id: 'integrations', label: 'Integrations', description: 'Connect an assistant to your profile.' },
   { id: 'account', label: 'Account security', description: 'Your sign-in credential.' },
 ] as const
@@ -125,6 +127,7 @@ export function Profile() {
   const [confirmSecret, setConfirmSecret] = useState('')
   const [savingCredential, setSavingCredential] = useState(false)
   const [hiddenSubjects, setHiddenSubjects] = useState<string[]>([])
+  const [rejectedBooks, setRejectedBooks] = useState<LikedBook[]>([])
   const [likedBooks, setLikedBooks] = useState<LikedBook[]>([])
   const [overviewStats, setOverviewStats] = useState<ProfileStats | null>(null)
   const [readerTokens, setReaderTokens] = useState<ReaderToken[]>([])
@@ -147,6 +150,7 @@ export function Profile() {
   }
 
   useEffect(() => {
+    fetchRejectedBooks().then((data) => setRejectedBooks(data.items)).catch(() => setError('Could not load rejected books'))
     fetchLikedBooks()
       .then((data) => setLikedBooks(data.items))
       .catch((caught: unknown) => console.warn('profile.liked_books.load_failed', caught))
@@ -454,6 +458,8 @@ export function Profile() {
 
       {activeSection === 'taste' && (
         <ProfileTaste
+          rejectedBooks={rejectedBooks}
+          restoreBook={(id) => { void restoreRejectedBook(id).then(() => setRejectedBooks((books) => books.filter((book) => book.bookId !== id))).catch(() => setError('Could not restore that book')) }}
           likedBooks={likedBooks}
           hiddenSubjects={hiddenSubjects}
           removeLike={(bookId) => void removeLike(bookId)}

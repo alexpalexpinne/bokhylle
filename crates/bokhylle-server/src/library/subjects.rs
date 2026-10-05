@@ -101,6 +101,17 @@ pub fn normalized(name: &str) -> String {
     normalize_text(name)
 }
 
+/// Catalogue aliases share a rail, without changing stored subject identities.
+pub fn concept(normalized: &str) -> &str {
+    match strip_qualifiers(normalized) {
+        "fantasy fiction" => "fantasy",
+        "detective and mystery stories" | "detective and mystery fiction" => "mystery",
+        "sci fi" | "scifi" | "science fiction stories" => "science fiction",
+        "humour" => "humor",
+        base => base,
+    }
+}
+
 fn is_noise(normalized: &str) -> bool {
     NOISE_EXACT.contains(&normalized)
         || NOISE_PREFIXES
@@ -150,7 +161,7 @@ fn strip_qualifiers(normalized: &str) -> &str {
     let mut base = normalized;
     loop {
         let mut stripped = base;
-        for suffix in [" american", " english", " general", " in english"] {
+        for suffix in [" in english", " american", " english", " general"] {
             if let Some(rest) = base.strip_suffix(suffix) {
                 stripped = rest;
                 break;

@@ -65,6 +65,7 @@ export default async function childSetup(page, { base }) {
       else body = query === 'river' ? [BOOKS[1]] : query === 'lantern' ? [BOOKS[0]] : []
     } else if (/\/cover$/.test(path)) { status = 404 }
     else if (path === '/api/profile/onboarding') body = { onboarded: true, interests: savedInterests }
+    else if (path === '/api/profile/rejected') body = { items: [] }
     else if (path === '/api/profile/liked') body = { items: [{ bookId: 7, onShelf: true, readable: true }] }
     else if (path === '/api/profile/interests') { const input = request.postDataJSON(); interestWrites.push(input.subjects); savedInterests = input.subjects; body = { ok: true } }
     else if (path === '/api/profile/onboarded') {

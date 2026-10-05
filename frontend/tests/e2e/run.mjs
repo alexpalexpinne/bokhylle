@@ -18,6 +18,10 @@ import stabilitySpec from './specs/stability.mjs'
 import homeSheetSpec from './specs/home-sheet.mjs'
 import homeDesignSpec from './specs/home-design.mjs'
 import homeRailsSpec from './specs/home-rails.mjs'
+import homeFeedbackSpec from './specs/home-feedback.mjs'
+import recommendationsSpec from './specs/recommendations.mjs'
+import browseRestorationSpec from './specs/browse-restoration.mjs'
+import browsingErrorsSpec from './specs/browsing-errors.mjs'
 import profileAppearanceSpec from './specs/profile-appearance.mjs'
 import searchStatesSpec from './specs/search-states.mjs'
 import profileHelpSpec from './specs/profile-help.mjs'
@@ -82,6 +86,10 @@ const allSpecs = [
   { name: 'home-sheet', run: homeSheetSpec, auth: false },
   { name: 'home-design', run: homeDesignSpec, auth: false },
   { name: 'home-rails', run: homeRailsSpec, auth: false },
+  { name: 'home-feedback', run: homeFeedbackSpec, auth: false },
+  { name: 'recommendations', run: recommendationsSpec, auth: false },
+  { name: 'browse-restoration', run: browseRestorationSpec, auth: false },
+  { name: 'browsing-errors', run: browsingErrorsSpec, auth: false },
   { name: 'profile-appearance', run: profileAppearanceSpec, auth: false },
   { name: 'search-states', run: searchStatesSpec, auth: false },
   { name: 'profile-help', run: profileHelpSpec, auth: false },

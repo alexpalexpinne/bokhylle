@@ -2086,6 +2086,43 @@
         ],
         "type": "object"
       },
+      "CataloguePreferenceInput": {
+        "properties": {
+          "preference": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "providerKey",
+          "preference"
+        ],
+        "type": "object"
+      },
+      "CataloguePreferenceResponse": {
+        "properties": {
+          "bookId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "preference": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bookId",
+          "preference"
+        ],
+        "type": "object"
+      },
       "CatalogueQuery": {
         "description": "Catalogue works for an author that the household does not own yet.",
         "properties": {
@@ -3987,6 +4024,13 @@
           "status": {
             "$ref": "#/components/schemas/DiscoveryStatus"
           },
+          "subjects": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "title": {
             "type": "string"
           },
@@ -4017,6 +4061,7 @@
           "series",
           "seriesNumber",
           "status",
+          "subjects",
           "title",
           "year"
         ],
@@ -4347,6 +4392,36 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "FeedbackAction": {
+        "enum": [
+          "like",
+          "not_for_me",
+          "dismiss"
+        ],
+        "type": "string"
+      },
+      "FeedbackInput": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/FeedbackAction"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "FeedbackReceipt": {
+        "properties": {
+          "undoToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "undoToken"
+        ],
         "type": "object"
       },
       "FileDetail": {
@@ -4737,6 +4812,20 @@
           "running",
           "skipped",
           "startedAt"
+        ],
+        "type": "object"
+      },
+      "ImpressionsInput": {
+        "properties": {
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
         ],
         "type": "object"
       },
@@ -5909,6 +5998,140 @@
         ],
         "type": "object"
       },
+      "RecommendationDiagnostics": {
+        "properties": {
+          "cachedOnly": {
+            "type": "boolean"
+          },
+          "catalogueCached": {
+            "default": false,
+            "type": "boolean"
+          },
+          "elapsedMs": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "eligible": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "filtered": {
+            "additionalProperties": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "default": {},
+            "type": "object"
+          },
+          "retrieved": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreExplanation"
+            },
+            "type": "array"
+          },
+          "selected": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timingsMs": {
+            "additionalProperties": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "default": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "cachedOnly",
+          "catalogueCached",
+          "elapsedMs",
+          "eligible",
+          "filtered",
+          "retrieved",
+          "scores",
+          "selected",
+          "timingsMs"
+        ],
+        "type": "object"
+      },
+      "RecommendationsPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpotlightItem"
+            },
+            "type": "array"
+          },
+          "nextOffset": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "total": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "nextOffset",
+          "subjects",
+          "total"
+        ],
+        "type": "object"
+      },
+      "RecommendationsQuery": {
+        "properties": {
+          "cachedOnly": {
+            "default": false,
+            "type": "boolean"
+          },
+          "limit": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "RejectionReason": {
         "enum": [
           "language_mismatch",
@@ -6770,6 +6993,61 @@
         ],
         "type": "object"
       },
+      "ScoreExplanation": {
+        "properties": {
+          "affinity": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "authorAffinity": {
+            "default": 0,
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "matchingAuthors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "matchingSubjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "recentlySeen": {
+            "type": "boolean"
+          },
+          "score": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "subjectAffinity": {
+            "default": 0,
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "affinity",
+          "authorAffinity",
+          "key",
+          "matchingAuthors",
+          "matchingSubjects",
+          "recentlySeen",
+          "score",
+          "subjectAffinity",
+          "title"
+        ],
+        "type": "object"
+      },
       "ScoreReason": {
         "properties": {
           "reason": {
@@ -6971,6 +7249,48 @@
         },
         "required": [
           "bookId"
+        ],
+        "type": "object"
+      },
+      "SeriesContinuation": {
+        "properties": {
+          "book": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "missingVolume": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "readable": {
+            "type": "boolean"
+          },
+          "seriesId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "seriesName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "book",
+          "missingVolume",
+          "readable",
+          "seriesId",
+          "seriesName"
         ],
         "type": "object"
       },
@@ -7474,6 +7794,18 @@
           "reasonType": {
             "type": "string"
           },
+          "recommendationKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "series": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source": {
             "type": "string"
           },
@@ -7502,6 +7834,8 @@
           "ownership",
           "reasonLabel",
           "reasonType",
+          "recommendationKey",
+          "series",
           "source",
           "subjects",
           "title"
@@ -7657,6 +7991,12 @@
       },
       "SubjectFacet": {
         "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "count": {
             "format": "int64",
             "type": "integer"
@@ -7669,6 +8009,7 @@
           }
         },
         "required": [
+          "aliases",
           "count",
           "name",
           "normalized"
@@ -8349,7 +8690,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.3.2"
+    "version": "0.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -18191,6 +18532,71 @@
         ]
       }
     },
+    "/api/discover/preference": {
+      "post": {
+        "operationId": "post_discover_preference",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CataloguePreferenceInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CataloguePreferenceResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "discover"
+        ]
+      }
+    },
     "/api/discover/releases": {
       "get": {
         "operationId": "get_discover_releases",
@@ -18491,6 +18897,64 @@
                 "schema": {
                   "items": {
                     "$ref": "#/components/schemas/HomeRail"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "home"
+        ]
+      }
+    },
+    "/api/home/series": {
+      "get": {
+        "operationId": "get_home_series",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeriesContinuation"
                   },
                   "type": "array"
                 }
@@ -19947,6 +20411,120 @@
         ]
       }
     },
+    "/api/profile/rejected": {
+      "get": {
+        "operationId": "get_profile_rejected",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Items_for_LikedBook"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "profile"
+        ]
+      }
+    },
+    "/api/profile/rejected/{id}": {
+      "delete": {
+        "operationId": "delete_profile_rejected__id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "profile"
+        ]
+      }
+    },
     "/api/profile/stats": {
       "get": {
         "operationId": "get_profile_stats",
@@ -20176,6 +20754,355 @@
         ],
         "tags": [
           "profile"
+        ]
+      }
+    },
+    "/api/recommendations": {
+      "get": {
+        "operationId": "get_recommendations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cachedOnly",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationsPage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/recommendations/diagnostics": {
+      "get": {
+        "operationId": "get_recommendations_diagnostics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecommendationDiagnostics"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/recommendations/impressions": {
+      "post": {
+        "operationId": "post_recommendations_impressions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpressionsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/recommendations/{key}/feedback": {
+      "post": {
+        "operationId": "post_recommendations__key__feedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackReceipt"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "recommendations"
+        ]
+      }
+    },
+    "/api/recommendations/{key}/feedback/{token}": {
+      "delete": {
+        "operationId": "delete_recommendations__key__feedback__token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "recommendations"
         ]
       }
     },

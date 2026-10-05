@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/bokhylle-acquisition","crates/bokhylle-core", "crates/bokhylle-importer", "crates/bokhylle-library", "crates/bokhylle-metadata", "crates/bokhylle-server", "xtask"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.4.0"
 edition = "2024"
 license = "AGPL-3.0-only"
 repository = "https://github.com/alexpalexpinne/bokhylle"

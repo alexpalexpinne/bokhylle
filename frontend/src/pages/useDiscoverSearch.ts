@@ -101,6 +101,8 @@ export function useDiscoverSearch({
   } | null>(null)
   const requestSeq = useRef(0)
   const [loadingMore, setLoadingMore] = useState(false)
+  const loadingMoreRef = useRef(false)
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
   const [externalNotice, setExternalNotice] = useState<string | null>(null)
   const [allLanguages, setAllLanguages] = useState(() => {
     try {
@@ -157,6 +159,7 @@ export function useDiscoverSearch({
       return
     }
     setRequestedKey(key)
+    setLoadMoreError(null)
     setNotice(null)
     setExternalNotice(null)
 
@@ -277,11 +280,13 @@ export function useDiscoverSearch({
   }
 
   async function loadMore() {
-    if (!continuation || loadingMore || !result || result.key !== requestedKey) {
+    if (!continuation || loadingMoreRef.current || !result || result.key !== requestedKey) {
       return
     }
     const generation = requestSeq.current
+    loadingMoreRef.current = true
     setLoadingMore(true)
+    setLoadMoreError(null)
     try {
       const page = await fetchDiscoverOrchestration({
         q: query.trim(),
@@ -301,8 +306,9 @@ export function useDiscoverSearch({
         cacheSearch(result.key, { ...cached, items, next: page.next })
       }
     } catch {
-      // Keep the button so the page can be retried.
+      if (generation === requestSeq.current) setLoadMoreError('Could not load more results. Your current books are still shown.')
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
   }
@@ -310,6 +316,11 @@ export function useDiscoverSearch({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     await runSearch(query, type)
+  }
+
+  function retrySearch() {
+    searchCache.delete(searchKeyOf(type, query.trim()))
+    void runSearch(query, type)
   }
 
   // Restore a search from the URL (links, back button) or, when the URL has
@@ -403,6 +414,8 @@ export function useDiscoverSearch({
     authorState,
     continuation,
     loadingMore,
+    loadMoreError,
+    retrySearch,
     loading,
     allLanguages,
     updateAllLanguages,

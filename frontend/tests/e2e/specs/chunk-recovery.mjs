@@ -23,6 +23,8 @@ export default async function chunkRecovery(page, { base }) {
       } }
     } else if (path === '/api/profile/stats') {
       body = { shelf: 0, authors: 0, liked: 0, booksSent: 0 }
+    } else if (path === '/api/profile/rejected') {
+      body = { items: [] }
     } else if (path === '/api/profile/liked') {
       body = { items: [] }
     } else if (path.endsWith('/tokens')) {

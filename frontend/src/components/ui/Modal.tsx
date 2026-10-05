@@ -96,7 +96,7 @@ export function Modal({ title, description, onClose, children, headerAside, foot
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-overlay px-0 py-0 backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-overlay pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] backdrop-blur-sm sm:items-center sm:px-4 sm:py-8"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -105,7 +105,7 @@ export function Modal({ title, description, onClose, children, headerAside, foot
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`flex max-h-[100dvh] w-full flex-col ${wide ? 'max-w-2xl' : 'max-w-lg'} rounded-t-panel bg-surface shadow-modal outline-none sm:max-h-[calc(100dvh-4rem)] sm:rounded-panel`}
+        className={`flex max-h-[calc(100dvh-env(safe-area-inset-top))] w-full flex-col ${wide ? 'max-w-2xl' : 'max-w-lg'} rounded-t-panel bg-surface shadow-modal outline-none sm:max-h-[calc(100dvh-4rem)] sm:rounded-panel`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 px-5 pt-5 sm:px-6 sm:pt-6">
@@ -121,7 +121,7 @@ export function Modal({ title, description, onClose, children, headerAside, foot
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+        <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 ${footer ? '' : 'pb-[calc(1.25rem+env(safe-area-inset-bottom))]'}`}>
           {children}
         </div>
 

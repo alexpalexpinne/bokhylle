@@ -337,8 +337,8 @@ async fn likes_rank_home_and_not_for_me_is_respected() {
         );
     }
 
-    // A like lifts its subject above the household counts and produces a
-    // "Because you liked" rail from shared subjects.
+    // A like lifts related books above household counts. The liked-books
+    // rail takes priority over subject rails that repeat its recommendations.
     bokhylle_server::user_books::set_preference(
         &test_app.state.db,
         user_id,
@@ -352,15 +352,17 @@ async fn likes_rank_home_and_not_for_me_is_respected() {
         .await
         .unwrap();
     assert_eq!(
-        rails[0].subject.as_deref(),
-        Some("domestic thriller"),
-        "the liked subject should lead the rails"
+        rails[0].title, "Based on books you liked",
+        "the liked recommendations should lead the rails"
     );
-    let liked_rail = rails
-        .iter()
-        .find(|rail| rail.title == "Based on books you liked")
-        .expect("a liked rail");
+    let liked_rail = &rails[0];
     assert_eq!(liked_rail.books.len(), 3);
+    assert!(
+        liked_rail
+            .books
+            .iter()
+            .all(|book| domestic.contains(&book.id))
+    );
     assert!(!liked_rail.books.iter().any(|book| book.id == domestic[0]));
 
     // "Not for me" books stay out of the rails.

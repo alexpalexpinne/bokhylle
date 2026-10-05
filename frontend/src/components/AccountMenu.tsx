@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChevronDown, CircleHelp, LogOut, Monitor, Moon, RefreshCw, Settings, Sun, UserRound } from 'lucide-react'
 import { ApiError } from '../api/client'
@@ -13,6 +13,8 @@ export function AccountMenu() {
   const [busy, setBusy] = useState<'switch' | 'signout' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelId = useId()
   const { choice, choose } = useThemeChoice()
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export function AccountMenu() {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setOpen(false)
+        triggerRef.current?.focus({ preventScroll: true })
       }
     }
 
@@ -87,11 +90,13 @@ export function AccountMenu() {
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
+        aria-controls={panelId}
         aria-label="Account menu"
-        className="flex items-center gap-1.5 rounded-full p-1 pr-2 text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink"
+        className="pressable flex min-h-12 items-center gap-1.5 rounded-[3px] p-1 pr-2 text-ink-soft transition-[background-color,color,transform] duration-150 ease-smooth hover:bg-surface-2 hover:text-ink sm:min-h-10"
       >
         <ProfileAvatar user={user} className="h-8 w-8 text-xs font-semibold" />
         <ChevronDown size={14} className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
@@ -99,13 +104,16 @@ export function AccountMenu() {
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-panel bg-surface py-1.5 shadow-modal"
+          id={panelId}
+          role="region"
+          aria-label="Account options"
+          className="absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-6rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-panel bg-surface py-1.5 shadow-modal sm:w-64"
         >
           <div className="border-b border-line px-4 py-3">
-            <p className="text-sm font-medium text-ink">
+            <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">
               {user.displayName ?? user.username}
             </p>
-            <p className="text-xs text-ink-faint">
+            <p className="text-xs text-ink-faint [overflow-wrap:anywhere]">
               {user.displayName ? `@${user.username} · ` : ''}
               {isAdmin
                 ? 'Administrator'
@@ -130,7 +138,7 @@ export function AccountMenu() {
                   type="button"
                   aria-pressed={choice === option.value}
                   onClick={() => choose(option.value)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-[3px] px-2 py-1.5 text-xs transition-colors ${
+                  className={`pressable flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-[3px] px-2 py-1.5 text-sm transition-[background-color,color,transform] duration-150 ease-smooth sm:min-h-8 sm:text-xs ${
                     choice === option.value
                       ? 'bg-accent text-accent-ink'
                       : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
@@ -147,7 +155,7 @@ export function AccountMenu() {
             <Link
               to="/profile"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink"
+              className="flex min-h-12 items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink sm:min-h-10"
             >
               <UserRound size={15} />
               {isChild ? 'My settings' : 'Profile'}
@@ -158,7 +166,7 @@ export function AccountMenu() {
             <Link
               to="/settings"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink"
+              className="flex min-h-12 items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink sm:min-h-10"
             >
               <Settings size={15} />
               Administration
@@ -168,7 +176,7 @@ export function AccountMenu() {
           <Link
             to="/help"
             onClick={() => setOpen(false)}
-            className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink"
+            className="flex min-h-12 items-center gap-2.5 px-4 py-2.5 text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink sm:min-h-10"
           >
             <CircleHelp size={15} />
             Help
@@ -178,7 +186,7 @@ export function AccountMenu() {
             type="button"
             disabled={busy !== null}
             onClick={() => void (demo ? switchProfile() : leave('switch'))}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            className="flex min-h-12 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50 sm:min-h-10"
           >
             <RefreshCw size={15} />
             {busy === 'switch' ? 'Switching…' : demo ? 'Switch adult / child' : 'Switch profile'}
@@ -188,7 +196,7 @@ export function AccountMenu() {
             type="button"
             disabled={busy !== null}
             onClick={() => void leave('signout')}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            className="flex min-h-12 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50 sm:min-h-10"
           >
             <LogOut size={15} />
             {busy === 'signout' ? 'Signing out…' : 'Sign out'}

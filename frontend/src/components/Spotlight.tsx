@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react'
 import { type SpotlightItem, authorList, coverUrl } from '../api/library'
 import { discoverCoverUrl } from '../api/discover'
+import { useRecommendationImpression } from '../lib/useRecommendationImpressions'
 import { heroBlurb } from '../lib/blurb'
 import { BookCover } from './BookCover'
 import { BrandMark } from './BrandMark'
@@ -158,6 +159,7 @@ export function Spotlight({ items, preferredLanguages }: { items: SpotlightItem[
     return () => observer.disconnect()
   }, [index, items])
 
+  const impressionRef = useRecommendationImpression(items[index % items.length]?.recommendationKey)
   if (items.length === 0) return null
   const activeIndex = index % items.length
   const item = items[activeIndex]
@@ -199,7 +201,7 @@ export function Spotlight({ items, preferredLanguages }: { items: SpotlightItem[
       onPointerUpCapture={() => setTouching(false)}
       onPointerCancel={() => setTouching(false)}
     >
-      <div className="spotlight-display" data-decorated={decorated}>
+      <div ref={impressionRef} className="spotlight-display" data-decorated={decorated}>
         <Link ref={coverRef} to={to} state={linkState} aria-label={`View ${item.title}`} viewTransition className="spotlight-cover">
           {cover ? (
             <BookCover key={cover} src={cover} loading="eager" fetchPriority="high" style={{ viewTransitionName: 'book-cover' }} onReady={() => {

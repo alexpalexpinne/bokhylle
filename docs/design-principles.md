@@ -48,7 +48,8 @@ and real cover art. It remains a useful web application, not a magazine.
   previous/count/next controls together below the hero.
 - Start Home with local books and saved profile suggestions. Reveal initial
   sections in a fixed order with matching loading slots. Prepare refreshed
-  recommendations for the next visit so visible shelves stay in place.
+  recommendations for the next visit so visible shelves stay in place. Explicit
+  changes to taste, sharing, or hidden subjects refresh recommendations immediately.
 - Adult profiles may enable automatic rotation. Pause it during interaction,
   when the hero is out of view or a dialog is open, and when reduced motion is
   requested. Child and shared demo profiles browse manually. Do not add a

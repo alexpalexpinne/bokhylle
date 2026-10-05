@@ -34,6 +34,7 @@ export async function mockVersionChoices(page) {
       return json({ user: state.user })
     }
     if (path === '/api/profile/stats') return json({ shelf: 1, authors: 0, liked: 0, booksSent: 0 })
+    if (path === '/api/profile/rejected') return json({ items: [] })
     if (path === '/api/profile/liked') return json({ items: [] })
     if (path === '/api/profile/hidden-subjects') return json({ hidden: [] })
     if (path.endsWith('/tokens') || path.endsWith('/agent-tokens')) return json({ tokens: [] })

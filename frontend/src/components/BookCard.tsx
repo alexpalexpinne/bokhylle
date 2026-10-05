@@ -37,7 +37,7 @@ export function BookCard({ book, to, status, headingLevel = 3, appearance = 'def
         <>
           <div
             data-book-cover
-            className="relative aspect-[2/3] overflow-hidden rounded-[3px] bg-surface-2 shadow-card transition-transform duration-200 ease-smooth group-hover:-translate-y-0.5"
+            className="relative aspect-[2/3] overflow-hidden rounded-[3px] bg-surface-2 shadow-card transition-transform duration-200 ease-smooth motion-safe:group-hover:-translate-y-0.5"
           >
             <BookCover
               src={coverUrl(book.id)}

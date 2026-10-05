@@ -17,6 +17,9 @@ type DiscoveryRow = (
     Option<i64>,
     Option<String>,
     String,
+    String,
+    String,
+    Option<String>,
 );
 
 #[derive(Serialize, schemars::JsonSchema)]
@@ -91,10 +94,11 @@ pub async fn arm_automation(
     }) {
         let _ = sqlx::query(
             "INSERT INTO author_discoveries
-                 (author_id, provider, provider_key, title, authors, year, cover_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+                 (author_id, provider, provider_key, title, authors, year, cover_id, language, languages, subjects)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(author_id, provider, provider_key) DO UPDATE SET
-                 cover_id = COALESCE(author_discoveries.cover_id, excluded.cover_id)",
+                 cover_id = COALESCE(author_discoveries.cover_id, excluded.cover_id),
+                 language = excluded.language, languages = excluded.languages, subjects = excluded.subjects",
         )
         .bind(author_id)
         .bind(&result.provider)
@@ -103,6 +107,9 @@ pub async fn arm_automation(
         .bind(result.authors.join(", "))
         .bind(result.year)
         .bind(&result.cover_id)
+        .bind(&result.language)
+        .bind(serde_json::to_string(&result.languages).unwrap_or_else(|_| "[]".into()))
+        .bind(serde_json::to_string(&result.subjects).unwrap_or_else(|_| "[]".into()))
         .execute(&state.db)
         .await;
     }
@@ -617,8 +624,8 @@ pub async fn refresh_followed_authors(state: &AppState) -> Result<(), AppError> 
             // signal; an upsert update would also report an affected row.
             let inserted = sqlx::query(
                 "INSERT INTO author_discoveries
-                     (author_id, provider, provider_key, title, authors, year, cover_id, language)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     (author_id, provider, provider_key, title, authors, year, cover_id, language, languages, subjects)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(author_id, provider, provider_key) DO NOTHING",
             )
             .bind(author_id)
@@ -629,6 +636,8 @@ pub async fn refresh_followed_authors(state: &AppState) -> Result<(), AppError> 
             .bind(result.year)
             .bind(&result.cover_id)
             .bind(&result.language)
+            .bind(serde_json::to_string(&result.languages).unwrap_or_else(|_| "[]".into()))
+            .bind(serde_json::to_string(&result.subjects).unwrap_or_else(|_| "[]".into()))
             .execute(&state.db)
             .await
             .map(|outcome| outcome.rows_affected() > 0)
@@ -638,7 +647,7 @@ pub async fn refresh_followed_authors(state: &AppState) -> Result<(), AppError> 
             let _ = sqlx::query(
                 "UPDATE author_discoveries
                  SET title = ?, authors = ?, year = ?, language = COALESCE(?, language),
-                     cover_id = COALESCE(cover_id, ?)
+                     cover_id = COALESCE(cover_id, ?), languages = ?, subjects = ?
                  WHERE author_id = ? AND provider = ? AND provider_key = ?",
             )
             .bind(&result.title)
@@ -646,6 +655,8 @@ pub async fn refresh_followed_authors(state: &AppState) -> Result<(), AppError> 
             .bind(result.year)
             .bind(&result.language)
             .bind(&result.cover_id)
+            .bind(serde_json::to_string(&result.languages).unwrap_or_else(|_| "[]".into()))
+            .bind(serde_json::to_string(&result.subjects).unwrap_or_else(|_| "[]".into()))
             .bind(author_id)
             .bind(&result.provider)
             .bind(&result.provider_key)
@@ -678,16 +689,17 @@ pub async fn refresh_followed_authors(state: &AppState) -> Result<(), AppError> 
 /// Three honest categories: what entered the library, what Bokhylle found
 /// for followed authors, and what the user requested that is now ready.
 pub async fn list(state: &AppState, user_id: i64) -> Result<UpdatesResponse, AppError> {
-    let library: Vec<(i64, String)> = sqlx::query_as(
+    let visibility = crate::services::sharing::predicate("b.id", user_id);
+    let library: Vec<(i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT b.id, b.title
          FROM books b
-         WHERE b.created_at > unixepoch() - 14 * 24 * 3600
+         WHERE {visibility} AND b.created_at > unixepoch() - 14 * 24 * 3600
            AND EXISTS (SELECT 1 FROM book_files f
                        JOIN editions e ON e.id = f.edition_id
                        WHERE e.book_id = b.id)
          ORDER BY b.created_at DESC
-         LIMIT 5",
-    )
+         LIMIT 5"
+    )))
     .fetch_all(&state.db)
     .await?;
 
@@ -695,33 +707,17 @@ pub async fn list(state: &AppState, user_id: i64) -> Result<UpdatesResponse, App
     // many-author compilations stay out of Home, and known non-preferred
     // languages are hidden while unknown languages remain as a fallback.
     let (languages, _) = user_preferences(state, user_id).await?;
-    let safe_languages: Vec<String> = languages
-        .into_iter()
-        .filter(|language| {
-            !language.is_empty()
-                && language.len() <= 8
-                && language
-                    .chars()
-                    .all(|character| character.is_ascii_lowercase())
-        })
-        .collect();
-    let language_clause = if safe_languages.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " AND d.language IN ({})",
-            safe_languages
-                .iter()
-                .map(|language| format!("'{language}'"))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-    };
-    let sql = format!(
-        "SELECT author_id, authors, title, provider_key, year, cover_id, provider
+    let exclusions = crate::library::relevance::catalogue_exclusions(
+        &state.db,
+        user_id,
+        false,
+        state.demo.is_none(),
+    )
+    .await?;
+    let sql = "SELECT author_id, authors, title, provider_key, year, cover_id, provider, languages, subjects, language
          FROM (
              SELECT d.author_id, d.authors, d.title, d.provider_key, d.year, d.cover_id,
-                    d.provider, d.discovered_at,
+                    d.provider, d.discovered_at, d.languages, d.subjects, d.language,
                     ROW_NUMBER() OVER (
                         PARTITION BY d.author_id
                         ORDER BY d.discovered_at DESC, d.id DESC
@@ -734,28 +730,56 @@ pub async fn list(state: &AppState, user_id: i64) -> Result<UpdatesResponse, App
                AND lower(d.title) NOT LIKE '%boxed set%'
                AND lower(d.title) NOT LIKE '%bundle%'
                AND lower(d.title) NOT LIKE '%complete series%'
-               AND lower(d.title) NOT LIKE '%books collection%'{language_clause}
+               AND lower(d.title) NOT LIKE '%books collection%'
          )
-         WHERE rn <= 2
-         GROUP BY provider, provider_key
-         -- One newest discovery per followed author first, then seconds.
-         ORDER BY MIN(rn) ASC, MAX(discovered_at) DESC
-         LIMIT 12"
-    );
-    let discoveries: Vec<DiscoveryRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+         WHERE rn <= 40
+         ORDER BY rn ASC, discovered_at DESC, author_id ASC
+         LIMIT 1000";
+    let candidates: Vec<DiscoveryRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
         .bind(user_id)
         .fetch_all(&state.db)
         .await?;
 
-    let ready: Vec<(i64, String)> = sqlx::query_as(
+    let mut discoveries = Vec::new();
+    let mut counts = std::collections::HashMap::new();
+    let mut seen = std::collections::HashSet::new();
+    for (author_id, authors, title, key, year, cover_id, provider, available, subjects, primary) in
+        candidates
+    {
+        let author_names = authors.split(", ").map(str::to_string).collect::<Vec<_>>();
+        let available: Vec<String> = serde_json::from_str(&available).unwrap_or_default();
+        let subjects: Vec<String> = serde_json::from_str(&subjects).unwrap_or_default();
+        if !crate::library::relevance::language_matches(&languages, &available, primary.as_deref())
+            || !exclusions.permits(&provider, &key, &title, &author_names, &subjects)
+            || counts.get(&author_id).copied().unwrap_or(0) >= 2
+            || !seen.insert((provider.clone(), key.clone()))
+        {
+            continue;
+        }
+        *counts.entry(author_id).or_insert(0) += 1;
+        discoveries.push(DiscoveryUpdate {
+            author_id,
+            authors: author_names,
+            title,
+            provider_key: key,
+            year,
+            cover_id,
+            provider,
+        });
+        if discoveries.len() == 12 {
+            break;
+        }
+    }
+
+    let ready: Vec<(i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT b.id, b.title
          FROM acquisition_requests ar
          JOIN acquisitions ac ON ac.id = ar.acquisition_id
          JOIN books b ON b.id = ac.book_id
-         WHERE ar.user_id = ? AND ac.status = 'READY'
+         WHERE ar.user_id = ? AND ac.status = 'READY' AND {visibility}
          ORDER BY ac.updated_at DESC
-         LIMIT 5",
-    )
+         LIMIT 5"
+    )))
     .bind(user_id)
     .fetch_all(&state.db)
     .await?;
@@ -765,26 +789,7 @@ pub async fn list(state: &AppState, user_id: i64) -> Result<UpdatesResponse, App
             .into_iter()
             .map(|(book_id, title)| BookUpdate { book_id, title })
             .collect(),
-        discoveries: discoveries
-            .into_iter()
-            .map(
-                |(author_id, authors, title, provider_key, year, cover_id, provider)| {
-                    DiscoveryUpdate {
-                        author_id,
-                        authors: authors
-                            .split(", ")
-                            .filter(|part| !part.is_empty())
-                            .map(str::to_string)
-                            .collect(),
-                        title,
-                        provider_key,
-                        year,
-                        cover_id,
-                        provider,
-                    }
-                },
-            )
-            .collect(),
+        discoveries,
         ready: ready
             .into_iter()
             .map(|(book_id, title)| BookUpdate { book_id, title })

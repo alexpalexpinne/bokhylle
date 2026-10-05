@@ -92,14 +92,18 @@ pub(super) async fn seed(pool: &SqlitePool) -> Result<(), AppError> {
     // The followed-author feed uses the same local catalogue identities as
     // demo Discover. These are sample discoveries, not new-release claims.
     sqlx::query(
-        "INSERT OR IGNORE INTO author_discoveries
-         (author_id, provider, provider_key, title, authors, language)
-         SELECT a.id, 'local', 'local:' || b.id, b.title, a.name, 'en'
+        "INSERT INTO author_discoveries
+         (author_id, provider, provider_key, title, authors, language, languages, subjects)
+         SELECT a.id, 'local', 'local:' || b.id, b.title, a.name, 'en', '[\"en\"]',
+                (SELECT json_group_array(s.name) FROM book_subjects bs
+                 JOIN subjects s ON s.id = bs.subject_id WHERE bs.book_id = b.id)
          FROM books b JOIN book_authors ba ON ba.book_id = b.id
          JOIN authors a ON a.id = ba.author_id
          WHERE a.normalized_name IN ('charles dickens', 'jane austen')
            AND EXISTS (SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id
-                       WHERE e.book_id = b.id)",
+                       WHERE e.book_id = b.id)
+         ON CONFLICT(author_id, provider, provider_key) DO UPDATE SET
+             languages = excluded.languages, subjects = excluded.subjects",
     )
     .execute(&mut *tx)
     .await?;

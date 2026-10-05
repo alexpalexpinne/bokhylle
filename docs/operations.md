@@ -40,6 +40,19 @@ preserved. To roll back, restore the pre-upgrade backup with the previous image.
 Version 0.3.2 adds no database migration. Pending version choices are rechecked
 using the saved request preferences; incomplete book identity requires review.
 
+Version 0.4.0 upgrades existing 0.1–0.3 installations in place. Back up config
+and library first. Migrations `0009`–`0012` retain catalogue language and subject
+metadata, add canonical subject aliases, and store profile-scoped recommendation
+offers, visible impressions, temporary dismissals and Undo receipts. Followed
+author metadata refreshes on its next background tick. Existing accounts,
+shelves, ownership, sharing, acquisitions and reader progress are preserved.
+Recommendation feedback changes taste or suggestion visibility; it does not
+add a book to a shelf, download a file or send a book. Child feedback and
+series continuations remain limited to assigned books, and current sharing is
+rechecked before feedback or Undo. Restore the pre-upgrade config and library
+backup with the previous image to roll back; do not start an older image with
+the migrated database.
+
 ## Server administration
 
 Administrators can open **Settings → Server** to see the running version, commit,
@@ -167,7 +180,7 @@ Unix timestamp as `BOKHYLLE_BUILD_TIME`.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.3.2`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.4.0`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 

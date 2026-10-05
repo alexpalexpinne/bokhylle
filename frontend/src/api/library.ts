@@ -1,3 +1,4 @@
+import { withHomeInvalidation } from '../lib/homeSnapshot'
 import { apiRoute } from './client'
 import type { components } from './generated'
 
@@ -115,10 +116,10 @@ export function fetchHiddenSubjects() {
 }
 
 export function setSubjectHidden(normalized: string, hidden: boolean) {
-  return apiRoute('/api/home/subjects/{normalized}', `/api/home/subjects/${encodeURIComponent(normalized)}`, {
+  return withHomeInvalidation(apiRoute('/api/home/subjects/{normalized}', `/api/home/subjects/${encodeURIComponent(normalized)}`, {
     method: 'PUT',
     json: { hidden },
-  })
+  }))
 }
 
 export function fetchHighlights(limit = 12, mine = true) {
@@ -150,11 +151,11 @@ export function fetchBook(id: number) {
 }
 
 export function setBookSharing(id: number, sharing: 'private' | 'shared') {
-  return apiRoute('/api/books/{id}/sharing', `/api/books/${id}/sharing`, { method: 'PUT', json: { sharing } })
+  return withHomeInvalidation(apiRoute('/api/books/{id}/sharing', `/api/books/${id}/sharing`, { method: 'PUT', json: { sharing } }))
 }
 
 export function setBooksSharing(bookIds: number[], sharing: 'private' | 'shared') {
-  return apiRoute('/api/books/sharing', '/api/books/sharing', { method: 'PUT', json: { bookIds, sharing } })
+  return withHomeInvalidation(apiRoute('/api/books/sharing', '/api/books/sharing', { method: 'PUT', json: { bookIds, sharing } }))
 }
 
 export type SimilarBook = components['schemas']['SimilarBook']
@@ -198,10 +199,10 @@ export function followDiscoverAuthor(input: {
   provider: string | null
   providerKey: string | null
 }) {
-  return apiRoute('/api/discover/authors/follow', '/api/discover/authors/follow', {
+  return withHomeInvalidation(apiRoute('/api/discover/authors/follow', '/api/discover/authors/follow', {
     method: 'POST',
     json: input,
-  })
+  }))
 }
 
 /// Materialize a transient author without following, so their page can be
@@ -245,7 +246,7 @@ export function setAuthorAutomation(
 }
 
 export function setAuthorFollow(id: number, following: boolean) {
-  return apiRoute('/api/authors/{id}/follow', `/api/authors/${id}/follow`, { method: following ? 'POST' : 'DELETE' })
+  return withHomeInvalidation(apiRoute('/api/authors/{id}/follow', `/api/authors/${id}/follow`, { method: following ? 'POST' : 'DELETE' }))
 }
 
 export function fetchAuthor(id: number) {
@@ -293,23 +294,23 @@ export function authorList(authors: string[]): string {
 }
 
 export function addBookToShelf(id: number) {
-  return apiRoute('/api/books/{id}/shelf', `/api/books/${id}/shelf`, { method: 'PUT' })
+  return withHomeInvalidation(apiRoute('/api/books/{id}/shelf', `/api/books/${id}/shelf`, { method: 'PUT' }))
 }
 
 export function removeBookFromShelf(id: number) {
-  return apiRoute('/api/books/{id}/shelf', `/api/books/${id}/shelf`, { method: 'DELETE' })
+  return withHomeInvalidation(apiRoute('/api/books/{id}/shelf', `/api/books/${id}/shelf`, { method: 'DELETE' }))
 }
 
 export function claimShelf() {
-  return apiRoute('/api/books/shelf/claim-all', '/api/books/shelf/claim-all', { method: 'POST' })
+  return withHomeInvalidation(apiRoute('/api/books/shelf/claim-all', '/api/books/shelf/claim-all', { method: 'POST' }))
 }
 
 export function setBookPreference(
   id: number,
   preference: 'liked' | 'not_for_me' | null,
 ) {
-  return apiRoute('/api/books/{id}/preference', `/api/books/${id}/preference`, {
+  return withHomeInvalidation(apiRoute('/api/books/{id}/preference', `/api/books/${id}/preference`, {
     method: 'PUT',
     json: { preference },
-  })
+  }))
 }

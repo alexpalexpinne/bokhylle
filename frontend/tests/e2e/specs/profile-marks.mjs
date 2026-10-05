@@ -24,6 +24,7 @@ export default async function profileMarks(page, { base }) {
       body = { user }
     } else if (path === '/api/profile/onboarding') body = { onboarded: true, interests: [] }
     else if (path === '/api/profile/stats') body = { shelf: 0, authors: 0, liked: 0, booksSent: 0 }
+    else if (path === '/api/profile/rejected') body = { items: [] }
     else if (path === '/api/profile/liked') body = { items: [] }
     else if (path === '/api/profile/hidden-subjects') body = { hidden: [] }
     else if (path.endsWith('/tokens')) body = { tokens: [] }

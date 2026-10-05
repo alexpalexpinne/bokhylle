@@ -110,6 +110,8 @@ pub struct DiscoveryResult {
     pub provider_key: String,
     pub title: String,
     pub authors: Vec<String>,
+    #[serde(default)]
+    pub subjects: Vec<String>,
     pub year: Option<i32>,
     pub language: Option<String>,
     /// Complete language set when the provider exposes one.
@@ -548,9 +550,24 @@ pub async fn external_results(
     text: &str,
     limit: usize,
 ) -> Result<Vec<DiscoveryResult>, AppError> {
-    let limit = limit.clamp(1, 40);
+    let limit = limit.clamp(1, 50);
     let primary = state.registry.metadata().clone();
-    let page = provider_page(state, &primary, kind, text, limit, None).await?;
+    let primary_page = provider_page(state, &primary, kind, text, limit, None).await;
+    let page = match primary_page {
+        Ok(page) if !page.items.is_empty() || state.registry.fallback().is_none() => page,
+        first => {
+            let Some(fallback) = state.registry.fallback() else {
+                return first.map(|_| Vec::new());
+            };
+            match provider_page(state, fallback, kind, text, limit, None).await {
+                Ok(page) => page,
+                Err(error) => match first {
+                    Ok(page) => page,
+                    Err(_) => return Err(error),
+                },
+            }
+        }
+    };
     let mut results = page.items;
     ranking::rank_metadata(&mut results, kind, text);
     let mut mapped: Vec<DiscoveryResult> = results
@@ -560,6 +577,7 @@ pub async fn external_results(
             provider_key: result.provider_key,
             title: result.title,
             authors: result.authors,
+            subjects: result.subjects,
             year: result.year,
             language: result.language,
             languages: result.languages,
@@ -813,6 +831,7 @@ async fn resolve_owned(
             provider_key: result.provider_key,
             title: result.title,
             authors: result.authors,
+            subjects: result.subjects,
             year: result.year,
             language: result.language,
             languages: result.languages,

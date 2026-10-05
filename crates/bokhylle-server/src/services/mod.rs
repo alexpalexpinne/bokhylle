@@ -5,6 +5,7 @@
 pub mod books;
 pub mod delivery;
 pub mod reader;
+pub mod recommendations;
 pub mod releases;
 pub mod requests;
 pub mod sharing;

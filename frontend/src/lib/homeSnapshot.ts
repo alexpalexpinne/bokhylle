@@ -1,9 +1,12 @@
+import type { SeriesContinuation } from '../api/recommendations'
+import { clearBrowseState, invalidateBrowseData } from './browseState'
 import type { CollectionDetail } from '../api/collections'
 import type {
   AuthorSummary, BookSummary, ContinueReadingItem, HomeRail, SpotlightItem, Updates,
 } from '../api/library'
 
 export type HomeSnapshot = {
+  series: SeriesContinuation[]
   spotlight: SpotlightItem[]
   recommendations: SpotlightItem[]
   updates: Updates | null
@@ -17,10 +20,30 @@ export type HomeSnapshot = {
   loadedAt: number
 }
 
-const PREFIX = 'bokhylle.home.v1.'
+const PREFIX = 'bokhylle.home.v3.'
 const TTL_MS = 60_000
 const snapshots = new Map<string, HomeSnapshot>()
 let generation = 0
+let recommendationRevision = 0
+export const HOME_RECOMMENDATIONS_CHANGED = 'bokhylle:recommendations-changed'
+
+export function homeRecommendationRevision() {
+  return recommendationRevision
+}
+
+export function invalidateHomeRecommendations() {
+  recommendationRevision += 1
+  invalidateBrowseData()
+  clearStoredSnapshots()
+  window.dispatchEvent(new Event(HOME_RECOMMENDATIONS_CHANGED))
+}
+
+export async function withHomeInvalidation<T>(request: Promise<T>): Promise<T> {
+  const expectedGeneration = generation
+  const result = await request
+  if (generation === expectedGeneration) invalidateHomeRecommendations()
+  return result
+}
 
 export function homeSnapshotGeneration() {
   return generation
@@ -28,7 +51,7 @@ export function homeSnapshotGeneration() {
 
 export function emptyHomeSnapshot(): HomeSnapshot {
   return {
-    spotlight: [], recommendations: [], updates: null, recent: [], continueReading: [],
+    series: [], spotlight: [], recommendations: [], updates: null, recent: [], continueReading: [],
     highlights: [], authors: [], shelves: [], rails: [], householdBooks: 0, loadedAt: 0,
   }
 }
@@ -36,7 +59,7 @@ export function emptyHomeSnapshot(): HomeSnapshot {
 export function hasHomeContent(view: HomeSnapshot): boolean {
   const reading = view.continueReading.filter((item) =>
     Number.isFinite(item.percentage) && item.percentage > 0 && item.percentage < 0.995)
-  return [view.spotlight, view.recommendations, view.recent, reading,
+  return [view.series, view.spotlight, view.recommendations, view.recent, reading,
     view.highlights, view.authors, view.shelves, view.rails, view.updates?.discoveries ?? []]
     .some((items) => items.length > 0)
 }
@@ -44,7 +67,7 @@ export function hasHomeContent(view: HomeSnapshot): boolean {
 function validSnapshot(value: unknown): value is HomeSnapshot {
   if (!value || typeof value !== 'object') return false
   const snapshot = value as Record<string, unknown>
-  return ['spotlight', 'recommendations', 'recent', 'continueReading', 'highlights',
+  return ['series', 'spotlight', 'recommendations', 'recent', 'continueReading', 'highlights',
     'authors', 'shelves', 'rails'].every((field) => Array.isArray(snapshot[field])) &&
     typeof snapshot.householdBooks === 'number' &&
     typeof snapshot.loadedAt === 'number' && Number.isFinite(snapshot.loadedAt) &&
@@ -86,10 +109,15 @@ export function saveHomeSnapshot(key: string, snapshot: HomeSnapshot, expectedGe
 
 export function clearHomeSnapshots() {
   generation += 1
+  clearBrowseState()
+  clearStoredSnapshots()
+}
+
+function clearStoredSnapshots() {
   snapshots.clear()
   try {
     for (const key of Object.keys(sessionStorage)) {
-      if (key.startsWith(PREFIX)) sessionStorage.removeItem(key)
+      if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)
     }
   } catch {
     // No persisted snapshots exist when session storage is unavailable.

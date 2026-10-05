@@ -273,11 +273,11 @@
   .spotlight-layout {
     grid-template-areas: "copy display" "controls controls";
     grid-template-columns: minmax(0, 1fr) clamp(9.5rem, 43vw, 13rem);
-    grid-template-rows: 18rem 2.75rem;
+    grid-template-rows: 18.5rem 2.75rem;
     height: auto;
   }
   /* Keep the action target stationary as the carousel's copy changes. */
-  .spotlight-copy { display: grid; grid-template-rows: minmax(0, 1fr) 4rem; row-gap: 0.75rem; height: 18rem; }
+  .spotlight-copy { display: grid; grid-template-rows: minmax(0, 1fr) 4.5rem; row-gap: 0.75rem; height: 18.5rem; }
   .spotlight-copy-main { display: block; min-height: 0; }
   .spotlight-heading { display: block; height: auto; }
   .spotlight-title { -webkit-line-clamp: 2; }

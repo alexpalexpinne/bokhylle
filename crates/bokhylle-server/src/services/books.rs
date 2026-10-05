@@ -12,6 +12,44 @@ use crate::library::import_metadata;
 use crate::library::queries::{self, BookDetail, BookFilters, BookSummary};
 use bokhylle_acquisition::state::AcquisitionStatus;
 
+/// A catalogue preference stores metadata and personal feedback only. It must
+/// never claim ownership, acquire a file, or grant a child shelf access.
+pub async fn catalogue_preference(
+    state: &AppState,
+    user: &User,
+    provider: Option<&str>,
+    key: &str,
+    preference: &str,
+) -> Result<i64, AppError> {
+    if !matches!(preference, "liked" | "not_for_me") {
+        return Err(AppError::BadRequest("invalid preference".into()));
+    }
+    let id = catalogue_preference_book(state, user, provider, key).await?;
+    crate::user_books::set_preference(&state.db, user.id, id, Some(preference)).await?;
+    Ok(id)
+}
+
+/// Resolve accessible catalogue metadata without changing the person's taste.
+pub async fn catalogue_preference_book(
+    state: &AppState,
+    user: &User,
+    provider: Option<&str>,
+    key: &str,
+) -> Result<i64, AppError> {
+    if !crate::services::requests::is_adult(state, user.id).await? {
+        return Err(AppError::Forbidden);
+    }
+    if !crate::services::requests::may_discover(state, user.id).await? {
+        return Err(AppError::Forbidden);
+    }
+    let metadata = discovery::resolve_metadata(state, provider, key)
+        .await?
+        .ok_or_else(|| AppError::NotFound("book not found".into()))?;
+    let id = import_metadata::upsert_book_from_metadata(&state.db, &metadata).await?;
+    crate::services::sharing::require_access(&state.db, user.id, id).await?;
+    Ok(id)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchScope {
     /// The owned library: household for adults, the assigned shelf for children.

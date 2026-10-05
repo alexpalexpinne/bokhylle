@@ -773,8 +773,11 @@ fn allowed_mutation(method: &Method, path: &str) -> bool {
                 | "/api/auth/logout"
                 | "/api/notifications/read"
                 | "/api/discover/like"
+                | "/api/discover/preference"
+                | "/api/recommendations/impressions"
                 | "/api/discover/authors/follow"
-        ) || (path.starts_with("/api/authors/") && path.ends_with("/follow"))
+        ) || (path.starts_with("/api/recommendations/") && path.ends_with("/feedback"))
+            || (path.starts_with("/api/authors/") && path.ends_with("/follow"))
             || (path.starts_with("/api/demo/requests/")
                 && (path.ends_with("/approve") || path.ends_with("/decline")));
     }
@@ -787,7 +790,8 @@ fn allowed_mutation(method: &Method, path: &str) -> bool {
                 && (path.ends_with("/shelf") || path.ends_with("/preference"));
     }
     *method == Method::DELETE
-        && ((path.starts_with("/api/books/") && path.ends_with("/shelf"))
+        && (path.starts_with("/api/profile/rejected/")
+            || (path.starts_with("/api/books/") && path.ends_with("/shelf"))
             || (path.starts_with("/api/authors/") && path.ends_with("/follow")))
 }
 
