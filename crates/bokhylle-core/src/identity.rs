@@ -62,7 +62,7 @@ pub fn parse_isbn(text: &str) -> Option<String> {
     let mut candidate = String::new();
 
     for character in text.chars().chain(std::iter::once(' ')) {
-        if character.is_ascii_digit() || character == 'X' || character == 'x' || character == '-' {
+        if character.is_ascii_digit() || matches!(character, 'X' | 'x' | '-' | '–' | '—') {
             candidate.push(character);
         } else {
             if let Some(isbn) = normalize_isbn(&candidate) {

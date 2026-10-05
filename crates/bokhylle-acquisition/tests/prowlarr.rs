@@ -131,6 +131,49 @@ async fn test_connection_reports_version() {
 }
 
 #[tokio::test]
+async fn a_numbered_pack_does_not_stop_the_search_for_a_standalone_book() {
+    let server = MockServer::start().await;
+    for (query, release) in [
+        (
+            "Dune Frank Herbert",
+            serde_json::json!({
+                "guid":"pack", "title":"Frank Herbert - [Dune 01-06] (epub)",
+                "size":8_000_000, "seeders":80,
+            }),
+        ),
+        (
+            "Dune",
+            serde_json::json!({
+                "guid":"standalone", "title":"Frank Herbert - Dune 2003 Retail EPUB eBook-Fixture",
+                "size":3_000_000, "seeders":128,
+            }),
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/api/v1/search"))
+            .and(query_param("query", query))
+            .and(query_param("categories", "7000"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(vec![release]))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let book = ExpectedBook {
+        title: "Dune".into(),
+        authors: vec!["Frank Herbert".into()],
+        ..Default::default()
+    };
+    let outcome = client(&server).search_book(&book).await.unwrap();
+    assert_eq!(outcome.queries.len(), 2);
+    assert_eq!(outcome.candidates[0].id, "standalone");
+    let ranked = bokhylle_acquisition::evaluator::rank(&book, &outcome.candidates);
+    assert_eq!(
+        bokhylle_acquisition::evaluator::select(&ranked),
+        bokhylle_acquisition::model::Selection::Auto { index: 0 }
+    );
+}
+
+#[tokio::test]
 async fn surfaces_http_errors() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

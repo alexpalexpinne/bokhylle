@@ -90,31 +90,28 @@ const COLLECTION_TOKENS: &[&str] = &[
     "bundle",
     "pack",
     "anthology",
+    "trilogy",
+    "duology",
 ];
 const COMIC_TOKENS: &[&str] = &["comic", "comics", "manga"];
 const VOLUME_WORDS: &[&str] = &["book", "vol", "volume", "bkn", "bk", "part"];
 const RETAIL_TOKENS: &[&str] = &["retail", "proper", "repack"];
 
 pub fn tokens(name: &str) -> Vec<String> {
-    name.replace(
-        [
-            '.', '_', '-', '+', ',', ';', ':', '(', ')', '[', ']', '{', '}',
-        ],
-        " ",
-    )
-    .split_whitespace()
-    .map(|part| {
-        part.trim_matches(|character: char| !character.is_alphanumeric() && character != '#')
-            .to_ascii_lowercase()
-    })
-    .filter(|token| !token.is_empty())
-    .collect()
+    // Use the same punctuation and accent rules as the expected identity.
+    // Apostrophes in titles and accents in author names must not depend on
+    // which spelling the release uploader used.
+    normalize_text(name)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
 }
 
 struct Detection {
     format: Option<String>,
     language: Option<String>,
     volume: Option<String>,
+    volumes: Vec<String>,
     retail: bool,
     is_collection: bool,
     is_audiobook: bool,
@@ -124,18 +121,30 @@ struct Detection {
 fn detect(
     name: &str,
     tokens: &[String],
-    excluded: &HashSet<String>,
+    identity_positions: &HashSet<usize>,
     preferred_format: &str,
 ) -> Detection {
     let mut formats = Vec::new();
     let mut language = None;
-    let tagged = tagged_tokens(name, excluded);
-    let mut is_collection = false;
+    let tagged = tagged_tokens(name);
+    let mut is_collection = has_number_range(name);
     let mut is_audiobook = false;
-    let mut is_comic = false;
+    let mut is_comic = tokens.windows(2).enumerate().any(|(index, pair)| {
+        !identity_positions.contains(&index) && pair[0] == "issue" && pair[1].parse::<u16>().is_ok()
+    });
     let mut retail = false;
 
-    for token in tokens {
+    for (index, token) in tokens.iter().enumerate() {
+        // Collection markers stay conservative even in a requested pack's
+        // title: matching identity does not prove it contains a single file.
+        if COLLECTION_TOKENS.contains(&token.as_str()) {
+            is_collection = true;
+        }
+        // Identity words are not language, format or media tags. Only their
+        // matched occurrence is excluded; a later explicit tag still applies.
+        if identity_positions.contains(&index) {
+            continue;
+        }
         if let Some((_, value)) = FORMAT_TOKENS.iter().find(|(key, _)| key == token)
             && !formats.contains(value)
         {
@@ -155,9 +164,6 @@ fn detect(
                 language = Some(value.to_string());
             }
         }
-        if COLLECTION_TOKENS.contains(&token.as_str()) {
-            is_collection = true;
-        }
         if AUDIOBOOK_TOKENS.contains(&token.as_str()) {
             is_audiobook = true;
         }
@@ -167,11 +173,6 @@ fn detect(
         if RETAIL_TOKENS.contains(&token.as_str()) {
             retail = true;
         }
-    }
-
-    let lowered = name.to_ascii_lowercase();
-    if !is_collection && (lowered.contains(" omnibus") || lowered.contains(" complete ")) {
-        is_collection = true;
     }
 
     // A release may contain several formats. Choose a usable format even
@@ -188,10 +189,12 @@ fn detect(
         })
         .or_else(|| formats.first().copied());
 
+    let volumes = detect_volumes(name);
     Detection {
         format: format.map(str::to_string),
         language,
-        volume: detect_volume(name),
+        volume: volumes.first().cloned(),
+        volumes,
         retail,
         is_collection,
         is_audiobook,
@@ -205,7 +208,7 @@ const TAG_SEPARATORS: [char; 6] = ['.', '-', '_', '/', '+', ';'];
 // bracketed groups ("[en]", "(en)"), language markers ("LANG-EN"), or
 // upper-case dot-separated tags (".EN."). Title words like "It" or "No" in
 // "Stephen.King.It.EPUB" or "No.Country.for.Old.Men.EPUB" stay untagged.
-fn tagged_tokens(name: &str, excluded: &HashSet<String>) -> HashSet<String> {
+fn tagged_tokens(name: &str) -> HashSet<String> {
     let mut tagged = HashSet::new();
 
     for group in bracketed_groups(name) {
@@ -234,9 +237,8 @@ fn tagged_tokens(name: &str, excluded: &HashSet<String>) -> HashSet<String> {
                 }
             }
 
-            // Release tags such as ".EN."/"ENG" are upper-case short fragments
-            // that are not part of the expected title or author, so "IT" in
-            // "STEPHEN.KING.IT.EPUB" stays untagged for the book "It".
+            // Identity occurrences are ignored by detect, while a repeated
+            // explicit tag ("STEPHEN.KING.IT.IT.EPUB") still applies.
             let trimmed = fragment.trim();
             if (2..=3).contains(&trimmed.len())
                 && trimmed
@@ -244,10 +246,7 @@ fn tagged_tokens(name: &str, excluded: &HashSet<String>) -> HashSet<String> {
                     .all(|character| character.is_ascii_alphabetic())
                 && trimmed == trimmed.to_ascii_uppercase()
             {
-                let token = trimmed.to_ascii_lowercase();
-                if !excluded.contains(&token) {
-                    tagged.insert(token);
-                }
+                tagged.insert(trimmed.to_ascii_lowercase());
             }
         }
     }
@@ -284,13 +283,97 @@ fn normalize_fragment(fragment: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn detect_volume(name: &str) -> Option<String> {
+fn has_number_range(name: &str) -> bool {
+    name.char_indices().any(|(index, character)| {
+        if !matches!(character, '-' | '–' | '—') {
+            return false;
+        }
+        let isbn_character =
+            |character: char| character.is_ascii_digit() || matches!(character, '-' | '–' | '—' | 'X' | 'x');
+        let before = name[..index]
+            .rsplit(|character| !isbn_character(character))
+            .next()
+            .unwrap_or("");
+        let after = name[index..]
+            .split(|character| !isbn_character(character))
+            .next()
+            .unwrap_or("");
+        if normalize_isbn(&format!("{before}{after}")).is_some() {
+            return false;
+        }
+        let start = name[..index]
+            .trim_end()
+            .rsplit(|character: char| !character.is_ascii_digit())
+            .next()
+            .and_then(|number| number.parse::<u32>().ok());
+        let end = name[index + character.len_utf8()..]
+            .trim_start()
+            .split(|character: char| !character.is_ascii_digit())
+            .next()
+            .and_then(|number| number.parse::<u32>().ok());
+        // Small numbered ranges denote volumes; publication date ranges do
+        // not turn a standalone book into a collection.
+        matches!((start, end), (Some(start), Some(end)) if start != end && start < 1000 && end < 1000)
+    })
+}
+
+fn without_leading_tags(mut name: &str) -> &str {
+    loop {
+        name = name.trim();
+        let close = match name.chars().next() {
+            Some('[') => ']',
+            Some('(') => ')',
+            Some('{') => '}',
+            _ => return name,
+        };
+        let Some(end) = name.find(close) else {
+            return name;
+        };
+        name = &name[end + close.len_utf8()..];
+    }
+}
+
+fn release_parts(name: &str) -> Vec<String> {
+    // Uploaders also write subtitle separators as "Title- Subtitle".
+    name.replace(['—', '–'], "-")
+        .replace("- ", " - ")
+        .split(" - ")
+        .map(|part| part.trim().to_string())
+        .collect()
+}
+
+fn normalize_volume(number: &str) -> String {
+    let number = number.trim();
+    let (integer, fraction) = number.split_once('.').unwrap_or((number, ""));
+    if integer.is_empty()
+        || !integer.chars().all(|ch| ch.is_ascii_digit())
+        || !fraction.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return number.to_string();
+    }
+    let integer = integer.trim_start_matches('0');
+    let integer = if integer.is_empty() { "0" } else { integer };
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        integer.to_string()
+    } else {
+        format!("{integer}.{fraction}")
+    }
+}
+
+fn detect_volumes(name: &str) -> Vec<String> {
     let lowered = name.to_ascii_lowercase();
+    let mut volumes = Vec::new();
     for (index, character) in lowered.char_indices() {
         let rest = &lowered[index..];
         let number = if character == '#' {
             Some(&rest[1..])
-        } else if index == 0 || !lowered[..index].chars().next_back()?.is_alphanumeric() {
+        } else if index == 0
+            || lowered[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| !ch.is_alphanumeric())
+        {
             VOLUME_WORDS.iter().find_map(|word| {
                 rest.strip_prefix(word).filter(|suffix| {
                     suffix
@@ -314,12 +397,15 @@ fn detect_volume(name: &str) -> Option<String> {
             {
                 end += 1;
             }
-            if end > 0 {
-                return Some(number[..end].to_string());
+            if end > 0 && normalize_isbn(&number[..end]).is_none() {
+                let volume = normalize_volume(&number[..end]);
+                if !volumes.contains(&volume) {
+                    volumes.push(volume);
+                }
             }
         }
     }
-    None
+    volumes
 }
 
 fn single_token_title_present(
@@ -354,7 +440,14 @@ fn release_metadata(token: &str) -> bool {
         || RETAIL_TOKENS.contains(&token)
         || matches!(
             token,
-            "ebook" | "ebooks" | "digital" | "edition" | "illustrated"
+            "ebook"
+                | "ebooks"
+                | "digital"
+                | "edition"
+                | "illustrated"
+                | "lang"
+                | "language"
+                | "lng"
         )
         || token.chars().all(|character| character.is_ascii_digit())
 }
@@ -395,6 +488,38 @@ fn name_fragment(tokens: &[&str]) -> Option<String> {
 }
 
 fn filename_author(name: &str, variants: &[String]) -> Option<String> {
+    let parts = release_parts(name);
+    if let Some(first) = parts.first()
+        && parts.len() > 1
+        && !title_variants(without_leading_tags(first))
+            .iter()
+            .any(|title| variants.contains(title))
+        && variants
+            .iter()
+            .any(|title| phrase_ratio(title, &normalize_text(&parts[1..].join(" "))) >= 0.6)
+        && let Some(author) = name_fragment(
+            &normalize_text(without_leading_tags(first))
+                .split_whitespace()
+                .collect::<Vec<_>>(),
+        )
+    {
+        return Some(author);
+    }
+    // An author after a title/series reference is still authoritative when
+    // the expected title is only partially present in that reference.
+    for (index, part) in parts.iter().enumerate().rev() {
+        let core = bokhylle_core::identity::core_title(without_leading_tags(part));
+        let normalized = normalize_text(&core);
+        if index > 0
+            && !variants.contains(&normalized)
+            && variants
+                .iter()
+                .any(|title| phrase_ratio(title, &normalize_text(&parts[..index].join(" "))) >= 0.6)
+            && let Some(author) = name_fragment(&normalized.split_whitespace().collect::<Vec<_>>())
+        {
+            return Some(author);
+        }
+    }
     let lowered = name.to_ascii_lowercase();
     if let Some((before, after)) = lowered.rsplit_once(" by ")
         && variants
@@ -438,32 +563,91 @@ fn filename_author(name: &str, variants: &[String]) -> Option<String> {
     None
 }
 
-fn filename_title(name: &str, authors: &[String]) -> Option<String> {
-    let separated = name.replace(['—', '–'], "-");
-    let parts: Vec<_> = separated.split(" - ").collect();
-    let author_index = parts.iter().position(|part| {
+fn filename_title(name: &str, authors: &[String], variants: &[String]) -> Option<String> {
+    let parts = release_parts(name);
+    let exact_author = |part: &str| {
+        let part = without_leading_tags(part);
         authors
             .iter()
             .any(|author| author_matches(author, part) && author_matches(part, author))
-    })?;
-    let title = parts.get(author_index + 1).or_else(|| {
-        author_index
-            .checked_sub(1)
-            .and_then(|index| parts.get(index))
-    })?;
+    };
+    let title_part = |part: &str| {
+        let part = without_leading_tags(part);
+        let normalized = normalize_text(part);
+        !part.is_empty()
+            && (variants.contains(&normalized)
+                || normalized
+                    .split_whitespace()
+                    .any(|word| !release_metadata(word)))
+    };
+    let title = if let Some(author_index) = parts.iter().position(|part| exact_author(part)) {
+        // An author may follow the title and precede a separate format list.
+        // Bracketed series labels between author and title are decorations.
+        let before = parts[..author_index]
+            .iter()
+            .rev()
+            .find(|part| title_part(part));
+        let after = parts[author_index + 1..]
+            .iter()
+            .find(|part| title_part(part));
+        if before.is_some_and(|part| {
+            title_variants(without_leading_tags(part))
+                .iter()
+                .any(|title| variants.contains(title))
+        }) {
+            before
+        } else {
+            after.or(before)
+        }?
+        .as_str()
+    } else {
+        let (title, author) = name.rsplit_once(" by ")?;
+        if !exact_author(author) {
+            return None;
+        }
+        title
+    };
+    let title = without_leading_tags(title);
+    // A group attached to an explicit format/ebook tag is release metadata,
+    // not a continuation of the book's title. Keep arbitrary title suffixes
+    // so sequels and conflicting identities are still rejected.
+    let title = match title.rsplit_once('-') {
+        Some((prefix, group))
+            if !group.is_empty()
+                && group.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+                && normalize_text(prefix)
+                    .split_whitespace()
+                    .next_back()
+                    .is_some_and(|tag| {
+                        matches!(tag, "ebook" | "ebooks")
+                            || FORMAT_TOKENS.iter().any(|(format, _)| *format == tag)
+                    }) =>
+        {
+            prefix
+        }
+        _ => title,
+    };
     let core = normalize_text(&bokhylle_core::identity::core_title(title));
     let words: Vec<_> = core.split_whitespace().collect();
     let volume_start = words.windows(2).position(|pair| {
         VOLUME_WORDS.contains(&pair[0])
             && pair[1].chars().all(|character| character.is_ascii_digit())
     });
-    let end = volume_start.or_else(|| {
-        words
-            .iter()
-            .rposition(|word| !release_metadata(word))
-            .map(|index| index + 1)
-    })?;
-    Some(words[..end].join(" "))
+    let end = volume_start
+        .or_else(|| {
+            words
+                .iter()
+                .rposition(|word| !release_metadata(word))
+                .map(|index| index + 1)
+        })
+        .or_else(|| variants.contains(&core).then_some(words.len()))?;
+    let title = words[..end].join(" ");
+    if variants.contains(&title) {
+        Some(title)
+    } else {
+        // "A Novel" is a publishing descriptor, not a different book.
+        Some(title.strip_suffix(" a novel").unwrap_or(&title).to_string())
+    }
 }
 
 fn author_matches(expected: &str, actual: &str) -> bool {
@@ -474,6 +658,26 @@ fn author_matches(expected: &str, actual: &str) -> bool {
         && expected
             .split_whitespace()
             .all(|word| actual.contains(word))
+}
+
+fn numbered_series_suffix(name: &str, title: &str, variants: &[String]) -> bool {
+    let normalized = normalize_text(name);
+    variants.iter().any(|variant| {
+        variant.split_whitespace().count() >= 3
+            && title
+                .strip_prefix(&format!("{variant} "))
+                .is_some_and(|suffix| {
+                    suffix.split_whitespace().count() >= 3
+                        && normalized
+                            .split_once(&format!("{title} "))
+                            .is_some_and(|(_, rest)| {
+                                rest.split_whitespace()
+                                    .next()
+                                    .and_then(|number| number.parse::<u16>().ok())
+                                    .is_some_and(|number| (1..100).contains(&number))
+                            })
+                })
+    })
 }
 
 fn author_compatible(expected: &str, actual: &str) -> bool {
@@ -529,6 +733,40 @@ pub fn title_variants(title: &str) -> Vec<String> {
     variants
 }
 
+fn phrase_positions(phrases: &[String], words: &[String]) -> HashSet<usize> {
+    let mut positions = HashSet::new();
+    for phrase in phrases {
+        let phrase: Vec<_> = phrase.split_whitespace().collect();
+        if phrase.is_empty() || phrase.len() > words.len() {
+            continue;
+        }
+        if let Some(start) = words
+            .windows(phrase.len())
+            .position(|window| window.iter().map(String::as_str).eq(phrase.iter().copied()))
+        {
+            positions.extend(start..start + phrase.len());
+        }
+    }
+    positions
+}
+
+fn derivative_kinds(words: &[&str]) -> HashSet<&'static str> {
+    let mut kinds = HashSet::new();
+    if words.windows(2).any(|pair| pair == ["study", "guide"]) {
+        kinds.insert("study guide");
+    }
+    if words.contains(&"workbook") {
+        kinds.insert("workbook");
+    }
+    if words
+        .iter()
+        .any(|word| matches!(*word, "summary" | "summaries"))
+    {
+        kinds.insert("summary");
+    }
+    kinds
+}
+
 pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedRelease {
     let configured_format = book
         .preferred_format
@@ -562,15 +800,40 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
         excluded.extend(VOLUME_WORDS.iter().map(|word| word.to_string()));
     }
 
+    let normalized_release = normalize_text(&candidate.title);
+    let title_variants = title_variants(&book.title);
+    let mut author_variants: Vec<_> = book
+        .authors
+        .iter()
+        .map(|author| normalize_text(author))
+        .collect();
+    let inferred_author = filename_author(&candidate.title, &title_variants);
+    if let Some(author) = inferred_author.as_ref()
+        && book
+            .authors
+            .iter()
+            .any(|expected| author_compatible(expected, author))
+    {
+        author_variants.push(normalize_text(author));
+    }
+    let author_positions = phrase_positions(&author_variants, &release_tokens);
+    let mut identity_positions = phrase_positions(&title_variants, &release_tokens);
+    identity_positions.extend(&author_positions);
     let detection = detect(
         &candidate.title,
         &release_tokens,
-        &excluded,
+        &identity_positions,
         &preferred_format,
     );
-
-    let normalized_release = normalize_text(&candidate.title);
-    let title_variants = title_variants(&book.title);
+    let expected_title = normalize_text(&book.title);
+    let source_words: Vec<_> = release_tokens
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !author_positions.contains(index))
+        .map(|(_, word)| word.as_str())
+        .collect();
+    let different_work = derivative_kinds(&source_words)
+        != derivative_kinds(&expected_title.split_whitespace().collect::<Vec<_>>());
 
     let mut title_ratio: f32 = 0.0;
     let mut contains_phrase = false;
@@ -638,7 +901,7 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
         .detected_author
         .clone()
         .filter(|author| !author.trim().is_empty())
-        .or_else(|| filename_author(&candidate.title, &title_variants));
+        .or(inferred_author);
     let author_conflict = !book.authors.is_empty()
         && stated_author.as_deref().is_some_and(|actual| {
             !book
@@ -651,12 +914,21 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
         .as_deref()
         .and_then(normalize_isbn)
         .is_some_and(|isbn| parse_isbn(&candidate.title).as_deref() == Some(isbn.as_str()));
-    let strong_title = title_variants
-        .iter()
-        .any(|variant| exact_title_present(variant, &release_tokens, &excluded));
+    let stated_title = filename_title(&candidate.title, &book.authors, &title_variants);
+    let stated_title_match = stated_title
+        .as_ref()
+        .is_some_and(|title| title_variants.contains(title));
+    let uncertain_series_title = stated_title
+        .as_ref()
+        .is_some_and(|title| numbered_series_suffix(&candidate.title, title, &title_variants));
+    let strong_title = !uncertain_series_title
+        && ((stated_title_match && single_token_satisfied != Some(false))
+            || title_variants
+                .iter()
+                .any(|variant| exact_title_present(variant, &release_tokens, &excluded)));
     let title_conflict = !detection.is_collection
-        && (filename_title(&candidate.title, &book.authors)
-            .is_some_and(|title| !title_variants.contains(&title))
+        && (stated_title
+            .is_some_and(|title| !title_variants.contains(&title) && !uncertain_series_title)
             || candidate.detected_title.as_deref().is_some_and(|title| {
                 !self::title_variants(title)
                     .iter()
@@ -696,14 +968,16 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
     if title_conflict {
         rejection_reasons.push(RejectionReason::UnrelatedTitle);
     }
-    let expected_volume = book
-        .series_number
-        .as_deref()
-        .map(|number| number.trim().to_string());
-    if let (Some(detected), Some(expected)) =
-        (detection.volume.as_deref(), expected_volume.as_deref())
-        && detected != expected
-    {
+    if different_work && !rejection_reasons.contains(&RejectionReason::UnrelatedTitle) {
+        rejection_reasons.push(RejectionReason::UnrelatedTitle);
+    }
+    let expected_volume = book.series_number.as_deref().map(normalize_volume);
+    if expected_volume.as_ref().is_some_and(|expected| {
+        detection
+            .volumes
+            .iter()
+            .any(|detected| detected != expected)
+    }) {
         rejection_reasons.push(RejectionReason::WrongVolume);
     }
 
@@ -733,7 +1007,24 @@ pub fn evaluate(book: &ExpectedBook, candidate: &ReleaseCandidate) -> EvaluatedR
     if has_title_tokens && title_ratio < minimum_title_ratio && !contains_phrase && !isbn_match {
         rejection_reasons.push(RejectionReason::UnrelatedTitle);
     }
-    if single_token_satisfied == Some(false) && !contains_phrase && !isbn_match {
+    if single_token_satisfied == Some(false)
+        && !contains_phrase
+        && !isbn_match
+        && !stated_title_match
+    {
+        rejection_reasons.push(RejectionReason::UnrelatedTitle);
+    }
+    if has_title_tokens
+        && title_variants
+            .iter()
+            .all(|title| title.chars().all(|character| character.is_ascii_digit()))
+        && !author_match
+        && !isbn_match
+        && !tokens(without_leading_tags(&candidate.title))
+            .first()
+            .is_some_and(|first| title_variants.contains(first))
+    {
+        // A year in another book's release name is not identity evidence.
         rejection_reasons.push(RejectionReason::UnrelatedTitle);
     }
     if candidate.size_bytes > MAX_RELEASE_BYTES {

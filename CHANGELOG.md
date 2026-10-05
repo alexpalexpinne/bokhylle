@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 — 2026-10-05
+
+- Improve acquisition matching for release punctuation, apostrophes, accented names, subtitles, uploader groups, bracketed series labels and author-last filenames.
+- Keep packs, conflicting volumes, unrelated authors or titles, unsupported formats, audiobooks and derivative works out of automatic recommendations; ambiguous matches require review.
+- Add live-audited edge-case coverage and regression tests for Prowlarr search and release previews. No database migration is required.
+
 ## 0.4.0 — 2026-10-05
 
 - Add a personalized Explore more shelf with reading-interest filters, profile-scoped Like, Not for me and Set aside actions, and Undo. Restore rejected books from Profile without changing shelf membership or starting an acquisition.

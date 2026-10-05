@@ -153,6 +153,23 @@ uncertain, **Review possible matches** requires a deliberate choice and Get wait
 for that review. With no suitable results, the book says **No matching version
 found**. Activity tracks the subsequent download and can resume a pending choice.
 
+Version matching compares normalized titles and authors, including apostrophes
+and accented names. Release decorations such as a trailing year, retail and
+format tags, bracketed series labels, or an uploader group attached to an
+EPUB/eBook tag are not part of the book title. Subtitle punctuation and
+author-last filenames are supported. A different author, title or explicit
+volume still excludes a result. Numbered packs and ambiguous series suffixes
+require review rather than becoming automatic recommendations. A year in
+another book's filename does not qualify as a match for a numeric title such
+as *1984*; missing identity or format evidence also requires review.
+
+Words within the matched title or author are not language or file-format tags:
+*Norwegian Wood* is not automatically Norwegian, and a title containing “EPUB”
+still needs a separate format tag. Explicit release tags remain authoritative.
+Padded volume numbers such as `03` and `3` match, but conflicting volume labels
+exclude a release. Summaries, study guides and workbooks are distinct from the
+original book unless you requested that specific work.
+
 ![A compact proposed version for a fictional book](media/version-choices-desktop.png)
 
 ![The scrolling mobile picker with possible matches requiring review](media/version-picker-mobile.png)
