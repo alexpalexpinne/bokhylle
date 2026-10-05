@@ -129,7 +129,7 @@ chmod 600 .env
 chmod 700 data/config
 ```
 
-Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.4.0`. Then start the app:
+Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.4.1`. Then start the app:
 
 ```sh
 docker compose -f compose.yaml -f compose.image.yaml pull bokhylle

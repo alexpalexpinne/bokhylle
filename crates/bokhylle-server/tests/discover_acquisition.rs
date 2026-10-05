@@ -215,7 +215,8 @@ async fn release_preview_lists_seeders_before_acquiring() {
             source: None,
             method: None,
             id: "r1".to_string(),
-            title: "Andy.Weir.Project.Hail.Mary.Retail.EN.EPUB".to_string(),
+            title: "Andy Weir - Project Hail Mary A Novel 2021 Retail [EN] EPUB eBook-Fixture"
+                .to_string(),
             indexer: Some("IPTorrents".to_string()),
             size_bytes: 2_900_000,
             seeders: Some(41),
@@ -233,6 +234,13 @@ async fn release_preview_lists_seeders_before_acquiring() {
             is_collection: false,
             is_audiobook: false,
             is_comic: false,
+        },
+        bokhylle_acquisition::model::ReleaseCandidate {
+            id: "r2".to_string(),
+            title: "Andy Weir - [Project Hail Mary 01-02] [EN] EPUB".to_string(),
+            size_bytes: 4_000_000,
+            seeders: Some(99),
+            ..Default::default()
         },
     ]));
     let test_app = common::test_app_full(
@@ -258,14 +266,20 @@ async fn release_preview_lists_seeders_before_acquiring() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["releases"][0]["seeders"], 41);
+    assert_eq!(body["releases"].as_array().unwrap().len(), 2);
     assert_eq!(body["releases"][0]["format"], "epub");
     assert_eq!(body["releases"][0]["method"], "torrent");
+    assert_eq!(body["releases"][0]["needsReview"], false);
+    assert_eq!(body["releases"][0]["recommended"], true);
     assert_eq!(
         body["releases"][0]["releaseName"],
-        "Andy.Weir.Project.Hail.Mary.Retail.EN.EPUB"
+        "Andy Weir - Project Hail Mary A Novel 2021 Retail [EN] EPUB eBook-Fixture"
     );
     assert_eq!(body["releases"][0]["leechers"], 6);
     assert_eq!(body["releases"][0]["indexer"], "IPTorrents");
+    assert_eq!(body["releases"][1]["isCollection"], true);
+    assert_eq!(body["releases"][1]["needsReview"], true);
+    assert_eq!(body["releases"][1]["recommended"], false);
     assert_eq!(
         body["releases"][0]["selectionKey"].as_str().unwrap().len(),
         64

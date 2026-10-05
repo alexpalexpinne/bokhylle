@@ -476,6 +476,94 @@ fn title_and_author_or_exact_isbn_can_be_recommended() {
 }
 
 #[test]
+fn retail_release_metadata_is_not_part_of_the_book_title() {
+    let book = ExpectedBook {
+        title: "Harry Potter and the Prisoner of Azkaban".into(),
+        authors: vec!["J. K. Rowling".into()],
+        language: Some("en".into()),
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "J K Rowling - Harry Potter and the Prisoner of Azkaban 2012 Retail EPUB eBook-BitBook",
+            905_216,
+            25,
+        ),
+    );
+    assert!(
+        !release.rejected(),
+        "release decorations are not a conflicting title: {:?}",
+        release.rejection_reasons
+    );
+    assert!(evaluator::is_confident_match(&release));
+    assert_eq!(evaluator::select(&[release]), Selection::Auto { index: 0 });
+}
+
+#[test]
+fn apostrophes_and_accented_names_match_the_same_release_identity() {
+    let book = ExpectedBook {
+        title: "Harry Potter and the Philosopher's Stone".into(),
+        authors: vec!["J. K. Rowling".into()],
+        ..Default::default()
+    };
+    for title in [
+        "J K Rowling - Harry Potter and the Philosopher's Stone 2012 Retail EPUB eBook-BitBook",
+        "J K Rowling - Harry Potter and the Philosopher s Stone 2012 Retail EPUB eBook-BitBook",
+        "J.K.Rowling.Harry.Potter.and.the.Philosopher’s.Stone.EPUB",
+    ] {
+        let release = evaluator::evaluate(&book, &candidate(title, 829_440, 38));
+        assert!(
+            !release.rejected(),
+            "{title}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(evaluator::is_confident_match(&release), "{title}");
+    }
+    let book = ExpectedBook {
+        title: "Jane Eyre".into(),
+        authors: vec!["Charlotte Brontë".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate("Charlotte.Bronte.Jane.Eyre.EPUB", 2_000_000, 10),
+    );
+    assert!(evaluator::is_confident_match(&release));
+}
+
+#[test]
+fn release_metadata_does_not_hide_a_different_title_or_author() {
+    let book = ExpectedBook {
+        title: "Dune".into(),
+        authors: vec!["Frank Herbert".into()],
+        ..Default::default()
+    };
+    for title in [
+        "Frank Herbert - Dune Messiah 2012 Retail EPUB eBook-BitBook",
+        "Frank Herbert - Children of Dune 2012 Retail EPUB eBook-BitBook",
+        "Frank Herbert - Dune 1984 Adaptation 2012 Retail EPUB eBook-BitBook",
+    ] {
+        let release = evaluator::evaluate(&book, &candidate(title, 2_000_000, 25));
+        assert!(release.rejected(), "{title}");
+        assert!(!evaluator::is_confident_match(&release), "{title}");
+    }
+    let release = evaluator::evaluate(
+        &alchemy(),
+        &candidate(
+            "Rory Sutherland - Alchemy 2020 Retail EPUB eBook-BitBook",
+            2_000_000,
+            50,
+        ),
+    );
+    assert!(
+        release
+            .rejection_reasons
+            .contains(&RejectionReason::AuthorMismatch)
+    );
+}
+
+#[test]
 fn matching_identity_outranks_a_possible_match_in_a_preferred_format() {
     let ranked = evaluator::rank(
         &alchemy(),
@@ -487,6 +575,274 @@ fn matching_identity_outranks_a_possible_match_in_a_preferred_format() {
     assert!(evaluator::is_confident_match(&ranked[0]));
     assert_eq!(ranked[0].candidate.detected_format.as_deref(), Some("pdf"));
     assert_eq!(evaluator::select(&ranked), Selection::Auto { index: 0 });
+}
+
+#[test]
+fn isbn_and_publication_date_ranges_are_not_volume_packs() {
+    let book = ExpectedBook {
+        title: "Sample Novel".into(),
+        authors: vec!["Robin Example".into()],
+        ..Default::default()
+    };
+    for name in [
+        "Robin Example - Sample Novel [ISBN 978-1-250-87199-2] EPUB",
+        "Robin Example - Sample Novel (1965–2024) EPUB",
+    ] {
+        let release = evaluator::evaluate(&book, &candidate(name, 3_000_000, 20));
+        assert!(!release.candidate.is_collection, "{name}");
+        assert!(
+            evaluator::is_confident_match(&release),
+            "{name}: {:?}",
+            release.rejection_reasons
+        );
+    }
+}
+
+#[test]
+fn a_numbered_comic_issue_is_not_an_alternative_to_the_novel() {
+    let book = ExpectedBook {
+        title: "A Game of Thrones".into(),
+        authors: vec!["George R. R. Martin".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "George R R Martin - A Game of Thrones Volume 1 Issue 4 2011 RETAiL ePub eBook-Fixture",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(
+        release
+            .rejection_reasons
+            .contains(&RejectionReason::ComicOrManga)
+    );
+    assert_eq!(evaluator::select(&[release]), Selection::None);
+}
+
+#[test]
+fn an_unmarked_series_suffix_needs_review() {
+    let book = ExpectedBook {
+        title: "The Fellowship of the Ring".into(),
+        authors: vec!["J.R.R. Tolkien".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "J R R Tolkien - The Fellowship Of The Ring The Lord Of The Rings 1 2022 RETAIL EPUB eBook-Fixture",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(!release.rejected(), "{:?}", release.rejection_reasons);
+    assert!(!evaluator::is_confident_match(&release));
+    assert_eq!(evaluator::select(&[release]), Selection::NeedsSelection);
+}
+
+#[test]
+fn a_subtitle_separator_cannot_prove_a_single_word_title() {
+    let book = ExpectedBook {
+        title: "Dune".into(),
+        authors: vec!["Frank Herbert".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "Frank Herbert - Dune- Messiah 2008 Retail EPUB eBook-Fixture",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(!evaluator::is_confident_match(&release));
+    assert_ne!(evaluator::select(&[release]), Selection::Auto { index: 0 });
+}
+
+#[test]
+fn an_author_after_a_series_reference_is_still_a_conflict() {
+    let book = ExpectedBook {
+        title: "The Hitchhiker's Guide to the Galaxy".into(),
+        authors: vec!["Douglas Adams".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "And Another Thing (Hitchhiker's Guide to the Galaxy 'Trilogy' #6) - Eoin Colfer (2009/Humor) [ePub]",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(
+        release
+            .rejection_reasons
+            .contains(&RejectionReason::AuthorMismatch),
+        "{:?}",
+        release.rejection_reasons
+    );
+    assert_eq!(evaluator::select(&[release]), Selection::None);
+}
+
+#[test]
+fn structured_release_labels_preserve_the_book_identity() {
+    for (title, author, name) in [
+        (
+            "The Name of the Wind",
+            "Patrick Rothfuss",
+            "Patrick Rothfuss - [Kingkiller Chronicle 01] - The Name of the Wind (EPUB)",
+        ),
+        (
+            "The Name of the Wind",
+            "Patrick Rothfuss",
+            "Patrick Rothfuss - [Kingkiller Chronicle 01] - The Name Of The Wind (2007 Retail EPUB)-Fixture",
+        ),
+        (
+            "Atomic Habits",
+            "James Clear",
+            "James Clear - Atomic Habits- An Easy and Proven Way to Build Good Habits and Break Bad Ones (azw3 epub mobi)",
+        ),
+        (
+            "The clean coder",
+            "Robert C. Martin",
+            "Robert C Martin - The Clean Coder- A Code of Conduct for Professional Programmers (pdf)",
+        ),
+        (
+            "The Hobbit",
+            "J.R.R. Tolkien",
+            "J R R Tolkien - The Hobbit (Enhanced Edition) (PDF EPUB MOBI)",
+        ),
+        (
+            "The Girl with the Dragon Tattoo",
+            "Stieg Larsson",
+            "(r3q) The Girl With the Dragon Tattoo - Stieg Larsson - AZW3, EPUB, MOBI",
+        ),
+        (
+            "Atomic Habits",
+            "James Clear",
+            "(r3q) Atomic Habits: An Easy & Proven Way to Build Good Habits & Break Bad Ones - Clear, James - AZW3, EPUB, MOBI",
+        ),
+        (
+            "Project Hail Mary",
+            "Andy Weir",
+            "Andy Weir - Project Hail Mary A Novel 2021 Retail EPUB eBook-Fixture",
+        ),
+    ] {
+        let book = ExpectedBook {
+            title: title.into(),
+            authors: vec![author.into()],
+            ..Default::default()
+        };
+        let release = evaluator::evaluate(&book, &candidate(name, 3_000_000, 20));
+        assert!(
+            !release.rejected(),
+            "{name}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(
+            evaluator::is_confident_match(&release),
+            "{name}: {:?}",
+            release.score_reasons
+        );
+    }
+}
+
+#[test]
+fn numbered_packs_require_selection_instead_of_standalone_recommendations() {
+    for (title, author, name) in [
+        (
+            "Dune",
+            "Frank Herbert",
+            "Frank Herbert - [Dune 01-06] (epub)",
+        ),
+        (
+            "Blindness",
+            "José Saramago",
+            "Jose Saramago - [Blindness 01-02] (azw3 epub mobi)",
+        ),
+        (
+            "The Girl with the Dragon Tattoo",
+            "Stieg Larsson",
+            "The Girl with the Dragon Tattoo Trilogy by Stieg Larsson EPUB",
+        ),
+    ] {
+        let book = ExpectedBook {
+            title: title.into(),
+            authors: vec![author.into()],
+            ..Default::default()
+        };
+        let release = evaluator::evaluate(&book, &candidate(name, 5_000_000, 20));
+        assert!(
+            !release.rejected(),
+            "{name}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(release.candidate.is_collection, "{name}");
+        assert!(!evaluator::is_confident_match(&release), "{name}");
+        assert_eq!(evaluator::select(&[release]), Selection::NeedsSelection);
+    }
+}
+
+#[test]
+fn numeric_titles_need_identity_evidence_when_used_as_release_dates() {
+    let book = ExpectedBook {
+        title: "1984".into(),
+        authors: vec!["George Orwell".into()],
+        ..Default::default()
+    };
+    for name in [
+        "Ira A Robbins - Zip It Up The Best Of Trouser Press Magazine 1974-1984 2024 RETAIL EPUB eBook-Fixture",
+        "Hal Leonard 150 Of The Most Beautiful Songs Ever Songbook 3rd Edition 1984 RETAiL ePub eBook-Fixture",
+        "Frederic C Hof - Galilee Divided- The Israel-Lebanon Frontier, 1916-1984 (azw3 epub mobi)",
+    ] {
+        assert!(
+            evaluator::evaluate(&book, &candidate(name, 3_000_000, 20)).rejected(),
+            "{name}"
+        );
+    }
+    for name in ["1984 by George Orwell", "1984 EPUB"] {
+        let release = evaluator::evaluate(&book, &candidate(name, 3_000_000, 20));
+        assert!(
+            !release.rejected(),
+            "{name}: {:?}",
+            release.rejection_reasons
+        );
+        assert!(!evaluator::is_confident_match(&release));
+        assert_eq!(evaluator::select(&[release]), Selection::NeedsSelection);
+    }
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "George Orwell - 1984 2024 Retail EPUB eBook-Fixture",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(evaluator::is_confident_match(&release));
+}
+
+#[test]
+fn another_authors_book_cannot_match_a_series_reference() {
+    let book = ExpectedBook {
+        title: "The Hitchhiker's Guide to the Galaxy".into(),
+        authors: vec!["Douglas Adams".into()],
+        ..Default::default()
+    };
+    let release = evaluator::evaluate(
+        &book,
+        &candidate(
+            "Eoin Colfer - And Another Thing Douglas Adams Hitchhiker s Guide To The Galaxy 2010 Retail EPUB eBook-Fixture",
+            3_000_000,
+            20,
+        ),
+    );
+    assert!(
+        release
+            .rejection_reasons
+            .contains(&RejectionReason::AuthorMismatch)
+    );
+    assert_eq!(evaluator::select(&[release]), Selection::None);
 }
 
 #[test]
