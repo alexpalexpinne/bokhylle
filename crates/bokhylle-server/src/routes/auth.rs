@@ -495,8 +495,26 @@ pub async fn liked_books(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<Items<LikedBook>>, AppError> {
+    preference_books(&state, &user, "liked").await.map(Json)
+}
+
+pub async fn rejected_books(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Items<LikedBook>>, AppError> {
+    preference_books(&state, &user, "not_for_me")
+        .await
+        .map(Json)
+}
+
+async fn preference_books(
+    state: &AppState,
+    user: &crate::auth::User,
+    preference: &str,
+) -> Result<Items<LikedBook>, AppError> {
     let child = crate::auth::profile_type(&state.db, user.id).await? == "child";
-    let rows: Vec<LikedBookRow> = sqlx::query_as(
+    let visibility = crate::services::sharing::predicate("b.id", user.id);
+    let rows: Vec<LikedBookRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT b.id, b.title,
                 EXISTS (
                     SELECT 1 FROM book_files f
@@ -515,11 +533,12 @@ pub async fn liked_books(
                  WHERE e.book_id = b.id AND e.provider_key IS NOT NULL LIMIT 1) AS provider_key
          FROM user_books ub
          JOIN books b ON b.id = ub.book_id
-         WHERE ub.user_id = ? AND ub.preference = 'liked'
-           AND (? = 0 OR ub.on_shelf = 1)
-         ORDER BY ub.added_at DESC, b.id DESC",
-    )
+         WHERE ub.user_id = ? AND ub.preference = ?
+           AND (? = 0 OR ub.on_shelf = 1) AND {visibility}
+         ORDER BY ub.added_at DESC, b.id DESC"
+    )))
     .bind(user.id)
+    .bind(preference)
     .bind(i64::from(child))
     .fetch_all(&state.db)
     .await?;
@@ -548,7 +567,7 @@ pub async fn liked_books(
         });
     }
 
-    Ok(Json(Items { items }))
+    Ok(Items { items })
 }
 
 /// Personal overview counts. A successful delivery of the same book to
@@ -752,6 +771,7 @@ pub async fn update_interests(
         .await?;
     for subject in body.subjects.iter().take(24) {
         let normalized = bokhylle_core::identity::normalize_text(subject.trim());
+        let normalized = crate::library::subjects::concept(&normalized);
         if normalized.is_empty() || normalized.len() > 60 {
             continue;
         }
@@ -761,7 +781,7 @@ pub async fn update_interests(
              ON CONFLICT(user_id, normalized_name) DO NOTHING",
         )
         .bind(user.id)
-        .bind(&normalized)
+        .bind(normalized)
         .execute(&mut *tx)
         .await?;
     }

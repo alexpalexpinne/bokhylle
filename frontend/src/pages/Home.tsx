@@ -8,9 +8,12 @@ import {
   type ContinueReadingItem,
   type HomeRail,
   coverUrl,
-  fetchHomeRails,
   setSubjectHidden,
 } from '../api/library'
+import { RecommendationBook } from '../components/RecommendationBook'
+import { RecommendationFeedbackNotice, type RecommendationNotice } from '../components/RecommendationFeedbackNotice'
+import { ActionNotice } from '../components/ui/ActionNotice'
+import { RetryNotice } from '../components/ui/RetryNotice'
 import { BookCard } from '../components/BookCard'
 import { discoverCoverUrl, localDiscoveryBookId } from '../api/discover'
 import { AuthorAvatar } from '../components/AuthorAvatar'
@@ -89,8 +92,9 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
   const location = useLocation()
   const navigate = useNavigate()
   const isChild = user?.profileType === 'child'
+  const [suggestionNotice, setSuggestionNotice] = useState<RecommendationNotice | null>(null)
   const [hiddenNotice, setHiddenNotice] = useState<{ subject: string; title: string } | null>(null)
-  const { view, setView, pending, refreshPending, error, setError, store, visible, nextSection } =
+  const { view, setView, pending, refreshPending, error, setError, store, visible, nextSection, retry } =
     useHomeSnapshot({ cacheKey, fromOnboarding, isChild, canDiscover: !!user?.canDiscover })
 
   // New members land in the setup wizard once, which is always skippable.
@@ -108,14 +112,6 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
     }
   }, [navigate])
 
-  useEffect(() => {
-    if (!hiddenNotice) {
-      return
-    }
-    const timer = setTimeout(() => setHiddenNotice(null), 6000)
-    return () => clearTimeout(timer)
-  }, [hiddenNotice])
-
   async function hideRail(rail: HomeRail) {
     if (!rail.subject) {
       return
@@ -127,6 +123,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         store({ ...current, rails: current.rails.filter((item) => item.key !== rail.key) }),
       )
       setHiddenNotice({ subject: rail.subject, title: rail.title })
+      setSuggestionNotice(null)
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Could not hide the category')
     }
@@ -136,14 +133,8 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
     if (!hiddenNotice) {
       return
     }
-    try {
-      await setSubjectHidden(hiddenNotice.subject, false)
-      setHiddenNotice(null)
-      const items = await fetchHomeRails()
-      setView(store({ ...view, rails: items }))
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Could not restore the category')
-    }
+    await setSubjectHidden(hiddenNotice.subject, false)
+    setHiddenNotice((current) => current?.subject === hiddenNotice.subject ? null : current)
   }
 
   const spotlight = view.spotlight
@@ -162,6 +153,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
   // A shelf can be empty while the household, follows, or the wizard's
   // taste signals still have something useful to show.
   const hasContent =
+    view.series.length > 0 ||
     recent.length > 0 ||
     continueReading.length > 0 ||
     highlights.length > 0 ||
@@ -172,6 +164,17 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
     authors.length > 0 ||
     (updates?.discoveries.length ?? 0) > 0
   const loading = Object.values(pending).some(Boolean) || (!hasContent && refreshPending)
+
+  const hiddenSubjectNotice = hiddenNotice && (
+    <ActionNotice key={hiddenNotice.subject} message={`Hidden “${hiddenNotice.title}” for you.`} onUndo={undoHide} onDismiss={() => setHiddenNotice((current) => current?.subject === hiddenNotice.subject ? null : current)} />
+  )
+
+  const feedback = (notice: RecommendationNotice) => {
+    setHiddenNotice(null)
+    setSuggestionNotice(notice)
+    if (notice.action !== 'like') setView((current) => ({ ...current, recommendations: current.recommendations.filter((item) => item.recommendationKey !== notice.key), spotlight: current.spotlight.filter((item) => item.recommendationKey !== notice.key) }))
+  }
+  const feedbackNotice = suggestionNotice && <RecommendationFeedbackNotice notice={suggestionNotice} onDismiss={() => setSuggestionNotice((current) => current?.undoToken === suggestionNotice.undoToken ? null : current)} />
 
   if (!hasContent && !loading) {
     const householdHasBooks = !isChild && householdBooks > 0
@@ -223,7 +226,9 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
             )
           }
         />
-        {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+        {error && <RetryNotice className="mt-4" message={error} onRetry={retry} busy={loading} />}
+        {hiddenSubjectNotice}
+        {feedbackNotice}
       </>
     )
   }
@@ -232,7 +237,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
   return (
     <div className="space-y-10 sm:space-y-12">
       <h1 className="sr-only">Your library</h1>
-      {error && <p className="border-l-2 border-danger pl-4 text-sm text-danger">{error}</p>}
+      {error && <RetryNotice message={error} onRetry={retry} busy={loading} />}
 
       {visible('spotlight') && spotlight.length > 0 ? (
         <Spotlight items={spotlight} preferredLanguages={preferredLanguages} />
@@ -244,23 +249,12 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
             <SectionMark
               rule={false}
               title="Picked for you"
-              action={<Link to="/discover" className="text-xs font-medium text-accent hover:text-accent-strong">Explore more</Link>}
+              action={<Link to="/recommendations" className="text-xs font-medium text-accent hover:text-accent-strong">Explore more</Link>}
             />
           </div>
           <ShelfRail label="Picked for you books">
             {recommendations.map((item) => (
-              <Link
-                key={item.bookId ?? `${item.provider}-${item.providerKey}`}
-                to={item.bookId ? `/library/${item.bookId}` : `/discover?provider=${encodeURIComponent(item.provider ?? 'openlibrary')}&providerKey=${encodeURIComponent(item.providerKey ?? '')}`}
-                state={item.bookId || isChild ? undefined : { backgroundLocation: location }}
-                className="shelf-book group block"
-              >
-                <ShelfBook
-                  title={item.title}
-                  authors={item.authors}
-                  cover={item.bookId ? coverUrl(item.bookId) : item.coverId ? discoverCoverUrl(item.coverId, item.title, item.provider ?? undefined) : null}
-                />
-              </Link>
+              <RecommendationBook key={item.recommendationKey ?? item.bookId ?? `${item.provider}-${item.providerKey}`} item={item} onFeedback={feedback} />
             ))}
           </ShelfRail>
         </section>
@@ -337,6 +331,19 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </section>
       )}
 
+      {visible('series') && view.series.length > 0 && <section className="home-shelf-section">
+        <div className="home-shelf-heading"><SectionMark rule={false} title="Continue a series" /></div>
+        <ShelfRail label="Continue a series books">
+          {view.series.map((item) => <div className="shelf-book group" key={item.seriesId ?? item.seriesName}>
+            {item.book ? <Link className="block" to={`/library/${item.book.id}`}><ShelfBook title={item.book.title} authors={item.book.authors}
+              cover={item.book.hasCover ? coverUrl(item.book.id) : null}
+              context={`${item.seriesName} · ${item.readable ? 'Next to read' : 'Get the next book'}`} /></Link> : <Link className="block" to={`/discover?q=${encodeURIComponent(`${item.seriesName} ${item.missingVolume}`)}&type=any`}>
+              <ShelfBook title={`${item.seriesName} · Volume ${item.missingVolume}`} authors={[]} cover={null} context="Find the missing volume" />
+            </Link>}
+          </div>)}
+        </ShelfRail>
+      </section>}
+
       {visible('recent') && recent.length > 0 && (
         <BookRail title="Recently Added" books={recent} seeAllHref="/library" appearance="shelf" />
       )}
@@ -345,7 +352,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         <BookRail
           title="Rediscover your library"
           subtitle="A few books already on your shelves, worth another look."
-          books={highlights.slice(0, 3)}
+          books={highlights}
           seeAllHref="/library"
           appearance="shelf"
         />
@@ -359,27 +366,14 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
           subtitle={rail.subtitle}
           books={rail.books}
           seeAllHref={
-            rail.subject ? `/library?subject=${encodeURIComponent(rail.subject)}` : '/library'
+            isChild ? '/library' : rail.subject ? `/library?scope=household&subject=${encodeURIComponent(rail.subject)}` : '/library?scope=household'
           }
           onHide={rail.subject ? () => void hideRail(rail) : undefined}
         />
       ))}
 
-      {hiddenNotice && (
-        <p
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-2 border-l-2 border-accent pl-4 text-sm text-ink-soft"
-        >
-          <span>Hidden &ldquo;{hiddenNotice.title}&rdquo; for you.</span>
-          <button
-            type="button"
-            onClick={() => void undoHide()}
-            className="text-xs font-medium text-accent transition-colors hover:text-accent-strong"
-          >
-            Undo
-          </button>
-        </p>
-      )}
+      {hiddenSubjectNotice}
+      {feedbackNotice}
 
       {visible('shelves') && shelves.length > 0 && (
         <section>
@@ -439,7 +433,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
               </Link>
             }
           />
-          <div className="rail-scroll -mx-4 mt-7 flex gap-6 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
+          <div data-browse-rail="Authors" className="rail-scroll -mx-4 mt-7 flex gap-6 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
             {authors.slice(0, 16).map((author) => (
               <Link
                 key={author.id}

@@ -11,7 +11,6 @@ use crate::auth::AuthUser;
 use super::image_cache;
 use crate::discovery::{self, DiscoveryResult, SearchKind};
 use crate::error::AppError;
-use crate::library::import_metadata;
 use crate::routes::library::AuthorHit;
 use crate::routes::responses::StatusJson;
 
@@ -474,16 +473,51 @@ pub async fn like(
     State(state): State<AppState>,
     Json(body): Json<LikeInput>,
 ) -> Result<Json<LikedDiscovery>, AppError> {
-    let Some(metadata) =
-        discovery::resolve_metadata(&state, body.provider.as_deref(), &body.provider_key).await?
-    else {
-        return Err(AppError::NotFound("book not found".to_string()));
-    };
-    let book_id = import_metadata::upsert_book_from_metadata(&state.db, &metadata).await?;
-    crate::user_books::set_preference(&state.db, user.id, book_id, Some("liked")).await?;
+    let book_id = crate::services::books::catalogue_preference(
+        &state,
+        &user,
+        body.provider.as_deref(),
+        &body.provider_key,
+        "liked",
+    )
+    .await?;
     Ok(Json(LikedDiscovery {
         book_id,
         preference: "liked",
+    }))
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CataloguePreferenceInput {
+    pub provider: Option<String>,
+    pub provider_key: String,
+    pub preference: String,
+}
+
+#[derive(Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CataloguePreferenceResponse {
+    pub book_id: i64,
+    pub preference: String,
+}
+
+pub async fn preference(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<CataloguePreferenceInput>,
+) -> Result<Json<CataloguePreferenceResponse>, AppError> {
+    let book_id = crate::services::books::catalogue_preference(
+        &state,
+        &user,
+        body.provider.as_deref(),
+        &body.provider_key,
+        &body.preference,
+    )
+    .await?;
+    Ok(Json(CataloguePreferenceResponse {
+        book_id,
+        preference: body.preference,
     }))
 }
 

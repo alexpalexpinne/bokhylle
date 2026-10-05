@@ -117,8 +117,19 @@ async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
         .find(|rail| rail["title"] == "Based on books you liked")
         .expect("likes produce a local rail");
     assert!(liked["books"].as_array().unwrap().len() >= 3);
+    for title in ["Frankenstein", "Jane Eyre", "Wuthering Heights"] {
+        assert!(
+            liked["books"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|book| book["title"] == title)
+        );
+    }
+    // These three recommendations already fill the liked-books rail. A second
+    // Gothic shelf would repeat the same books rather than add another choice.
     assert!(
-        rails
+        !rails
             .as_array()
             .unwrap()
             .iter()
@@ -136,7 +147,14 @@ async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
         );
     }
     let updates = get_json(&router, "/api/home/updates", &first).await;
-    assert_eq!(updates["discoveries"].as_array().unwrap().len(), 4);
+    assert_eq!(updates["discoveries"].as_array().unwrap().len(), 3);
+    assert!(
+        updates["discoveries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["title"] != "A Christmas Carol")
+    );
     assert!(
         updates["discoveries"]
             .as_array()
@@ -190,7 +208,7 @@ async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
             .as_array()
             .unwrap()
             .len(),
-        4
+        3
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM book_subjects WHERE book_id = ?")
@@ -221,7 +239,11 @@ async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|rail| rail["subject"] == "gothic fiction")
+            .any(|rail| rail["books"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|book| book["title"] == "Frankenstein"))
     );
     assert!(
         get_json(&router, "/api/home/rails", &second)
@@ -229,7 +251,11 @@ async fn demo_home_uses_isolated_taste_signals_without_provider_calls() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|rail| rail["subject"] == "gothic fiction")
+            .any(|rail| rail["books"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|book| book["title"] == "Frankenstein"))
     );
 
     let switched = router

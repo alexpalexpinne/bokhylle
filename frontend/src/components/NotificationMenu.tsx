@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bell, Check, ChevronRight } from 'lucide-react'
 import { type Notification } from '../api/notifications'
@@ -69,6 +69,8 @@ export function NotificationMenu({
   const { demo, user } = useAuth()
   const isChild = user?.profileType === 'child'
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelId = useId()
   const decision = useMutation()
 
   function decide(request: BookRequest, approve: boolean) {
@@ -96,6 +98,7 @@ export function NotificationMenu({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setOpen(false)
+        triggerRef.current?.focus({ preventScroll: true })
       }
     }
 
@@ -110,11 +113,13 @@ export function NotificationMenu({
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
+        aria-controls={panelId}
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
-        className="relative rounded-full p-2 text-ink-soft transition-colors hover:bg-surface-2 hover:text-ink"
+        className="pressable relative flex h-12 w-12 items-center justify-center rounded-[3px] text-ink-soft transition-[background-color,color,transform] duration-150 ease-smooth hover:bg-surface-2 hover:text-ink sm:h-10 sm:w-10"
       >
         <Bell size={18} aria-hidden />
         {unread > 0 && (
@@ -129,7 +134,10 @@ export function NotificationMenu({
 
       {open && (
         <div
-          className="fixed inset-x-4 top-[4.5rem] z-50 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-panel bg-surface shadow-modal sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
+          id={panelId}
+          role="region"
+          aria-label="Notifications"
+          className="fixed left-[max(1rem,env(safe-area-inset-left))] right-[max(1rem,env(safe-area-inset-right))] top-[var(--app-header-height)] z-50 max-h-[calc(100dvh-6rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-y-auto overscroll-contain rounded-panel bg-surface shadow-modal sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <p className="text-sm font-medium text-ink">Notifications</p>
@@ -137,7 +145,7 @@ export function NotificationMenu({
               <button
                 type="button"
                 onClick={() => void markRead()}
-                className="inline-flex items-center gap-1 text-xs text-ink-muted transition-colors hover:text-ink"
+                className="inline-flex min-h-12 items-center gap-1 px-2 text-xs text-ink-muted transition-colors hover:text-ink sm:min-h-8"
               >
                 <Check size={13} aria-hidden />
                 Mark all read
@@ -145,7 +153,7 @@ export function NotificationMenu({
             )}
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto overscroll-contain">
             {canDecide && pendingRequestItems.length > 0 && (
               <div className="border-b border-line bg-surface-2/40 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted">
@@ -155,11 +163,11 @@ export function NotificationMenu({
                 </p>
                 <ul className="mt-2 space-y-2">
                   {pendingRequestItems.map((request) => (
-                    <li key={request.id} className="flex items-center gap-3">
+                    <li key={request.id} className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
                       <Link
                         to={demo ? `/library/${request.bookId}` : `/requests?request=${request.id}`}
                         onClick={() => setOpen(false)}
-                        className="group flex min-w-0 flex-1 items-center gap-3 rounded-[2px]"
+                        className="group flex min-w-0 flex-1 basis-full items-center gap-3 rounded-[2px] sm:basis-auto"
                       >
                         <img
                           src={coverUrl(request.bookId)}
@@ -175,7 +183,7 @@ export function NotificationMenu({
                           </p>
                         </div>
                       </Link>
-                      <div className="flex shrink-0 gap-1">
+                      <div className="ml-auto flex shrink-0 gap-1">
                         <Button
                           variant="primary"
                           size="sm"
@@ -248,7 +256,7 @@ export function NotificationMenu({
               <Link
                 to="/requests"
                 onClick={() => setOpen(false)}
-                className="text-xs text-ink-muted transition-colors hover:text-ink"
+                className="inline-flex min-h-12 items-center text-xs text-ink-muted transition-colors hover:text-ink sm:min-h-8"
               >
                 View all requests
               </Link>

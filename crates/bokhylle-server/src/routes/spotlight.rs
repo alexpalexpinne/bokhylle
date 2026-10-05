@@ -9,46 +9,51 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
 use crate::AppState;
-use crate::auth::AuthUser;
+use crate::auth::{AuthUser, User};
 use crate::discovery::{self, SearchKind};
 use crate::error::AppError;
-use crate::library::relevance;
+use crate::library::relevance::{self, CatalogueExclusions, Seed, Taste};
+use crate::services::recommendations as engine;
 
 pub const SOURCES_KEY: &str = "home.spotlight_sources";
 
-#[derive(Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Clone, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SpotlightItem {
-    source: String,
-    ownership: String,
-    reason_type: String,
-    reason_label: String,
-    title: String,
-    authors: Vec<String>,
-    blurb: Option<String>,
-    language: Option<String>,
+    pub(crate) source: String,
+    pub(crate) ownership: String,
+    pub(crate) reason_type: String,
+    pub(crate) reason_label: String,
+    pub(crate) title: String,
+    pub(crate) authors: Vec<String>,
+    pub(crate) blurb: Option<String>,
+    pub(crate) language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    languages: Option<Vec<String>>,
-    subjects: Vec<String>,
+    pub(crate) languages: Option<Vec<String>>,
+    pub(crate) subjects: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) series: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rating: Option<Option<f64>>,
+    pub(crate) rating: Option<Option<f64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rating_count: Option<Option<i64>>,
+    pub(crate) rating_count: Option<Option<i64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    rating_source: Option<Option<String>>,
+    pub(crate) rating_source: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    book_id: Option<i64>,
+    pub(crate) book_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    provider: Option<String>,
+    pub(crate) provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    provider_key: Option<String>,
+    pub(crate) provider_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cover_id: Option<Option<String>>,
+    pub(crate) cover_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    cover_provider: Option<String>,
+    pub(crate) cover_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    year: Option<Option<i32>>,
-    cta: String,
+    pub(crate) year: Option<Option<i32>>,
+    pub(crate) cta: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) recommendation_key: Option<String>,
 }
 
 #[derive(Default, Deserialize, schemars::JsonSchema)]
@@ -61,8 +66,8 @@ pub struct SpotlightQuery {
 
 #[derive(Serialize, schemars::JsonSchema)]
 pub struct SpotlightResponse {
-    items: Vec<SpotlightItem>,
-    recommendations: Vec<SpotlightItem>,
+    pub(crate) items: Vec<SpotlightItem>,
+    pub(crate) recommendations: Vec<SpotlightItem>,
 }
 
 pub async fn direct_activity(
@@ -81,7 +86,7 @@ pub async fn updates(
     Ok(Json(crate::updates::list(&state, user.id).await?))
 }
 const DEFAULT_SOURCES: [&str; 3] = ["shelf", "household", "discover"];
-const SPOTLIGHT_SIZE: usize = 8;
+const SPOTLIGHT_SIZE: usize = 5;
 const DISCOVERY_TTL_SECONDS: i64 = 15 * 60;
 const DISCOVERY_MAX_AGE_SECONDS: i64 = 24 * 60 * 60;
 // Bound catalogue work across Home requests, including overlapping profiles.
@@ -103,6 +108,8 @@ type SpotlightRow = (
     i64,
     i64,
     String,
+    i64,
+    Option<String>,
 );
 
 // Saved catalogue works have available languages; owned files have actual
@@ -117,47 +124,6 @@ const LOCAL_LANGUAGES_SQL: &str = "CASE WHEN EXISTS (
     SELECT group_concat(language) FROM book_available_languages WHERE book_id = b.id
 ), '') END";
 
-const LOCAL_LANGUAGE_FILTER: &str = "AND (
-    NOT EXISTS (SELECT 1 FROM preferred)
-    OR EXISTS (
-        SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id
-        JOIN preferred p ON p.language = lower(e.language)
-        WHERE e.book_id = b.id
-    )
-    OR (
-        NOT EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id WHERE e.book_id = b.id)
-        AND EXISTS (
-            SELECT 1 FROM book_available_languages l JOIN preferred p ON p.language = lower(l.language)
-            WHERE l.book_id = b.id
-        )
-    )
-    OR (
-        NOT EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id WHERE e.book_id = b.id)
-        AND NOT EXISTS (SELECT 1 FROM book_available_languages WHERE book_id = b.id)
-        AND (b.language IS NULL OR EXISTS (SELECT 1 FROM preferred p WHERE p.language = lower(b.language)))
-    )
-    OR (
-        EXISTS (SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id WHERE e.book_id = b.id)
-        AND NOT EXISTS (
-            SELECT 1 FROM book_files f JOIN editions e ON e.id = f.edition_id
-            WHERE e.book_id = b.id AND e.language IS NOT NULL
-        )
-    )
-)";
-
-#[derive(Clone, Serialize)]
-struct Seed {
-    id: i64,
-    name: String,
-    weight: i64,
-    followed: bool,
-}
-
-struct Taste {
-    subjects: Vec<Seed>,
-    authors: Vec<Seed>,
-}
-
 fn fallback_reason(source: &str) -> &'static str {
     match source {
         "shelf" => "From your shelf",
@@ -166,14 +132,15 @@ fn fallback_reason(source: &str) -> &'static str {
 }
 
 fn reason_for(source: &str, taste: &Taste, matches_subject: i64, matches_author: i64) -> String {
-    if matches_subject == 1
-        && let Some(subject) = taste.subjects.first()
+    if let Some(subject) = taste
+        .subjects
+        .iter()
+        .find(|s| s.id != 0 && s.id == matches_subject)
         && subject.weight >= 3
     {
         return format!("Because you like {}", subject.name);
     }
-    if matches_author == 1
-        && let Some(author) = taste.authors.first()
+    if let Some(author) = taste.authors.iter().find(|a| a.id == matches_author)
         && (author.followed || author.weight >= 3)
     {
         return format!("More from {}", author.name);
@@ -196,6 +163,8 @@ fn slide(row: SpotlightRow, source: &str, ownership: &str, reason: String) -> Sp
         _matches_subject,
         _matches_author,
         available_languages,
+        _affinity,
+        series,
     ) = row;
     SpotlightItem {
         source: source.to_string(),
@@ -217,12 +186,8 @@ fn slide(row: SpotlightRow, source: &str, ownership: &str, reason: String) -> Sp
                 .map(str::to_string)
                 .collect(),
         ),
-        subjects: subjects
-            .split(", ")
-            .filter(|part| !part.is_empty())
-            .take(2)
-            .map(str::to_string)
-            .collect(),
+        subjects: serde_json::from_str(&subjects).unwrap_or_default(),
+        series,
         rating: Some(rating),
         rating_count: Some(rating_count),
         rating_source: Some(rating_source),
@@ -233,149 +198,21 @@ fn slide(row: SpotlightRow, source: &str, ownership: &str, reason: String) -> Sp
         cover_provider: None,
         year: None,
         cta: "explore".to_string(),
+        recommendation_key: None,
     }
 }
 
-/// Deterministic taste profile from existing signals: likes, requests,
-/// reader sends, manual shelf adds and followed authors. Household
-/// ownership alone contributes nothing, and not-for-me books neither boost
-/// nor appear as candidates.
-async fn taste_profile(state: &AppState, user_id: i64) -> Result<Taste, AppError> {
-    let subject_candidates: Vec<(i64, String, String, i64)> = sqlx::query_as(
-        "SELECT s.id, s.name, s.normalized_name, MAX(CASE
-                    WHEN ub.preference = 'liked' THEN 5
-                    WHEN ub.source IN ('requested', 'sent') THEN 3
-                    WHEN ub.source = 'manual' THEN 1
-                    ELSE 0 END) AS weight
-         FROM user_books ub
-         JOIN book_subjects bs ON bs.book_id = ub.book_id
-         JOIN subjects s ON s.id = bs.subject_id
-         WHERE ub.user_id = ? AND (ub.on_shelf = 1 OR ub.preference = 'liked')
-           AND (ub.preference IS NULL OR ub.preference = 'liked')
-           AND NOT EXISTS (
-               SELECT 1 FROM user_subject_prefs usp
-               WHERE usp.user_id = ub.user_id
-                 AND usp.normalized_name = s.normalized_name
-                 AND usp.hidden = 1
-           )
-         GROUP BY s.id
-         HAVING weight > 0
-         ORDER BY weight DESC, s.name
-         LIMIT 5",
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await?;
-    // Dewey codes and other catalog noise must never become a reason.
-    let derived_subjects: Vec<Seed> = subject_candidates
-        .into_iter()
-        .filter(|(_, _, normalized, _)| {
-            crate::library::subjects::is_displayable(normalized)
-                // Classification codes (005.1) have almost no letters.
-                && normalized.chars().filter(|character| character.is_alphabetic()).count() >= 3
-        })
-        .take(3)
-        .map(|(id, name, _, weight)| Seed {
-            id,
-            name,
-            weight,
-            followed: false,
-        })
-        .collect();
-
-    // Wizard interests are useful even before the first book is acquired.
-    let interests: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT COALESCE(s.id, 0), i.normalized_name
-         FROM user_subject_interests i
-         LEFT JOIN subjects s ON s.normalized_name = i.normalized_name
-         WHERE i.user_id = ? ORDER BY i.created_at, i.rowid LIMIT 3",
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await?;
-    let interest_limit = if derived_subjects.is_empty() { 2 } else { 1 };
-    let mut subjects = Vec::new();
-    for (id, name) in interests {
-        if subjects.len() >= interest_limit {
-            break;
-        }
-        if subjects.iter().any(|seed: &Seed| seed.name == name) {
-            continue;
-        }
-        subjects.push(Seed {
-            id,
-            name,
-            weight: 3,
-            followed: false,
-        });
-    }
-    for seed in derived_subjects {
-        if subjects.len() >= 2 {
-            break;
-        }
-        if !subjects.iter().any(|existing: &Seed| {
-            bokhylle_core::identity::normalize_text(&existing.name)
-                == bokhylle_core::identity::normalize_text(&seed.name)
-        }) {
-            subjects.push(seed);
-        }
-    }
-
-    let followed = crate::follows::followed_authors(&state.db, user_id).await?;
-    let authors: Vec<Seed> = if !followed.is_empty() {
-        followed
-            .into_iter()
-            .take(3)
-            .map(|(id, name)| Seed {
-                id,
-                name,
-                weight: 5,
-                followed: true,
-            })
-            .collect()
-    } else {
-        let rows: Vec<(i64, String, i64)> = sqlx::query_as(
-            "SELECT a.id, a.name, MAX(CASE
-                        WHEN ub.preference = 'liked' THEN 5
-                        WHEN ub.source IN ('requested', 'sent') THEN 3
-                        WHEN ub.source = 'manual' THEN 1
-                        ELSE 0 END) AS weight
-             FROM user_books ub
-             JOIN book_authors ba ON ba.book_id = ub.book_id
-             JOIN authors a ON a.id = ba.author_id
-             WHERE ub.user_id = ? AND (ub.on_shelf = 1 OR ub.preference = 'liked')
-               AND (ub.preference IS NULL OR ub.preference = 'liked')
-             GROUP BY a.id
-             HAVING weight > 0
-             ORDER BY weight DESC, a.name
-             LIMIT 3",
-        )
-        .bind(user_id)
-        .fetch_all(&state.db)
-        .await?;
-        rows.into_iter()
-            .map(|(id, name, weight)| Seed {
-                id,
-                name,
-                weight,
-                followed: false,
-            })
-            .collect()
-    };
-
-    Ok(Taste { subjects, authors })
-}
-
+/// Catalogue candidates from one subject or author seed.
 #[derive(Default, Deserialize, Serialize)]
 struct SeedMatches {
+    #[serde(default)]
+    retrieved: usize,
+    #[serde(default)]
+    filtered: std::collections::BTreeMap<String, usize>,
+    #[serde(default)]
+    cached: bool,
     heroes: Vec<SpotlightItem>,
     recommendations: Vec<SpotlightItem>,
-}
-
-#[derive(Clone, Copy)]
-enum SeedAudience<'a> {
-    Adult(i64),
-    Child(&'a HashSet<(String, String)>),
 }
 
 async fn seed_search(
@@ -384,111 +221,175 @@ async fn seed_search(
     kind: SearchKind,
     preferred_languages: &[String],
     reason: String,
-    audience: SeedAudience<'_>,
+    exclusions: &CatalogueExclusions,
+    taste: &Taste,
 ) -> SeedMatches {
     let _permit = DISCOVERY_LOOKUPS
         .acquire()
         .await
-        .expect("Spotlight lookup semaphore stays open");
-    let results = match audience {
-        SeedAudience::Child(_) => discovery::external_results(state, kind, &seed.name, 12).await,
-        SeedAudience::Adult(user_id) => {
-            discovery::search(state, kind, &seed.name, 12, user_id).await
-        }
-    }
-    .unwrap_or_default();
+        .expect("Spotlight semaphore stays open");
+    // Fetch the provider pool before applying display eligibility. A user's
+    // downloaded books must not consume a twelve-result recommendation budget.
+    let results = discovery::external_results(state, kind, &seed.name, 50)
+        .await
+        .unwrap_or_default();
+    let retrieved = results.len();
+    let mut filtered = std::collections::BTreeMap::new();
     let mut candidates: Vec<_> = results
         .into_iter()
-        .filter(|result| {
-            result.owned_book_id.is_none()
-                && !matches!(audience, SeedAudience::Child(keys) if keys.contains(&(result.provider.clone(), result.provider_key.clone())))
-                && (preferred_languages.is_empty()
-                    || (result.languages.is_empty() && result.language.is_none())
-                    || result
-                        .languages
-                        .iter()
-                        .chain(result.language.iter())
-                        .any(|language| {
-                            preferred_languages
-                                .iter()
-                                .any(|preferred| preferred.eq_ignore_ascii_case(language))
-                        }))
+        .filter(|r| {
+            let reason = if !relevance::language_matches(
+                preferred_languages,
+                &r.languages,
+                r.language.as_deref(),
+            ) {
+                Some("language")
+            } else if kind == SearchKind::Author
+                && !r
+                    .authors
+                    .iter()
+                    .any(|a| bokhylle_core::identity::normalize_text(a) == seed.concept)
+            {
+                Some("author_mismatch")
+            } else {
+                exclusions.rejection_reason(
+                    &r.provider,
+                    &r.provider_key,
+                    &r.title,
+                    &r.authors,
+                    &r.subjects,
+                )
+            };
+            if let Some(reason) = reason {
+                *filtered.entry(reason.to_string()).or_insert(0) += 1;
+            }
+            reason.is_none()
         })
         .collect();
-    // A slide without artwork looks broken; covered candidates first.
-    candidates.sort_by_key(|result| result.cover_id.is_none());
-    let recommendations = candidates
-        .iter()
-        .take(6)
-        .map(|result| SpotlightItem {
-            source: "discover".to_string(),
-            ownership: "discover".to_string(),
-            reason_type: if seed.followed { "follow" } else { "taste" }.to_string(),
+    candidates.sort_by_key(|r| r.cover_id.is_none());
+    let mut recommendations: Vec<_> = candidates
+        .into_iter()
+        .map(|r| SpotlightItem {
+            source: "discover".into(),
+            ownership: "discover".into(),
+            reason_type: if seed.followed { "follow" } else { "taste" }.into(),
             reason_label: reason.clone(),
-            title: result.title.clone(),
-            authors: result.authors.clone(),
+            title: r.title.clone(),
+            authors: r.authors.clone(),
             blurb: None,
-            language: result.language.clone(),
-            languages: Some(result.languages.clone()),
-            subjects: Vec::new(),
+            language: r.language.clone(),
+            languages: Some(r.languages.clone()),
+            subjects: r.subjects.clone(),
+            series: r.series.clone(),
             rating: None,
             rating_count: None,
             rating_source: None,
             book_id: None,
-            provider: Some(result.provider.clone()),
-            provider_key: Some(result.provider_key.clone()),
-            cover_id: Some(result.cover_id.clone()),
+            provider: Some(r.provider.clone()),
+            provider_key: Some(r.provider_key.clone()),
+            cover_id: Some(r.cover_id.clone()),
             cover_provider: None,
-            year: Some(result.year),
-            cta: "discover".to_string(),
+            year: Some(r.year),
+            cta: "discover".into(),
+            recommendation_key: None,
         })
         .collect();
+    recommendations.sort_by_key(|item| {
+        std::cmp::Reverse(crate::services::recommendations::affinity(item, taste).affinity)
+    });
+    let author_matches = |item: &SpotlightItem| {
+        kind != SearchKind::Author
+            || item
+                .authors
+                .iter()
+                .any(|name| bokhylle_core::identity::normalize_text(name) == seed.concept)
+    };
     let mut heroes = Vec::new();
-    for result in candidates.into_iter().take(4) {
+    for item in recommendations.iter_mut().take(8) {
         if heroes.len() >= 2 {
             break;
         }
-        let detail =
-            match discovery::detail(state, Some(&result.provider), &result.provider_key).await {
-                Ok(Some(detail)) => detail,
-                _ => continue,
-            };
-        let Some(blurb) = detail
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_string)
-        else {
+        let detail = match discovery::resolve_metadata(
+            state,
+            item.provider.as_deref(),
+            item.provider_key
+                .as_deref()
+                .expect("catalogue candidate key"),
+        )
+        .await
+        {
+            Ok(Some(detail)) => detail,
+            _ => continue,
+        };
+        for subject in detail.subjects {
+            if !item.subjects.contains(&subject) {
+                item.subjects.push(subject);
+            }
+        }
+        let languages = item.languages.get_or_insert_with(Vec::new);
+        for language in detail.languages {
+            if !languages.contains(&language) {
+                languages.push(language);
+            }
+        }
+        item.language = detail.language.or(item.language.take());
+        item.title = detail.title;
+        item.authors = detail.authors;
+        item.series = detail.series.or(item.series.take());
+        item.cover_id = Some(detail.cover_id);
+        item.cover_provider = Some(detail.provider);
+        item.year = Some(detail.year.or(item.year.flatten()));
+        if !catalogue_permits(item, preferred_languages, exclusions) || !author_matches(item) {
+            continue;
+        }
+        let Some(blurb) = detail.description.filter(|b| !b.trim().is_empty()) else {
             continue;
         };
-        heroes.push(SpotlightItem {
-            source: "discover".to_string(),
-            ownership: "discover".to_string(),
-            reason_type: if seed.followed { "follow" } else { "taste" }.to_string(),
-            reason_label: reason.clone(),
-            title: detail.title,
-            authors: detail.authors,
-            blurb: Some(blurb),
-            language: detail.language,
-            languages: Some(result.languages.clone()),
-            subjects: Vec::new(),
-            rating: None,
-            rating_count: None,
-            rating_source: None,
-            book_id: None,
-            provider: Some(detail.provider.clone()),
-            provider_key: Some(detail.provider_key),
-            cover_id: Some(detail.cover_id),
-            cover_provider: Some(detail.provider),
-            year: Some(detail.year.or(result.year)),
-            cta: "discover".to_string(),
-        });
+        let mut hero = item.clone();
+        hero.blurb = Some(blurb);
+        heroes.push(hero);
     }
+    recommendations.retain(|item| {
+        let allowed =
+            catalogue_permits(item, preferred_languages, exclusions) && author_matches(item);
+        if !allowed {
+            *filtered.entry("detail_metadata".to_string()).or_insert(0) += 1;
+        }
+        allowed
+    });
     SeedMatches {
+        retrieved,
+        filtered,
+        cached: false,
         heroes,
         recommendations,
     }
+}
+
+fn catalogue_rejection(
+    item: &SpotlightItem,
+    preferred_languages: &[String],
+    exclusions: &CatalogueExclusions,
+) -> Option<&'static str> {
+    if !relevance::language_matches(
+        preferred_languages,
+        item.languages.as_deref().unwrap_or_default(),
+        item.language.as_deref(),
+    ) {
+        return Some("language");
+    }
+    let Some((provider, key)) = item.provider.as_ref().zip(item.provider_key.as_ref()) else {
+        return Some("missing_identity");
+    };
+    exclusions.rejection_reason(provider, key, &item.title, &item.authors, &item.subjects)
+}
+
+fn catalogue_permits(
+    item: &SpotlightItem,
+    preferred_languages: &[String],
+    exclusions: &CatalogueExclusions,
+) -> bool {
+    catalogue_rejection(item, preferred_languages, exclusions).is_none()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -536,7 +437,9 @@ async fn saved_discovery(
     if saved.fingerprint != fingerprint || now - fetched_at > DISCOVERY_MAX_AGE_SECONDS {
         return Ok(None);
     }
-    Ok(Some((saved.matches, expires_at > now)))
+    let mut matches = saved.matches;
+    matches.cached = true;
+    Ok(Some((matches, expires_at > now)))
 }
 
 async fn discover_matches(
@@ -545,19 +448,34 @@ async fn discover_matches(
     child: bool,
     taste: &Taste,
     preferred_languages: &[String],
-    excluded_keys: &HashSet<(String, String)>,
+    exclusions: &CatalogueExclusions,
     cached_only: bool,
 ) -> Result<SeedMatches, AppError> {
     let mut seeds = Vec::new();
-    for index in 0..2 {
-        if let Some(subject) = taste.subjects.get(index) {
+    let day = now_epoch() / 86_400;
+    // Keep the strongest seed, then rotate through the remaining interests and
+    // authors. Every follow and explicit interest can receive a turn.
+    let select = |pool: &[Seed]| {
+        let mut chosen = pool.iter().take(1).cloned().collect::<Vec<_>>();
+        if pool.len() > 1 {
+            let start = (day as usize + user_id as usize) % (pool.len() - 1);
+            for offset in 0..2.min(pool.len() - 1) {
+                chosen.push(pool[1 + (start + offset) % (pool.len() - 1)].clone());
+            }
+        }
+        chosen
+    };
+    let subjects = select(&taste.subjects);
+    let authors = select(&taste.authors);
+    for index in 0..3 {
+        if let Some(subject) = subjects.get(index) {
             seeds.push((
                 subject,
                 SearchKind::Subject,
                 format!("Because you like {}", subject.name),
             ));
         }
-        if let Some(author) = taste.authors.get(index) {
+        if let Some(author) = authors.get(index) {
             seeds.push((
                 author,
                 SearchKind::Author,
@@ -570,12 +488,35 @@ async fn discover_matches(
     }
     let seed_identity: Vec<_> = seeds
         .iter()
-        .map(|(seed, kind, _)| (*seed, kind.as_str()))
+        .map(|(seed, kind, _)| {
+            (
+                &seed.concept,
+                seed.weight,
+                seed.followed,
+                seed.explicit,
+                kind.as_str(),
+            )
+        })
         .collect();
+    let taste_identity = |pool: &[Seed]| {
+        pool.iter()
+            .map(|seed| {
+                (
+                    seed.concept.clone(),
+                    seed.weight,
+                    seed.followed,
+                    seed.explicit,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     let identity = serde_json::to_vec(&(
         child,
+        day,
         preferred_languages,
         seed_identity,
+        taste_identity(&taste.subjects),
+        taste_identity(&taste.authors),
         state.metadata.name(),
         state
             .metadata_fallback
@@ -586,7 +527,7 @@ async fn discover_matches(
     let fingerprint = hex::encode(Sha256::digest(identity));
     // One disposable snapshot per profile. Local shelf/household data is never
     // saved here; it is queried with current permissions on every request.
-    let cache_key = format!("spotlight-discovery:v1:{user_id}");
+    let cache_key = format!("spotlight-discovery:v3:{user_id}");
     let cached = saved_discovery(state, &cache_key, &fingerprint).await?;
     if cached_only || cached.as_ref().is_some_and(|(_, fresh)| *fresh) {
         return Ok(cached.map(|(matches, _)| matches).unwrap_or_default());
@@ -599,12 +540,7 @@ async fn discover_matches(
     if let Some((matches, true)) = saved_discovery(state, &cache_key, &fingerprint).await? {
         return Ok(matches);
     }
-    let audience = if child {
-        SeedAudience::Child(excluded_keys)
-    } else {
-        SeedAudience::Adult(user_id)
-    };
-    let mut matches = SeedMatches::default();
+    let mut batches = Vec::new();
     // Preserve seed order even when the second catalogue lookup finishes first.
     // Two independent searches run together; the global permit also bounds
     // simultaneous catalogue work across profiles.
@@ -616,7 +552,8 @@ async fn discover_matches(
             *kind,
             preferred_languages,
             reason.clone(),
-            audience,
+            exclusions,
+            taste,
         );
         let results = if let Some((seed, kind, reason)) = pair.get(1) {
             let second = seed_search(
@@ -625,18 +562,35 @@ async fn discover_matches(
                 *kind,
                 preferred_languages,
                 reason.clone(),
-                audience,
+                exclusions,
+                taste,
             );
             let (first, second) = tokio::join!(first, second);
             vec![first, second]
         } else {
             vec![first.await]
         };
-        for result in results {
-            matches.heroes.extend(result.heroes);
-            matches.recommendations.extend(result.recommendations);
-        }
+        batches.extend(results);
     }
+    let mut hero_queues = Vec::new();
+    let mut recommendation_queues = Vec::new();
+    let mut retrieved = 0;
+    let mut filtered = std::collections::BTreeMap::new();
+    for batch in batches {
+        retrieved += batch.retrieved;
+        for (reason, count) in batch.filtered {
+            *filtered.entry(reason).or_insert(0) += count;
+        }
+        hero_queues.push(batch.heroes);
+        recommendation_queues.push(batch.recommendations);
+    }
+    let matches = SeedMatches {
+        retrieved,
+        filtered,
+        cached: false,
+        heroes: interleave(hero_queues),
+        recommendations: interleave(recommendation_queues),
+    };
     // A failed/empty catalogue pass must not wipe a usable saved selection.
     if matches.heroes.is_empty()
         && matches.recommendations.is_empty()
@@ -679,6 +633,19 @@ pub async fn spotlight(
     State(state): State<AppState>,
     Query(query): Query<SpotlightQuery>,
 ) -> Result<Json<SpotlightResponse>, AppError> {
+    selection(user, state, query.cached_only, 18, false)
+        .await
+        .map(Json)
+}
+
+pub(crate) async fn selection(
+    user: User,
+    state: AppState,
+    cached_only: bool,
+    limit: usize,
+    include_featured: bool,
+) -> Result<SpotlightResponse, AppError> {
+    let started = std::time::Instant::now();
     let child = crate::auth::profile_type(&state.db, user.id).await? == "child";
     let mut sources: Vec<String> = state
         .settings
@@ -702,10 +669,10 @@ pub async fn spotlight(
         sources.retain(|source| source == "shelf" || (can_discover && source == "discover"));
     }
     if sources.is_empty() {
-        return Ok(Json(SpotlightResponse {
+        return Ok(SpotlightResponse {
             items: Vec::new(),
             recommendations: Vec::new(),
-        }));
+        });
     }
 
     let shelf_enabled = sources.iter().any(|source| source == "shelf");
@@ -714,16 +681,23 @@ pub async fn spotlight(
     let (preferred_languages, _) = crate::updates::user_preferences(&state, user.id).await?;
     let preferred_json = serde_json::to_string(&preferred_languages)
         .map_err(|error| AppError::Unprocessable(error.to_string()))?;
-    let taste = taste_profile(&state, user.id).await?;
-    let subject_id = taste.subjects.first().map(|seed| seed.id).unwrap_or(0);
-    let author_id = taste.authors.first().map(|seed| seed.id).unwrap_or(0);
+    let taste = relevance::taste(&state.db, user.id).await?;
+    let taste_ms = started.elapsed().as_millis() as u64;
+    let local_started = std::time::Instant::now();
+    let subject_json = serde_json::to_string(&taste.subjects)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let author_json = serde_json::to_string(&taste.authors)
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+    let taste_ctes = relevance::TASTE_CTES;
+    let affinity = relevance::AFFINITY;
+    let language_filter = relevance::LANGUAGE_FILTER;
 
     let visibility = crate::services::sharing::predicate("b.id", user.id);
     let exclusions = relevance::EXCLUSIONS;
     let personal = relevance::personal();
     let shelf_rows: Vec<SpotlightRow> = if shelf_enabled {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?))
+            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?)) {taste_ctes}
              SELECT b.id, b.title,
                     COALESCE((SELECT group_concat(a.name, ', ')
                               FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -737,32 +711,33 @@ pub async fn spotlight(
                         SELECT 1 FROM book_available_languages WHERE book_id = b.id
                     ) THEN NULL ELSE b.language END END,
                     b.description,
-                    COALESCE((SELECT group_concat(s.name, ', ')
+                    COALESCE((SELECT json_group_array(s.name)
                               FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id
-                              WHERE bs.book_id = b.id), ''),
+                              WHERE bs.book_id = b.id), '[]'),
                     ub.added_at,
                     b.rating,
                     b.rating_count,
                     b.rating_source,
-                    EXISTS(SELECT 1 FROM book_subjects bs2
-                           WHERE bs2.book_id = b.id AND bs2.subject_id = ?),
-                    EXISTS(SELECT 1 FROM book_authors ba2
-                           WHERE ba2.book_id = b.id AND ba2.author_id = ?),
-                    {LOCAL_LANGUAGES_SQL}
+                    COALESCE((SELECT t.id FROM book_subjects bs2 JOIN taste_subjects t ON t.id = bs2.subject_id
+                              WHERE bs2.book_id = b.id ORDER BY t.weight DESC, t.id LIMIT 1), 0),
+                    COALESCE((SELECT t.id FROM book_authors ba2 JOIN taste_authors t ON t.id = ba2.author_id
+                              WHERE ba2.book_id = b.id ORDER BY t.weight DESC, t.id LIMIT 1), 0),
+                    {LOCAL_LANGUAGES_SQL}, {affinity}, COALESCE(CAST(b.series_id AS TEXT), b.series)
              FROM user_books ub
              JOIN books b ON b.id = ub.book_id
              WHERE ub.user_id = ? AND ub.on_shelf = 1
+               AND {visibility}
                AND (ub.preference IS NULL OR ub.preference = 'liked')
                AND b.description IS NOT NULL AND length(trim(b.description)) > 120
                {exclusions}
-               {LOCAL_LANGUAGE_FILTER}
-             ORDER BY 11 DESC, 12 DESC, ub.added_at DESC
-             LIMIT 5"
+               {language_filter}
+             ORDER BY 14 DESC, ub.added_at DESC, b.id DESC
+             LIMIT 40"
         )))
         .bind(user.id)
         .bind(&preferred_json)
-        .bind(subject_id)
-        .bind(author_id)
+        .bind(&subject_json)
+        .bind(&author_json)
         .bind(user.id)
         .fetch_all(&state.db)
         .await?
@@ -772,7 +747,7 @@ pub async fn spotlight(
 
     let household_rows: Vec<SpotlightRow> = if household_enabled {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?))
+            "WITH viewer(id) AS (SELECT ?), preferred(language) AS (SELECT lower(value) FROM json_each(?)) {taste_ctes}
              SELECT b.id, b.title,
                     COALESCE((SELECT group_concat(a.name, ', ')
                               FROM book_authors ba JOIN authors a ON a.id = ba.author_id
@@ -786,18 +761,18 @@ pub async fn spotlight(
                         SELECT 1 FROM book_available_languages WHERE book_id = b.id
                     ) THEN NULL ELSE b.language END END,
                     b.description,
-                    COALESCE((SELECT group_concat(s.name, ', ')
+                    COALESCE((SELECT json_group_array(s.name)
                               FROM book_subjects bs JOIN subjects s ON s.id = bs.subject_id
-                              WHERE bs.book_id = b.id), ''),
+                              WHERE bs.book_id = b.id), '[]'),
                     b.created_at,
                     b.rating,
                     b.rating_count,
                     b.rating_source,
-                    EXISTS(SELECT 1 FROM book_subjects bs2
-                           WHERE bs2.book_id = b.id AND bs2.subject_id = ?),
-                    EXISTS(SELECT 1 FROM book_authors ba2
-                           WHERE ba2.book_id = b.id AND ba2.author_id = ?),
-                    {LOCAL_LANGUAGES_SQL}
+                    COALESCE((SELECT t.id FROM book_subjects bs2 JOIN taste_subjects t ON t.id = bs2.subject_id
+                              WHERE bs2.book_id = b.id ORDER BY t.weight DESC, t.id LIMIT 1), 0),
+                    COALESCE((SELECT t.id FROM book_authors ba2 JOIN taste_authors t ON t.id = ba2.author_id
+                              WHERE ba2.book_id = b.id ORDER BY t.weight DESC, t.id LIMIT 1), 0),
+                    {LOCAL_LANGUAGES_SQL}, {affinity}, COALESCE(CAST(b.series_id AS TEXT), b.series)
              FROM books b
              WHERE b.description IS NOT NULL AND length(trim(b.description)) > 120
                AND EXISTS (SELECT 1 FROM book_files f
@@ -808,14 +783,14 @@ pub async fn spotlight(
                AND {visibility}
                {personal}
                {exclusions}
-               {LOCAL_LANGUAGE_FILTER}
-             ORDER BY 11 DESC, 12 DESC, b.created_at DESC
-             LIMIT 5"
+               {language_filter}
+             ORDER BY 14 DESC, b.created_at DESC, b.id DESC
+             LIMIT 40"
         )))
         .bind(user.id)
         .bind(&preferred_json)
-        .bind(subject_id)
-        .bind(author_id)
+        .bind(&subject_json)
+        .bind(&author_json)
         .bind(user.id)
         .fetch_all(&state.db)
         .await?
@@ -837,115 +812,180 @@ pub async fn spotlight(
     } else {
         Vec::new()
     };
-    let mut items: Vec<SpotlightItem> = Vec::new();
-    let mut shelf_queue = shelf_rows.into_iter();
-    let mut household_queue = household_rows.into_iter();
-
-    if let Some(row) = shelf_queue.next() {
-        let reason = reason_for("shelf", &taste, row.10, row.11);
-        items.push(slide(row, "shelf", "shelf", reason));
-    }
-    if let Some(row) = household_queue.next() {
-        let reason = reason_for("household", &taste, row.10, row.11);
-        items.push(slide(row, "household", "household", reason));
-    }
-
+    let mut shelf_items: Vec<_> = shelf_rows
+        .into_iter()
+        .map(|row| {
+            let reason = reason_for("shelf", &taste, row.10, row.11);
+            slide(row, "shelf", "shelf", reason)
+        })
+        .collect();
+    let mut household_items: Vec<_> = household_rows
+        .into_iter()
+        .map(|row| {
+            let reason = reason_for("household", &taste, row.10, row.11);
+            slide(row, "household", "household", reason)
+        })
+        .collect();
+    let local_ms = local_started.elapsed().as_millis() as u64;
+    let catalogue_started = std::time::Instant::now();
+    let mut catalogue_retrieved = 0;
+    let mut catalogue_cached = false;
+    let mut filtered = std::collections::BTreeMap::new();
+    let mut heroes = Vec::new();
     if discover_enabled && state.demo.is_none() {
-        let excluded_keys: HashSet<(String, String)> = if child {
-            sqlx::query_as(
-                "SELECT DISTINCT ids.provider, ids.provider_key
-                 FROM book_external_ids ids
-                 WHERE EXISTS (
-                     SELECT 1 FROM user_books ub
-                     WHERE ub.book_id = ids.book_id AND ub.user_id = ? AND ub.on_shelf = 1
-                 ) OR EXISTS (
-                     SELECT 1 FROM editions e JOIN book_files f ON f.edition_id = e.id
-                     WHERE e.book_id = ids.book_id
-                 )",
-            )
-            .bind(user.id)
-            .fetch_all(&state.db)
-            .await?
-            .into_iter()
-            .collect()
-        } else {
-            let visibility = crate::services::sharing::predicate("ids.book_id", user.id);
-            sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT DISTINCT ids.provider, ids.provider_key FROM book_external_ids ids
-                 WHERE {visibility}
-                    OR EXISTS (SELECT 1 FROM user_books ub
-                        WHERE ub.book_id = ids.book_id AND ub.user_id = ?
-                          AND ub.preference = 'not_for_me')"
-            )))
-            .bind(user.id)
-            .fetch_all(&state.db)
-            .await?
-            .into_iter()
-            .collect()
-        };
-        let mut seen_heroes = HashSet::new();
-        let mut seen_recommendations = HashSet::new();
+        let exclusions = relevance::catalogue_exclusions(&state.db, user.id, child, true).await?;
         let matches = discover_matches(
             &state,
             user.id,
             child,
             &taste,
             &preferred_languages,
-            &excluded_keys,
-            query.cached_only,
+            &exclusions,
+            cached_only,
         )
         .await?;
-        // Recheck live ownership/child exclusions even for saved catalogue data.
-        let eligible = |item: &SpotlightItem| {
-            item.provider
+        catalogue_retrieved = matches.retrieved;
+        catalogue_cached = matches.cached;
+        filtered = matches.filtered;
+        for item in &matches.recommendations {
+            if let Some(reason) = catalogue_rejection(item, &preferred_languages, &exclusions) {
+                *filtered.entry(format!("live_{reason}")).or_insert(0) += 1;
+            }
+        }
+        let eligible =
+            |item: &SpotlightItem| catalogue_permits(item, &preferred_languages, &exclusions);
+        heroes = matches.heroes.into_iter().filter(eligible).collect();
+        recommendations.extend(matches.recommendations.into_iter().filter(eligible));
+    }
+    let catalogue_ms = catalogue_started.elapsed().as_millis() as u64;
+    let retrieved = catalogue_retrieved + shelf_items.len() + household_items.len();
+    let before_rank =
+        recommendations.len() + heroes.len() + shelf_items.len() + household_items.len();
+    let ranking_started = std::time::Instant::now();
+    let mut scores = engine::rank(&state, user.id, &taste, &mut shelf_items).await?;
+    scores.extend(engine::rank(&state, user.id, &taste, &mut household_items).await?);
+    scores.extend(engine::rank(&state, user.id, &taste, &mut heroes).await?);
+    scores.extend(engine::rank(&state, user.id, &taste, &mut recommendations).await?);
+    let after_rank =
+        recommendations.len() + heroes.len() + shelf_items.len() + household_items.len();
+    filtered.insert("dismissed".to_string(), before_rank - after_rank);
+    let mut score_keys = HashSet::new();
+    scores.retain(|score| score_keys.insert(score.key.clone()));
+    let eligible = scores.len();
+    let ranking_ms = ranking_started.elapsed().as_millis() as u64;
+    let items = diverse(
+        interleave(vec![shelf_items, household_items, heroes]),
+        SPOTLIGHT_SIZE,
+    );
+    // Only the final five Spotlight books leave the catalogue rail. Local
+    // books stay on their local shelves, including the demo's sample rail.
+    let featured: HashSet<_> = items
+        .iter()
+        .filter_map(|i| i.provider.as_ref().zip(i.provider_key.as_ref()))
+        .collect();
+    recommendations.retain(|i| {
+        include_featured
+            || !i
+                .provider
                 .as_ref()
-                .zip(item.provider_key.as_ref())
-                .is_some_and(|(provider, key)| {
-                    !excluded_keys.contains(&(provider.clone(), key.clone()))
-                })
-        };
-        for item in matches.heroes.into_iter().filter(eligible) {
-            let key = (item.provider.clone(), item.provider_key.clone());
-            if seen_heroes.insert(key) {
-                items.push(item);
-            }
-        }
-        for item in matches.recommendations.into_iter().filter(eligible) {
-            let key = (item.provider.clone(), item.provider_key.clone());
-            if seen_recommendations.insert(key) {
-                recommendations.push(item);
-            }
-        }
-        recommendations.retain(|item| {
-            !seen_heroes.contains(&(item.provider.clone(), item.provider_key.clone()))
-        });
-        recommendations.truncate(18);
-    }
-
-    // Backfill from whichever enabled sources still have candidates.
-    while items.len() < SPOTLIGHT_SIZE {
-        let mut filled = false;
-        if let Some(row) = shelf_queue.next() {
-            let reason = reason_for("shelf", &taste, row.10, row.11);
-            items.push(slide(row, "shelf", "shelf", reason));
-            filled = true;
-        }
-        if items.len() >= SPOTLIGHT_SIZE {
-            break;
-        }
-        if let Some(row) = household_queue.next() {
-            let reason = reason_for("household", &taste, row.10, row.11);
-            items.push(slide(row, "household", "household", reason));
-            filled = true;
-        }
-        if !filled {
-            break;
-        }
-    }
-
-    items.truncate(SPOTLIGHT_SIZE);
-    Ok(Json(SpotlightResponse {
+                .zip(i.provider_key.as_ref())
+                .is_some_and(|key| featured.contains(&key))
+    });
+    let recommendations = diverse(recommendations, limit);
+    let offered: Vec<_> = items.iter().chain(&recommendations).cloned().collect();
+    engine::offer(&state, user.id, &offered).await?;
+    let diagnostics = engine::RecommendationDiagnostics {
+        retrieved,
+        eligible,
+        selected: offered
+            .iter()
+            .map(engine::identity)
+            .collect::<HashSet<_>>()
+            .len(),
+        filtered,
+        catalogue_cached,
+        timings_ms: std::collections::BTreeMap::from([
+            ("taste".into(), taste_ms),
+            ("local_queries".into(), local_ms),
+            ("catalogue".into(), catalogue_ms),
+            ("ranking".into(), ranking_ms),
+        ]),
+        elapsed_ms: started.elapsed().as_millis() as u64,
+        cached_only,
+        scores,
+    };
+    engine::save_diagnostics(&state, user.id, &diagnostics).await?;
+    Ok(SpotlightResponse {
         items,
         recommendations,
-    }))
+    })
+}
+
+fn interleave(queues: Vec<Vec<SpotlightItem>>) -> Vec<SpotlightItem> {
+    let mut queues: Vec<_> = queues
+        .into_iter()
+        .map(std::collections::VecDeque::from)
+        .collect();
+    let mut items = Vec::new();
+    loop {
+        let mut added = false;
+        for queue in &mut queues {
+            if let Some(item) = queue.pop_front() {
+                items.push(item);
+                added = true;
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+    items
+}
+
+fn diverse(candidates: Vec<SpotlightItem>, limit: usize) -> Vec<SpotlightItem> {
+    let mut selected: Vec<SpotlightItem> = Vec::new();
+    let mut deferred = Vec::new();
+    let mut seen = HashSet::new();
+    for item in candidates {
+        let key = (
+            bokhylle_core::identity::normalize_text(&item.title),
+            item.authors
+                .first()
+                .map(|a| bokhylle_core::identity::normalize_text(a)),
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        let repeated_author = item.authors.iter().any(|a| {
+            selected
+                .iter()
+                .filter(|s| {
+                    s.authors.iter().any(|other| {
+                        bokhylle_core::identity::normalize_text(a)
+                            == bokhylle_core::identity::normalize_text(other)
+                    })
+                })
+                .count()
+                >= 2
+        });
+        let repeated_series = item.series.as_ref().is_some_and(|series| {
+            selected.iter().any(|s| {
+                s.series.as_ref().is_some_and(|other| {
+                    bokhylle_core::identity::normalize_text(series)
+                        == bokhylle_core::identity::normalize_text(other)
+                })
+            })
+        });
+        if selected.len() < limit && !repeated_author && !repeated_series {
+            selected.push(item);
+        } else {
+            deferred.push(item);
+        }
+    }
+    selected.extend(
+        deferred
+            .into_iter()
+            .take(limit.saturating_sub(selected.len())),
+    );
+    selected
 }

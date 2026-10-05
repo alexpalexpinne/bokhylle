@@ -16,6 +16,8 @@ export default async function profileHelp(page, { base }) {
     } else if (url.pathname === '/api/profile/stats') {
       statsRequests += 1
       body = { shelf: 3, authors: 2, liked: 1, booksSent: 4 }
+    } else if (url.pathname === '/api/profile/rejected') {
+      body = { items: [] }
     } else if (url.pathname === '/api/profile/liked') {
       body = { items: [{ bookId: 1, title: 'Liked Book', authors: [], readable: false, onShelf: false, provider: null, providerKey: null }] }
     } else if (url.pathname === '/api/profile/hidden-subjects') {

@@ -22,6 +22,11 @@ impl BookSharing {
 
 /// SQL identifiers come only from source code; viewer ids are integers.
 pub fn predicate(book_column: &str, viewer_id: i64) -> String {
+    predicate_with_viewer(book_column, &viewer_id.to_string())
+}
+
+/// Both SQL expressions are supplied by source code, never request input.
+pub(crate) fn predicate_with_viewer(book_column: &str, viewer_id: &str) -> String {
     format!("(EXISTS (SELECT 1 FROM books unmanaged WHERE unmanaged.id = {book_column} AND unmanaged.sharing_managed = 0)
         OR EXISTS (SELECT 1 FROM book_access access WHERE access.book_id = {book_column}
                    AND ((access.is_owner = 1 AND (access.user_id = {viewer_id} OR access.sharing = 'shared'))

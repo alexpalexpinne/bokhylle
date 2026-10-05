@@ -15,6 +15,7 @@ pub mod kosync;
 pub mod library;
 pub mod notifications;
 pub mod opds;
+pub mod recommendations;
 pub mod registry;
 pub mod requests;
 pub mod responses;

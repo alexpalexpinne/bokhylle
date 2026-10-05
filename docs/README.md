@@ -14,7 +14,8 @@ Compose installation. These guides cover the next steps:
 For development and maintenance, see the [contributing guide](../CONTRIBUTING.md),
 [API contract](api.md), [design principles](design-principles.md),
 [Spotlight and shelves](spotlight-and-shelves.md),
-[frontend standards](frontend-standards.md), and
+[frontend standards](frontend-standards.md),
+[interaction design review](design-review.md), and
 [discovery search notes](search-quality.md). The [publishing guide](publishing.md)
 is for maintainers preparing releases. [Third-party notices](third-party/README.md)
 and the [demo rights review](../demo/RIGHTS.md) record bundled licenses and

@@ -1,3 +1,4 @@
+import { withHomeInvalidation } from '../lib/homeSnapshot'
 import type { components } from './generated'
 import { apiRoute } from './client'
 
@@ -25,10 +26,10 @@ export function likeExternalBook(
   providerKey: string,
   provider?: string,
 ) {
-  return apiRoute('/api/discover/like', '/api/discover/like', {
+  return withHomeInvalidation(apiRoute('/api/discover/like', '/api/discover/like', {
     method: 'POST',
     json: { providerKey, provider },
-  })
+  }))
 }
 
 export function fetchDiscoverBook(
@@ -78,4 +79,10 @@ export function discoverCoverUrl(coverId: string, title: string, provider?: stri
     params.set('provider', provider)
   }
   return `/api/discover/cover/${encodeURIComponent(coverId)}?${params.toString()}`
+}
+
+export function rejectExternalBook(providerKey: string, provider?: string) {
+  return withHomeInvalidation(apiRoute('/api/discover/preference', '/api/discover/preference', {
+    method: 'POST', json: { providerKey, provider, preference: 'not_for_me' },
+  }))
 }

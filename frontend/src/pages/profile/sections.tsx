@@ -252,13 +252,15 @@ export function ProfilePreferences(props: PreferencesProps) {
 }
 
 type TasteProps = {
+  rejectedBooks: LikedBook[]
+  restoreBook: (id: number) => void
   likedBooks: LikedBook[]
   hiddenSubjects: string[]
   removeLike: (bookId: number) => void
   restoreSubject: (subject: string) => void
 }
 
-export function ProfileTaste({ likedBooks, hiddenSubjects, removeLike, restoreSubject }: TasteProps) {
+export function ProfileTaste({ rejectedBooks, restoreBook, likedBooks, hiddenSubjects, removeLike, restoreSubject }: TasteProps) {
   return (
     <>
       {likedBooks.length > 0 && (
@@ -279,6 +281,14 @@ export function ProfileTaste({ likedBooks, hiddenSubjects, removeLike, restoreSu
         </section>
       )}
 
+      {rejectedBooks.length > 0 && <section className="mt-6 border-t border-line pt-5">
+        <h2 className="text-base font-semibold text-ink">Not for me</h2>
+        <p className="mt-1 text-xs text-ink-muted">These books stay out of your suggestions. Restore one to make it eligible again.</p>
+        <ul className="mt-4 divide-y divide-line">{rejectedBooks.map((book) => <li key={book.bookId} className="flex items-center justify-between gap-3 py-3">
+          <span className="min-w-0"><span className="block truncate text-sm text-ink">{book.title}</span><span className="block truncate text-xs text-ink-muted">{book.authors.join(', ')}</span></span>
+          <Button variant="ghost" size="sm" onClick={() => restoreBook(book.bookId)}>Restore</Button>
+        </li>)}</ul>
+      </section>}
       {hiddenSubjects.length > 0 && (
         <section className="mt-6 rounded-panel bg-surface p-5">
           <h2 className="text-base font-semibold text-ink">Hidden categories</h2>
@@ -295,7 +305,7 @@ export function ProfileTaste({ likedBooks, hiddenSubjects, removeLike, restoreSu
           </ul>
         </section>
       )}
-      {likedBooks.length === 0 && hiddenSubjects.length === 0 && <p className="rounded-panel bg-surface p-6 text-sm text-ink-muted">Books you like and categories you hide will appear here.</p>}
+      {rejectedBooks.length === 0 && likedBooks.length === 0 && hiddenSubjects.length === 0 && <p className="rounded-panel bg-surface p-6 text-sm text-ink-muted">Books you like, books marked not for me, and categories you hide will appear here.</p>}
     </>
   )
 }

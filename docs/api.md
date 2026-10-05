@@ -25,6 +25,34 @@ snapshots are profile-scoped and match current taste seeds, language preferences
 profile type and metadata providers; local sharing and child scope are checked
 on every response.
 
+`GET /api/recommendations` returns a personalized selection with `items`, canonical
+`subjects`, `total`, and `nextOffset`. It accepts `cachedOnly`, `subject`, `offset`
+and `limit` (default 24, maximum 72), within a bounded 72-book pool. Each request
+rechecks eligibility and ranking. The browser loads the full pool and reveals
+it in groups to preserve order while impressions accumulate.
+
+Spotlight and recommendation items include an opaque `recommendationKey`.
+`POST /api/recommendations/{key}/feedback` accepts `{ action }` with `like`,
+`not_for_me`, or `dismiss`. Keys are offered to the current profile and expire for
+feedback after 24 hours; current sharing and child shelf access are rechecked.
+Success returns HTTP 200 with `{ undoToken }`. For ten minutes,
+`DELETE /api/recommendations/{key}/feedback/{undoToken}` restores the previous
+preference or dismissal and returns HTTP 204. Receipts are profile-scoped,
+single-use, and replaced by newer feedback. Undo rechecks access and refuses to
+overwrite a preference that has changed since the action.
+`POST /api/recommendations/impressions` accepts `{ keys: [...] }` (maximum 80)
+for actually visible suggestions. A batch is validated before any history is
+updated. `GET /api/profile/rejected` lists the current profile's rejected books;
+`DELETE /api/profile/rejected/{id}` restores eligibility without adding a shelf
+membership. Adults can also use `POST /api/discover/preference` with `provider`,
+`providerKey`, and `preference` (`liked` or `not_for_me`) for catalogue works.
+
+`GET /api/home/series` returns eligible series continuations based on explicit
+completion. `GET /api/recommendations/diagnostics` is administrator-only and
+reports that administrator's own latest selection. Recommendation weights,
+aliases, impression retention, and series rules are described in
+[Spotlight and shelves](spotlight-and-shelves.md).
+
 Direct acquisition uses `POST /api/books/{book_id}/acquisitions/http` with an
 HTTP(S) `url` and optional `format` (`epub`, `pdf`, or `cbz`). OPDS sources use
 `GET` and `POST /api/catalogues`, `DELETE /api/catalogues/{id}`, and

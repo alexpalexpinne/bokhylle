@@ -30,6 +30,8 @@ import { FacetPicker } from '../components/ui/FacetPicker'
 import { useAuth } from '../auth/useAuth'
 import { useMutation } from '../lib/useMutation'
 import { PageHeader } from '../components/ui/PageHeader'
+import { RetryNotice } from '../components/ui/RetryNotice'
+import { browseGeneration, browseSessionGeneration, readBrowseState, saveBrowseState } from '../lib/browseState'
 
 type Mode = 'books' | 'authors'
 type Category = 'all' | 'books' | 'comics'
@@ -45,10 +47,12 @@ type BooksResult = {
 }
 
 type AuthorsResult = {
-  key: 'authors'
+  key: string
   items: AuthorSummary[]
   error: string | null
 }
+
+type LibraryVisit = { booksResult: BooksResult | null; authorsResult: AuthorsResult | null; appended: BookSummary[]; nextPage: number; reload: number }
 
 const sortOptions: { value: BookSort; label: string }[] = [
   { value: 'recent', label: 'Recently added' },
@@ -68,9 +72,18 @@ function DelayedLoadingStatus({ message }: { message: string }) {
 }
 
 export function Library() {
+  const { user } = useAuth()
+  return <LibraryView key={JSON.stringify([user?.id, user?.role, user?.profileType])} />
+}
+
+function LibraryView() {
   const { user, demo } = useAuth()
   const location = useLocation()
   const isChild = user?.profileType === 'child'
+  const visitKey = `library:${JSON.stringify([user?.id, user?.role, user?.profileType])}:${location.key}:${location.search}`
+  const [saved] = useState(() => readBrowseState<LibraryVisit>(visitKey))
+  const dataGeneration = useRef(browseGeneration())
+  const sessionGeneration = useRef(browseSessionGeneration())
 
   const [searchParams, setSearchParams] = useSearchParams()
   const followingOnly = searchParams.get('following') === '1'
@@ -94,9 +107,10 @@ export function Library() {
     const value = Number(searchParams.get('page') ?? '1')
     return Number.isFinite(value) && value > 0 ? value : 1
   })
+  const [savedPages] = useState(() => readBrowseState<number>(`view:${visitKey}`) ?? saved?.nextPage ?? page + 1)
 
-  const [booksResult, setBooksResult] = useState<BooksResult | null>(null)
-  const [authorsResult, setAuthorsResult] = useState<AuthorsResult | null>(null)
+  const [booksResult, setBooksResult] = useState<BooksResult | null>(saved?.booksResult ?? null)
+  const [authorsResult, setAuthorsResult] = useState<AuthorsResult | null>(saved?.authorsResult ?? null)
   const [followError, setFollowError] = useState<string | null>(null)
   const claimMutation = useMutation()
   const sharingMutation = useMutation()
@@ -111,7 +125,10 @@ export function Library() {
   // An assigned child id when an administrator browses that shelf.
   const [member, setMember] = useState<number | null>(null)
   const [members, setMembers] = useState<HouseholdMember[]>([])
-  const [reload, setReload] = useState(0)
+  const [reload, setReload] = useState(saved?.reload ?? 0)
+  const [authorsRetry, setAuthorsRetry] = useState(0)
+  const [refreshingBooks, setRefreshingBooks] = useState(false)
+  const [refreshingAuthors, setRefreshingAuthors] = useState(false)
   const [format, setFormat] = useState(() => searchParams.get('format') ?? '')
   const [language, setLanguage] = useState(() => searchParams.get('language') ?? '')
   const [series, setSeries] = useState(() => searchParams.get('series') ?? '')
@@ -119,9 +136,14 @@ export function Library() {
   const [collection, setCollection] = useState(() => searchParams.get('collection') ?? '')
   const [letter, setLetter] = useState(() => searchParams.get('letter') ?? '')
   const [missing, setMissing] = useState(() => searchParams.get('missing') ?? '')
-  const [appended, setAppended] = useState<BookSummary[]>([])
-  const [nextPage, setNextPage] = useState(2)
+  const [appended, setAppended] = useState<BookSummary[]>(saved?.appended ?? [])
+  const [nextPage, setNextPage] = useState(saved?.nextPage ?? savedPages)
+  const loadedPage = useRef(nextPage - 1)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const loadingMoreRef = useRef(false)
+  const loadMoreFailed = useRef(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const writtenQueryRef = useRef('')
 
@@ -129,8 +151,18 @@ export function Library() {
   const memberName = member
     ? (members.find((entry) => entry.id === member)?.displayName ?? 'Member')
     : null
-  const booksKey = `${trimmedQuery}|${sort}|${page}|${mine}|${member}|${reload}|${category}|${format}|${language}|${series}|${subject}|${collection}|${letter}|${missing}`
+  const booksKey = `${trimmedQuery}|${sort}|${page}|${mine}|${member}|${category}|${format}|${language}|${series}|${subject}|${collection}|${letter}|${missing}`
   const scopeKey = `${mine}|${member}`
+  const authorsKey = `${mine}|${followingOnly}|${member}`
+  const firstBooksKey = useRef(booksKey)
+  const currentBooksKey = useRef(booksKey)
+  currentBooksKey.current = booksKey
+  const previousBooksKey = useRef(booksKey)
+
+  useEffect(() => {
+    saveBrowseState(visitKey, { booksResult, authorsResult, appended, nextPage, reload }, dataGeneration.current)
+    if (booksResult?.key === booksKey) saveBrowseState(`view:${visitKey}`, nextPage, sessionGeneration.current)
+  }, [visitKey, booksResult, authorsResult, appended, nextPage, reload, booksKey])
 
   useEffect(() => {
     if (mode !== 'books') {
@@ -138,11 +170,13 @@ export function Library() {
     }
 
     let cancelled = false
+    const generation = browseSessionGeneration()
 
-    const requestKey = `${trimmedQuery}|${sort}|${page}|${mine}|${member}|${reload}|${category}|${format}|${language}|${series}|${subject}|${collection}|${letter}|${missing}`
+    const requestKey = `${trimmedQuery}|${sort}|${page}|${mine}|${member}|${category}|${format}|${language}|${series}|${subject}|${collection}|${letter}|${missing}`
     const kind = category === 'all' ? undefined : category === 'books' ? 'books' : 'comics'
     const timer = setTimeout(
       () => {
+        setRefreshingBooks(true)
         const request = trimmedQuery
           ? searchBooks(trimmedQuery, {
               mine,
@@ -174,8 +208,9 @@ export function Library() {
             })
 
         request
-          .then((result) => {
-            if (!cancelled) {
+          .then(async (result) => {
+            if (!cancelled && generation === browseSessionGeneration()) {
+              dataGeneration.current = browseGeneration()
               setBooksResult({
                 key: requestKey,
                 scope: `${mine}|${member}`,
@@ -185,19 +220,36 @@ export function Library() {
                 pageSize: result.pageSize,
                 error: null,
               })
+              // Revalidate every restored page, rather than keeping old book
+              // metadata indefinitely or forcing Back to return to page one.
+              if (!trimmedQuery && requestKey === firstBooksKey.current && savedPages > page + 1) {
+                try {
+                  const pages = await Promise.all(Array.from({ length: Math.max(0, Math.min(savedPages - page - 1, Math.ceil(result.total / 24) - page)) }, (_, index) => fetchBooks(sort, page + index + 1, 24, {
+                    mine, user: member ?? undefined, kind, format, language, series, subject: subject || undefined,
+                    collection: collection ? Number(collection) : undefined, letter: letter || undefined, missing: missing || undefined,
+                  })))
+                  if (cancelled || generation !== browseSessionGeneration() || currentBooksKey.current !== requestKey) return
+                  setAppended(pages.flatMap((entry) => entry.items))
+                  loadedPage.current = page + pages.length
+                  setNextPage(loadedPage.current + 1)
+                } catch {
+                  if (!cancelled && currentBooksKey.current === requestKey) setRestoreError('Could not restore all your books. Please try again.')
+                }
+              }
             }
           })
+          .finally(() => { if (!cancelled && generation === browseSessionGeneration()) setRefreshingBooks(false) })
           .catch((caught: unknown) => {
-            if (!cancelled) {
-              setBooksResult({
+            if (!cancelled && generation === browseSessionGeneration()) {
+              setBooksResult((previous) => ({
                 key: requestKey,
                 scope: `${mine}|${member}`,
-                items: [],
-                total: 0,
-                letters: [],
-                pageSize: 24,
+                items: previous?.key === requestKey ? previous.items : [],
+                total: previous?.key === requestKey ? previous.total : 0,
+                letters: previous?.key === requestKey ? previous.letters : [],
+                pageSize: previous?.key === requestKey ? previous.pageSize : 24,
                 error: caught instanceof ApiError ? caught.message : 'Failed to load library',
-              })
+              }))
             }
           })
       },
@@ -208,12 +260,18 @@ export function Library() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [mode, trimmedQuery, sort, page, mine, member, reload, category, format, language, series, subject, collection, letter, missing])
+  }, [mode, trimmedQuery, sort, page, mine, member, reload, category, format, language, series, subject, collection, letter, missing, savedPages])
 
   useEffect(() => {
+    if (previousBooksKey.current === booksKey) return
+    previousBooksKey.current = booksKey
     setAppended([])
-    setNextPage(2)
-  }, [booksKey])
+    setNextPage(page + 1)
+    loadedPage.current = page
+    loadMoreFailed.current = false
+    setLoadMoreError(null)
+    setRestoreError(null)
+  }, [booksKey, page])
 
   // Keep the URL in sync with the current view so back/forward and shared
   // links restore search, sort, filters and page.
@@ -232,6 +290,8 @@ export function Library() {
     if (letter) next.set('letter', letter)
     if (missing) next.set('missing', missing)
     if (mode === 'authors') next.set('mode', 'authors')
+    if (mode === 'authors' && authorQuery) next.set('authors_q', authorQuery)
+    if (mode === 'authors' && authorLetter) next.set('authors_letter', authorLetter)
     if (category !== 'all') next.set('category', category)
     if (mode === 'authors' && followingOnly) next.set('following', '1')
 
@@ -240,7 +300,7 @@ export function Library() {
       setSearchParams(next, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, sort, page, mine, member, category, format, language, series, subject, collection, letter, missing, mode, followingOnly])
+  }, [query, sort, page, mine, member, category, format, language, series, subject, collection, letter, missing, mode, followingOnly, authorQuery, authorLetter])
 
   useEffect(() => {
     // Ignore the echo of our own URL write so a late navigation can never
@@ -324,26 +384,33 @@ export function Library() {
 
     let cancelled = false
 
-    fetchAuthors(mine, followingOnly, member ?? undefined)
+    const generation = browseSessionGeneration()
+    async function load() {
+      setRefreshingAuthors(true)
+      await fetchAuthors(mine, followingOnly, member ?? undefined)
       .then((items) => {
-        if (!cancelled) {
-          setAuthorsResult({ key: 'authors', items, error: null })
+        if (!cancelled && generation === browseSessionGeneration()) {
+          dataGeneration.current = browseGeneration()
+          setAuthorsResult({ key: authorsKey, items, error: null })
         }
       })
       .catch((caught: unknown) => {
-        if (!cancelled) {
-          setAuthorsResult({
-            key: 'authors',
-            items: [],
+        if (!cancelled && generation === browseSessionGeneration()) {
+          setAuthorsResult((previous) => ({
+            key: authorsKey,
+            items: previous?.key === authorsKey ? previous.items : [],
             error: caught instanceof ApiError ? caught.message : 'Failed to load authors',
-          })
+          }))
         }
       })
+      .finally(() => { if (!cancelled && generation === browseSessionGeneration()) setRefreshingAuthors(false) })
+    }
+    void load()
 
     return () => {
       cancelled = true
     }
-  }, [mode, mine, followingOnly, isChild, member])
+  }, [mode, mine, followingOnly, isChild, member, authorsRetry, authorsKey])
 
   const booksLoading = mode === 'books' && booksResult?.key !== booksKey
   const baseBooks = booksResult?.key === booksKey ? booksResult.items : []
@@ -375,7 +442,7 @@ export function Library() {
   const total = booksResult?.key === booksKey ? booksResult.total : 0
   const booksError = booksResult?.key === booksKey ? booksResult.error : null
   const booksLoaded = booksResult?.key === booksKey
-  const hasMore = !trimmedQuery && booksLoaded && books.length < total
+  const hasMore = !trimmedQuery && booksLoaded && nextPage <= Math.ceil(total / Math.max(1, booksResult?.pageSize ?? 24))
 
   function setAuthorState(authorId: number, update: Partial<AuthorSummary>) {
     setAuthorsResult((current) =>
@@ -411,12 +478,16 @@ export function Library() {
     }
   }
 
-  async function loadMore() {
-    if (loadingMore || !hasMore) {
+  async function loadMore(retry = false) {
+    if (loadingMoreRef.current || refreshingBooks || !hasMore || nextPage <= loadedPage.current || (loadMoreFailed.current && !retry)) {
       return
     }
     const requestKey = booksKey
+    const generation = browseSessionGeneration()
+    loadingMoreRef.current = true
+    loadMoreFailed.current = false
     setLoadingMore(true)
+    setLoadMoreError(null)
     try {
       const result = await fetchBooks(sort, nextPage, 24, {
         mine,
@@ -430,20 +501,28 @@ export function Library() {
         letter: letter || undefined,
         missing: missing || undefined,
       })
-      setAppended((current) => (booksKey === requestKey ? [...current, ...result.items] : current))
-      if (booksKey === requestKey) {
-        setNextPage((current) => current + 1)
+      if (currentBooksKey.current === requestKey && generation === browseSessionGeneration()) {
+        // An observer callback from the old render can still be queued when
+        // this fast response lands. Mark the page synchronously before React
+        // commits the new list and continuation.
+        loadedPage.current = nextPage
+        setAppended((current) => [...current, ...result.items])
+        setNextPage(nextPage + 1)
       }
     } catch {
-      // Load more is best-effort; the button remains for a retry.
+      if (currentBooksKey.current === requestKey && generation === browseSessionGeneration()) {
+        loadMoreFailed.current = true
+        setLoadMoreError('Could not load more books. Your current books are still shown.')
+      }
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
   }
 
   useEffect(() => {
     const node = sentinelRef.current
-    if (!node || !hasMore) {
+    if (!node || !hasMore || loadMoreError || restoreError || refreshingBooks) {
       return
     }
     const observer = new IntersectionObserver(
@@ -457,15 +536,15 @@ export function Library() {
     observer.observe(node)
     return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, loadingMore, appended.length, sort, mine, category, format, language, series, subject, collection, letter, missing])
+  }, [hasMore, loadingMore, loadMoreError, restoreError, refreshingBooks, appended.length, sort, mine, category, format, language, series, subject, collection, letter, missing])
   const filtersActive = Boolean(format || language || series || subject || collection || missing)
   const groupedComics = mode === 'books' && category === 'comics' && !trimmedQuery && !filtersActive && !letter && !selectingBooks
   const hasComics = facets?.publicationKinds?.some((item) => (item.value === 'comic' || item.value === 'manga') && item.count > 0) ?? false
   const hasBooks = facets?.publicationKinds?.some((item) => (item.value === 'book' || item.value === 'unknown') && item.count > 0) ?? false
   const isEmptyShelf = booksLoaded && !trimmedQuery && !filtersActive && total === 0
 
-  const authorsLoading = mode === 'authors' && authorsResult === null
-  const authors = authorsResult?.items ?? []
+  const authorsLoading = mode === 'authors' && authorsResult?.key !== authorsKey
+  const authors = authorsResult?.key === authorsKey ? authorsResult.items : []
   const bookLetters = new Set(
     (booksResult?.key === booksKey ? booksResult.letters : []) ?? [],
   )
@@ -484,7 +563,7 @@ export function Library() {
     }
     return true
   })
-  const authorsError = authorsResult?.error ?? null
+  const authorsError = authorsResult?.key === authorsKey ? authorsResult.error : null
 
   const collectionName = (value: string) =>
     collections.find((item) => String(item.id) === value)?.name ?? value
@@ -509,7 +588,7 @@ export function Library() {
       ? {
           key: 'subject',
           label:
-            facets?.subjects.find((facet) => facet.normalized === subject)?.name ?? subject,
+            facets?.subjects.find((facet) => (facet.normalized === subject || facet.aliases?.includes(subject)))?.name ?? subject,
           clear: () => { setSubject(''); setPage(1) },
         }
       : null,
@@ -645,7 +724,7 @@ export function Library() {
         </div>
       )}
 
-      <div className="sticky top-14 z-30 -mx-4 mt-6 bg-canvas/90 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+      <div className="sticky top-[var(--app-header-height)] z-30 -mx-4 mt-6 bg-canvas/90 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         {mode === 'books' && (
           <div className="w-full sm:max-w-md">
             <SearchField
@@ -803,7 +882,7 @@ export function Library() {
                   <FacetPicker
                     label="Subject"
                     allLabel="All subjects"
-                    value={subject}
+                    value={facets.subjects.find((facet) => facet.normalized === subject || facet.aliases?.includes(subject))?.normalized ?? subject}
                     options={facets.subjects.map((facet) => ({
                       value: facet.normalized,
                       label: facet.name,
@@ -849,7 +928,7 @@ export function Library() {
       </div>
 
       {booksError && (
-        <p className="mt-6 border-l-2 border-danger pl-4 text-sm text-danger">{booksError}</p>
+        <RetryNotice className="mt-6" message={booksError} busy={refreshingBooks} onRetry={() => setReload((value) => value + 1)} />
       )}
 
       {mode === 'books' && sort !== 'recent' && !groupedComics && (
@@ -907,7 +986,7 @@ export function Library() {
                 message={trimmedQuery ? 'Searching your library…' : 'Loading your library…'}
               />
             )}
-            {(!booksLoading || displayedBooks.length > 0) && (
+            {(!booksError || displayedBooks.length > 0) && (!booksLoading || displayedBooks.length > 0) && (
             <BookGrid
               books={displayedBooks}
               selectedIds={selectedBookIds}
@@ -994,7 +1073,9 @@ export function Library() {
               }
             />
             )}
-            {!trimmedQuery && hasMore && (
+            {loadMoreError && <RetryNotice className="mt-6" message={loadMoreError} busy={loadingMore} onRetry={() => void loadMore(true)} />}
+            {restoreError && <RetryNotice className="mt-6" message={restoreError} busy={refreshingBooks} onRetry={() => { setRestoreError(null); setReload((value) => value + 1) }} />}
+            {!trimmedQuery && hasMore && !loadMoreError && !restoreError && (
               <div ref={sentinelRef} className="mt-8 flex items-center justify-center gap-4">
                 <Button
                   variant="secondary"
@@ -1010,9 +1091,7 @@ export function Library() {
         ) : (
           <>
             {authorsError && (
-              <p className="mb-6 border-l-2 border-danger pl-4 text-sm text-danger">
-                {authorsError}
-              </p>
+              <RetryNotice className="mb-6" message={authorsError} busy={refreshingAuthors} onRetry={() => setAuthorsRetry((value) => value + 1)} />
             )}
             {authorsLoading ? (
               <div className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -1020,7 +1099,7 @@ export function Library() {
                   <div key={index} className="h-16 animate-pulse border-b border-line" />
                 ))}
               </div>
-            ) : authors.length === 0 ? (
+            ) : authorsError && authors.length === 0 ? null : authors.length === 0 ? (
               <p className="border-l-2 border-line pl-4 text-sm text-ink-muted">
                 No authors yet. They appear here as your shelf grows.
               </p>

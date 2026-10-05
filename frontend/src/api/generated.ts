@@ -1972,6 +1972,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/discover/preference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_discover_preference"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/discover/releases": {
         parameters: {
             query?: never;
@@ -2044,6 +2060,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_home_rails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/home/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_home_series"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2372,6 +2404,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/rejected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_profile_rejected"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/rejected/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_profile_rejected__id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profile/stats": {
         parameters: {
             query?: never;
@@ -2415,6 +2479,86 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["delete_profile_tokens__id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_recommendations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recommendations/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_recommendations_diagnostics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recommendations/impressions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_recommendations_impressions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recommendations/{key}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_recommendations__key__feedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recommendations/{key}/feedback/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_recommendations__key__feedback__token"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3043,6 +3187,16 @@ export interface components {
             id: string;
             status: components["schemas"]["AcquisitionStatus"];
         };
+        CataloguePreferenceInput: {
+            preference: string;
+            provider?: string | null;
+            providerKey: string;
+        };
+        CataloguePreferenceResponse: {
+            /** Format: int64 */
+            bookId: number;
+            preference: string;
+        };
         /** @description Catalogue works for an author that the household does not own yet. */
         CatalogueQuery: {
             /** Format: uint32 */
@@ -3525,6 +3679,8 @@ export interface components {
             series: string | null;
             seriesNumber: string | null;
             status: components["schemas"]["DiscoveryStatus"];
+            /** @default [] */
+            subjects: string[];
             title: string;
             /** Format: int32 */
             year: number | null;
@@ -3618,6 +3774,14 @@ export interface components {
         FeedParams: {
             q?: string | null;
             url?: string | null;
+        };
+        /** @enum {string} */
+        FeedbackAction: "like" | "not_for_me" | "dismiss";
+        FeedbackInput: {
+            action: components["schemas"]["FeedbackAction"];
+        };
+        FeedbackReceipt: {
+            undoToken: string;
         };
         FileDetail: {
             /** Format: int64 */
@@ -3723,6 +3887,9 @@ export interface components {
             skipped: number;
             /** Format: int64 */
             startedAt: number | null;
+        };
+        ImpressionsInput: {
+            keys: string[];
         };
         IntegrationConfiguration: {
             configured: boolean;
@@ -4029,6 +4196,45 @@ export interface components {
         RecentLogs: {
             lines: string[];
         };
+        RecommendationDiagnostics: {
+            cachedOnly: boolean;
+            /** @default false */
+            catalogueCached: boolean;
+            /** Format: uint64 */
+            elapsedMs: number;
+            /** Format: uint */
+            eligible: number;
+            /** @default {} */
+            filtered: {
+                [key: string]: number;
+            };
+            /** Format: uint */
+            retrieved: number;
+            scores: components["schemas"]["ScoreExplanation"][];
+            /** Format: uint */
+            selected: number;
+            /** @default {} */
+            timingsMs: {
+                [key: string]: number;
+            };
+        };
+        RecommendationsPage: {
+            items: components["schemas"]["SpotlightItem"][];
+            /** Format: uint */
+            nextOffset: number | null;
+            subjects: string[];
+            /** Format: uint */
+            total: number;
+        };
+        RecommendationsQuery: {
+            /** @default false */
+            cachedOnly: boolean;
+            /** Format: uint */
+            limit?: number | null;
+            /** Format: uint */
+            offset?: number | null;
+            subject?: string | null;
+        };
         /** @enum {string} */
         RejectionReason: "language_mismatch" | "audiobook" | "comic_or_manga" | "unsupported_format" | "unrelated_title" | "author_mismatch" | "wrong_volume" | "oversized_release";
         RelatedBooks: {
@@ -4228,6 +4434,27 @@ export interface components {
             /** Format: int64 */
             targetId?: number | null;
         };
+        ScoreExplanation: {
+            /** Format: int64 */
+            affinity: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            authorAffinity: number;
+            key: string;
+            matchingAuthors: string[];
+            matchingSubjects: string[];
+            recentlySeen: boolean;
+            /** Format: int64 */
+            score: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            subjectAffinity: number;
+            title: string;
+        };
         ScoreReason: {
             reason: string;
             /** Format: int32 */
@@ -4279,6 +4506,15 @@ export interface components {
         SendRequest: {
             /** Format: int64 */
             bookId: number;
+        };
+        SeriesContinuation: {
+            book: components["schemas"]["BookSummary"] | null;
+            /** Format: int64 */
+            missingVolume: number | null;
+            readable: boolean;
+            /** Format: int64 */
+            seriesId: number | null;
+            seriesName: string;
         };
         SeriesCurrent: {
             /** Format: int64 */
@@ -4402,6 +4638,8 @@ export interface components {
             ratingSource?: string | null;
             reasonLabel: string;
             reasonType: string;
+            recommendationKey: string | null;
+            series: string | null;
             source: string;
             subjects: string[];
             title: string;
@@ -4445,6 +4683,7 @@ export interface components {
             unwritableLocations: string[];
         };
         SubjectFacet: {
+            aliases: string[];
             /** Format: int64 */
             count: number;
             name: string;
@@ -11649,6 +11888,56 @@ export interface operations {
             };
         };
     };
+    post_discover_preference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CataloguePreferenceInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CataloguePreferenceResponse"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_discover_releases: {
         parameters: {
             query: {
@@ -11843,6 +12132,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HomeRail"][];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_home_series: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesContinuation"][];
                 };
             };
             /** @description API error. The HTTP status and `code` identify the failure. */
@@ -12977,6 +13312,99 @@ export interface operations {
             };
         };
     };
+    get_profile_rejected: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Items_for_LikedBook"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_profile_rejected__id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_profile_stats: {
         parameters: {
             query?: never;
@@ -13125,6 +13553,252 @@ export interface operations {
             header?: never;
             path: {
                 id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_recommendations: {
+        parameters: {
+            query?: {
+                cachedOnly?: boolean;
+                limit?: number;
+                offset?: number;
+                subject?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationsPage"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_recommendations_diagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationDiagnostics"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    post_recommendations_impressions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImpressionsInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    post_recommendations__key__feedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackReceipt"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description API error. The HTTP status and `code` identify the failure. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_recommendations__key__feedback__token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                token: number;
             };
             cookie?: never;
         };

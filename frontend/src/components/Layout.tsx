@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, type NavigationType } from 'react-router-dom'
+import { useRef } from 'react'
 import { BookOpen, Compass, Download, Home as HomeIcon, Inbox } from 'lucide-react'
 import { AccountMenu } from './AccountMenu'
 import { BrandLockup } from './BrandLockup'
@@ -6,6 +7,7 @@ import { NotificationMenu } from './NotificationMenu'
 import { useAuth } from '../auth/useAuth'
 import { useNotifications } from '../lib/useNotifications'
 import { shelfFinish } from '../lib/appearance'
+import { BrowseNavigation } from './BrowseNavigation'
 
 const navigation = [
   { to: '/', label: 'Home', icon: HomeIcon, end: true },
@@ -15,8 +17,10 @@ const navigation = [
   { to: '/requests', label: 'Requests', icon: Inbox, end: false },
 ]
 
-export function Layout() {
+export function Layout({ navigation: historyAction }: { navigation: NavigationType }) {
   const { user, demo } = useAuth()
+  const mainRef = useRef<HTMLElement>(null)
+  const profile = JSON.stringify([user?.id, user?.role, user?.profileType, user?.canDiscover])
   const notifications = useNotifications(user?.id)
   const isChild = user?.profileType === 'child'
   // Requests is the child's ask flow; adults approve from the bell instead
@@ -31,15 +35,16 @@ export function Layout() {
   })
 
   return (
-    <div data-shelf-finish={shelfFinish(user?.shelfFinish)} className="min-h-screen bg-canvas pb-24 sm:pb-0">
-      <header className="sticky top-0 z-40 border-b border-line bg-canvas">
-        <div className="mx-auto flex max-w-content items-center justify-between gap-6 px-4 py-4 sm:px-6 lg:px-8">
+    <div data-shelf-finish={shelfFinish(user?.shelfFinish)} className="app-layout min-h-dvh bg-canvas pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
+      <a href="#main-content" onClick={() => mainRef.current?.focus()} className="fixed left-4 top-3 z-[60] -translate-y-[200%] rounded-[3px] bg-surface px-4 py-3 text-sm text-ink focus:translate-y-0">Skip to content</a>
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas pt-[env(safe-area-inset-top)]">
+        <div className="page-gutters mx-auto flex max-w-content items-center justify-between gap-6 py-4">
           <div className="flex items-center gap-10 lg:gap-16">
             <NavLink to="/" className="flex items-center" aria-label="Bokhylle home">
               <BrandLockup />
             </NavLink>
 
-            <nav className="hidden items-center gap-7 md:flex">
+            <nav aria-label="Main navigation" className="hidden items-center gap-7 md:flex">
               {items.map((item) => (
                 <NavLink
                   key={item.to}
@@ -78,13 +83,14 @@ export function Layout() {
 
       {demo && <div role="region" aria-label="Public demo" className="border-b border-line bg-surface-2 px-4 py-2 text-center text-xs text-ink-muted">Public demo · Get and Send use sample books · No outside download or email · Changes may reset at any time</div>}
 
-      <main className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
+      <main id="main-content" ref={mainRef} tabIndex={-1} className="page-gutters mx-auto w-full max-w-content py-6 outline-none sm:py-10">
         <Outlet />
       </main>
+      <BrowseNavigation profile={profile} main={mainRef} navigation={historyAction} />
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas md:hidden">
+      <nav aria-label="Main navigation" className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas pb-[env(safe-area-inset-bottom)] md:hidden">
         <div
-          className="grid"
+          className="grid pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
           style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
         >
           {items.map((item) => (
@@ -93,7 +99,7 @@ export function Layout() {
               to={item.to}
               end={item.end}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors ${
+                `flex min-h-12 flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors ${
                   isActive ? 'text-accent' : 'text-ink-muted'
                 }`
               }

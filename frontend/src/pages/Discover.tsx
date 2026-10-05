@@ -36,6 +36,7 @@ import {
   discoverCoverUrl,
   fetchDiscoverBook,
   likeExternalBook,
+  rejectExternalBook,
 } from '../api/discover'
 import {
   type BookDetail as BookDetailData,
@@ -58,6 +59,8 @@ import { descriptionText } from '../lib/descriptionText'
 import { languageLabel } from '../lib/languages'
 import { PageHeader } from '../components/ui/PageHeader'
 import { SearchField } from '../components/ui/SearchField'
+import { RetryNotice } from '../components/ui/RetryNotice'
+import { ShelfGridSkeleton } from '../components/ShelfGridSkeleton'
 import { SectionMark } from '../components/ui/SectionMark'
 import { useDiscoverSearch } from './useDiscoverSearch'
 import { ShelfGrid } from '../components/ShelfGrid'
@@ -120,6 +123,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   const [ownedDetail, setOwnedDetail] = useState<BookDetailData | null>(null)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [sending, setSending] = useState<'library' | 'reader' | null>(null)
+  const [preferenceBusy, setPreferenceBusy] = useState(false)
   const [externalLikedId, setExternalLikedId] = useState<number | null>(null)
   const [demoSendBook, setDemoSendBook] = useState<{ id: number; title: string } | null>(null)
   const navigate = useNavigate()
@@ -143,6 +147,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     authorState,
     continuation,
     loadingMore,
+    loadMoreError,
+    retrySearch,
     loading,
     allLanguages,
     updateAllLanguages,
@@ -202,6 +208,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
       providerKey,
       title: '',
       authors: [],
+      subjects: [],
       languages: [],
       ratingAverage: null,
       ratingCount: null,
@@ -528,6 +535,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     externalLikedId !== null
 
   async function toggleLiked() {
+    if (preferenceBusy) return
+    setPreferenceBusy(true)
     const next = !liked
     try {
       if (next && !ownedBookId) {
@@ -553,14 +562,22 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
       )
     } catch (caught) {
       setNotice(caught instanceof ApiError ? caught.message : 'Could not update that like')
-    }
+    } finally { setPreferenceBusy(false) }
   }
 
   const likeButton = ownedBookId || externalLikedId !== null || (selected && selectedStatus === 'NOT_IN_LIBRARY') ? (
-    <Button variant="secondary" className="order-last border border-ink/20 sm:order-first sm:mr-auto" aria-pressed={liked} onClick={() => void toggleLiked()}>
+    <div className="order-last col-span-2 flex flex-wrap gap-2 sm:order-first sm:mr-auto"><Button variant="secondary" className="min-h-11 border border-ink/20" aria-pressed={liked} disabled={preferenceBusy} onClick={() => void toggleLiked()}>
       <Heart size={15} fill={liked ? 'currentColor' : 'none'} aria-hidden />
       {liked ? 'Liked' : 'Like'}
     </Button>
+    {user?.profileType !== 'child' && <Button variant="ghost" className="min-h-11" disabled={preferenceBusy} onClick={() => {
+      if (!selected || preferenceBusy) return
+      setPreferenceBusy(true)
+      void (ownedBookId ? setBookPreference(ownedBookId, 'not_for_me') : rejectExternalBook(selected.providerKey, selected.provider))
+        .then(() => { setNotice(`Marked “${selected.title}” not for me. Restore it in Profile → Your taste.`); closeDetail() })
+        .catch(() => setNotice('Could not update that preference'))
+        .finally(() => setPreferenceBusy(false))
+    }}>Not for me</Button>}</div>
   ) : null
 
   async function addOwnedToShelf() {
@@ -754,10 +771,10 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
         </p>
       )}
 
-      {error && <p className="mt-6 rounded-card bg-surface px-4 py-3 text-sm text-danger">{error}</p>}
+      {error && <RetryNotice className="mt-6" message={error} busy={loading} onRetry={retrySearch} />}
 
       {loading && items.length === 0 && (
-        <p role="status" className="mt-8 text-sm text-ink-muted">Searching books and authors…</p>
+        <><p role="status" className="mt-8 text-sm text-ink-muted">Searching books and authors…</p><ShelfGridSkeleton className="mt-7" /></>
       )}
 
       {revalidating && (
@@ -800,6 +817,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           className="mt-6 border-l-2 border-warning pl-4 text-sm text-ink-soft"
         >
           {externalNotice}
+          <Button size="sm" variant="ghost" className="ml-3 min-h-11" disabled={loading} onClick={retrySearch}>Try again</Button>
         </p>
       )}
 
@@ -844,7 +862,8 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           ))}
         </ShelfGrid>
       )}
-      {continuation && !revalidating && visibleItems.length > 0 && (
+      {loadMoreError && <RetryNotice className="mt-8" message={loadMoreError} busy={loadingMore} onRetry={() => void loadMore()} />}
+      {continuation && !loadMoreError && !revalidating && visibleItems.length > 0 && (
         <div className="mt-8 flex justify-center">
           <Button
             variant="secondary"

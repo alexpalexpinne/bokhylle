@@ -161,6 +161,12 @@ impl GoogleBooksClient {
                 ),
                 None => format!("intitle:\"{}\"", title.trim()),
             }
+        } else if let Some(author) = query
+            .author
+            .as_deref()
+            .filter(|author| !author.trim().is_empty())
+        {
+            format!("inauthor:\"{}\"", author.trim())
         } else if let Some(text) = query
             .free_text
             .as_deref()
@@ -488,6 +494,31 @@ impl MetadataProvider for GoogleBooksClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn author_only_search_sends_an_author_query() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path, query_param},
+        };
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/volumes"))
+            .and(query_param("q", "inauthor:\"Imaginary Writer\""))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"items":[]})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = GoogleBooksClient::with_base_url(&server.uri(), None).unwrap();
+        client
+            .search(&MetadataQuery {
+                author: Some("Imaginary Writer".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    }
 
     #[test]
     fn maps_a_volume_with_identifiers_rating_and_categories() {

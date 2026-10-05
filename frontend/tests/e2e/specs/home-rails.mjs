@@ -60,13 +60,14 @@ export default async function homeRails(page, { base }) {
     await recent.waitFor()
     await rediscover.waitFor()
     expect(await recent.locator('.shelf-book').count() === books.length, 'small shelves keep every recent book when all books are also in Spotlight')
-    expect(await rediscover.locator('.shelf-book').count() === Math.min(3, books.length), 'Spotlight does not empty the rediscovery selection')
+    expect(await rediscover.locator('.shelf-book').count() === books.length, 'rediscovery keeps the full selection rather than truncating it to three')
     expect(await page.getByText('Nothing here yet.', { exact: true }).count() === 0, 'Spotlight must not leave an empty subject or child shelf section')
     if (scenario.subject || scenario.child) {
       const title = scenario.child ? 'My shelf' : 'Adventure'
       const rail = page.getByRole('region', { name: `${title} books`, exact: true })
       await rail.waitFor()
       expect(await rail.locator('.shelf-book').count() === books.length, 'subject and child shelf rails retain their Spotlight books')
+      if (!scenario.child) expect((await page.locator('a[href*="subject="]').first().getAttribute('href')).includes('scope=household'), 'View all preserves the household scope of adult subject rails')
     }
     if (books.length > 1) {
       const before = await recent.boundingBox()

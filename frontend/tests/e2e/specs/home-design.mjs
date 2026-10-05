@@ -58,6 +58,7 @@ export async function mockHomeDesign(page, { progress = false, child = false, ap
       Object.assign(user, route.request().postDataJSON())
       body = { user }
     }
+    else if (path === '/api/profile/rejected') body = { items: [] }
     else if (path === '/api/profile/liked') body = { items: [] }
     else if (path === '/api/profile/hidden-subjects') body = { hidden: [] }
     else if (path.endsWith('/tokens') || path.endsWith('/agent-tokens')) body = { tokens: [] }

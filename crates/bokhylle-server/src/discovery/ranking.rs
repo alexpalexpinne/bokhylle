@@ -125,6 +125,7 @@ enum TitleTier {
 struct Candidate<'a> {
     title: &'a str,
     authors: &'a [String],
+    subjects: &'a [String],
     series: Option<&'a str>,
     series_number: Option<&'a str>,
     year: Option<i32>,
@@ -142,6 +143,7 @@ impl<'a> Candidate<'a> {
         Self {
             title: &book.title,
             authors: &book.authors,
+            subjects: &book.subjects,
             series: book.series.as_deref(),
             series_number: book.series_number.as_deref(),
             year: book.year,
@@ -159,6 +161,7 @@ impl<'a> Candidate<'a> {
         Self {
             title: &result.title,
             authors: &result.authors,
+            subjects: &result.subjects,
             series: result.series.as_deref(),
             series_number: result.series_number.as_deref(),
             year: result.year,
@@ -273,6 +276,31 @@ impl<'a> Query<'a> {
             let hit = candidate.isbn13.is_some_and(|isbn| digits(isbn) == needle)
                 || candidate.isbn10.is_some_and(|isbn| digits(isbn) == needle);
             return if hit { TITLE_EXACT } else { 0 };
+        }
+        if self.kind == SearchKind::Subject {
+            // Topic searches rank actual subjects rather than rewarding a book
+            // merely because its title happens to contain the topic's name.
+            return candidate
+                .subjects
+                .iter()
+                .map(|subject| {
+                    let subject = normalize_text(subject);
+                    if crate::library::subjects::concept(&subject)
+                        == crate::library::subjects::concept(&self.core)
+                    {
+                        900
+                    } else if self
+                        .tokens
+                        .iter()
+                        .all(|token| subject.split_whitespace().any(|word| word == token))
+                    {
+                        600
+                    } else {
+                        0
+                    }
+                })
+                .max()
+                .unwrap_or(0);
         }
 
         let tier = self.title_tier(candidate.title);

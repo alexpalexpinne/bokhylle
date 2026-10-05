@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 — 2026-10-05
+
+- Add a personalized Explore more shelf with reading-interest filters, profile-scoped Like, Not for me and Set aside actions, and Undo. Restore rejected books from Profile without changing shelf membership or starting an acquisition.
+- Rank suggestions from likes, deliberate shelf additions, requests, successful reader sends and followed authors. Count equivalent subjects once, vary recently seen suggestions, and apply current language, sharing and child-shelf access before selection and feedback.
+- Show the next available series volume after an explicitly completed volume, while preserving child assignments and avoiding ambiguous reading order.
+- Preserve browsing filters, expanded lists, scroll positions and book-link focus across Back and Forward. Keep useful results during request failures and show nearby retry and feedback controls.
+- Improve phone menus, touch targets, form text, safe-area handling and sticky Library controls. Make press feedback consistent, respect keyboard and reduced-motion use, and match Ink browser chrome to the page.
+- Refresh the README and website previews from the isolated demo and fictional fixtures; phone captures now include touch-specific styles.
+
+Upgrade existing 0.1–0.3 installations in place after backing up config and
+library. Four forward-only migrations add recommendation metadata, canonical
+subject aliases, profile-scoped history and temporary Undo receipts. Existing
+accounts, shelves, sharing and reader progress are preserved. To roll back,
+restore the pre-upgrade backup with the previous image. See
+[upgrade details](docs/operations.md#database-compatibility).
+
 ## 0.3.2 — 2026-10-04
 
 - Replace the inline version list with one proposed version and a Change version picker. Desktop uses a dialog and mobile uses a scrolling sheet; reviewing or choosing files does not start a download.

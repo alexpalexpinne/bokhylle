@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { Navigate, Route, Routes, useLocation, useParams, type Location } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigationType, useParams, type Location } from 'react-router-dom'
 import { RequireAdmin, RequireAdult, RequireAuth, RequireDiscover } from './auth/RequireAuth'
 import { useAuth } from './auth/useAuth'
 import { BrandMark } from './components/BrandMark'
@@ -25,6 +25,8 @@ const ChildDiscover = lazy(() =>
 const Catalogues = lazy(() =>
   import('./pages/Catalogues').then((module) => ({ default: module.Catalogues })),
 )
+
+const Recommendations = lazy(() => import('./pages/Recommendations').then((module) => ({ default: module.Recommendations })))
 
 function DiscoverRoute() {
   const { user } = useAuth()
@@ -85,6 +87,9 @@ function RouteFallback() {
 
 export default function App() {
   const location = useLocation()
+  // Routes with an explicit background location report POP internally. Keep
+  // the real history action for page focus and Back/Forward restoration.
+  const navigation = useNavigationType()
   const backgroundLocation = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation
   return (
     <Suspense fallback={<RouteFallback />}>
@@ -95,11 +100,12 @@ export default function App() {
           <Route path="/read/:bookId/:fileId" element={<ReaderPage />} />
         </Route>
         <Route element={<RequireAuth />}>
-          <Route element={<Layout />}>
+          <Route element={<Layout navigation={navigation} />}>
             <Route index element={<Home />} />
             <Route path="help" element={<Help />} />
             <Route element={<RequireDiscover />}>
               <Route path="discover" element={<DiscoverRoute />} />
+              <Route path="recommendations" element={<Recommendations />} />
             </Route>
             <Route element={<RequireAdult />}>
               <Route path="catalogues" element={<Catalogues />} />

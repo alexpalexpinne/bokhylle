@@ -4,7 +4,7 @@ export type ThemeChoice = 'system' | 'paper' | 'ink'
 
 const STORAGE_KEY = 'bokhylle.theme'
 const PAPER_COLOR = '#f7f4ee'
-const INK_COLOR = '#16120e'
+const INK_COLOR = '#1a1511'
 
 export function readStoredTheme(): ThemeChoice {
   const value = window.localStorage.getItem(STORAGE_KEY)

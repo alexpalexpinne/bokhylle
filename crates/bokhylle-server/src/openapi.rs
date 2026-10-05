@@ -294,6 +294,11 @@ fn success_responses(method: &str, path: &str) -> Vec<(u16, Value)> {
         ("post", "/api/auth/login" | "/api/demo/enter" | "/api/demo/switch")
         | ("put", "/api/profile/credential") => &[S::Json(200, "MeResponse")],
         ("put", "/api/books/{id}/sharing") => &[S::Json(200, "BookSharingState")],
+        ("post", "/api/recommendations/impressions")
+        | (
+            "delete",
+            "/api/profile/rejected/{id}" | "/api/recommendations/{key}/feedback/{token}",
+        ) => &[S::Empty(204)],
         ("put", "/api/books/sharing") => &[S::Empty(204)],
         ("post", "/api/auth/logout" | "/api/auth/logout-all") => &[S::Empty(204)],
         ("get", "/api/profile/avatar") => {

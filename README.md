@@ -15,7 +15,7 @@ Bokhylle is a self-hosted book library for your household. Keep your EPUB, PDF, 
 </p>
 
 <p align="center">
-  <img src="docs/media/home-desktop.png" alt="Bokhylle Home in Paper, featuring Dracula and recommendations with the selected demo books' covers" width="100%">
+  <img src="docs/media/home-desktop.png" alt="Bokhylle Home in Paper, featuring a classic and varied recommendations from the isolated demo library" width="100%">
 </p>
 
 The previews show the isolated demo's selected classics and their covers from [Standard Ebooks](https://standardebooks.org). See the [edition and artwork rights review](demo/RIGHTS.md).
@@ -23,11 +23,12 @@ The previews show the isolated demo's selected classics and their covers from [S
 ## A library for everyone at home
 
 - **One collection, personal shelves.** Each adult chooses private or shared books, with an account default and controls for individual or selected titles. Personal shelves and reading progress stay private.
-- **Discover something you want to read.** Home opens with local books and saved suggestions, with fresh catalogue picks prepared in the background for your next visit. Suggestions draw on your shelf, likes, reading interests, and followed authors. Search the household collection or the public catalogue, and request a missing book.
+- **Discover something you want to read.** Home opens with local books and saved suggestions, with fresh catalogue picks prepared in the background for your next visit. Suggestions draw on your shelf, likes, reading interests, and followed authors, with varied authors and subjects. Explore more opens a personalized shelf with reading-interest filters. Like, mark Not for me, or set a suggestion aside; rejected books can be restored from Profile. Equivalent subject tags count once, and recently seen suggestions gently give way to other books. Search the household collection or the public catalogue, and request a missing book.
 - **Choose what to download.** Adults who can get books choose a download preference: let Bokhylle pick, or see available versions when opening a book and select a file before pressing Get. Find another version under More keeps existing files and reading progress.
 - **Read wherever you prefer.** Open EPUB, PDF, and CBZ in the browser with saved progress. Download a file, send it to an email-capable reader, or connect a reading app through OPDS or KOReader sync. Get & send lets you set up a reader before starting the download.
 - **Give children their own shelves.** Adults choose their books and decide whether they can search or explore for more. Children read from their assigned shelves; requests need adult approval. Public catalogue search is not age filtered.
 - **Keep a useful catalogue.** Group comics and manga by series and reading order. Review imports and correct book details; your corrections survive later scans and metadata refreshes.
+- **Keep a series moving.** Mark a volume finished to see its next available volume on Home, or search for a missing volume when the order is clear.
 - **Connect an AI assistant.** Use [MCP](#connect-an-assistant-with-mcp) to search books, explore your shelf, and get or send books through a compatible assistant.
 
 <details>
@@ -128,7 +129,7 @@ chmod 600 .env
 chmod 700 data/config
 ```
 
-Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.3.2`. Then start the app:
+Set a unique `BOKHYLLE_ADMIN_PASSWORD` of at least eight characters in `.env`. The first administrator is created only while the database has no users. The commands above use your current non-root user's UID/GID so the container can write the mounted directories. If you use a different owner, set `BOKHYLLE_UID` and `BOKHYLLE_GID` in `.env` to match. The example pins the published image to `v0.4.0`. Then start the app:
 
 ```sh
 docker compose -f compose.yaml -f compose.image.yaml pull bokhylle
