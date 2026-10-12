@@ -12,3 +12,7 @@ export function fetchNotifications() {
 export function markNotificationsRead() {
   return apiRoute('/api/notifications/read', '/api/notifications/read', { method: 'POST' })
 }
+
+export function dismissNotification(id: number) {
+  return apiRoute('/api/notifications/{id}', `/api/notifications/${id}`, { method: 'DELETE' })
+}

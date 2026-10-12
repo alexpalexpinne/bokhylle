@@ -791,6 +791,9 @@ fn allowed_mutation(method: &Method, path: &str) -> bool {
     }
     *method == Method::DELETE
         && (path.starts_with("/api/profile/rejected/")
+            || path
+                .strip_prefix("/api/notifications/")
+                .is_some_and(|id| id.parse::<i64>().is_ok())
             || (path.starts_with("/api/books/") && path.ends_with("/shelf"))
             || (path.starts_with("/api/authors/") && path.ends_with("/follow")))
 }
@@ -816,6 +819,20 @@ fn is_browser_direction_path(path: &str) -> bool {
 #[cfg(test)]
 mod reader_guard_tests {
     use super::{Method, allowed_mutation};
+
+    #[test]
+    fn demo_allows_individual_notification_dismissal() {
+        assert!(allowed_mutation(&Method::DELETE, "/api/notifications/12"));
+        assert!(!allowed_mutation(
+            &Method::DELETE,
+            "/api/notifications/read"
+        ));
+        assert!(!allowed_mutation(&Method::PUT, "/api/notifications/12"));
+        assert!(!allowed_mutation(
+            &Method::DELETE,
+            "/api/notifications/12/all"
+        ));
+    }
 
     #[test]
     fn demo_allows_only_the_reader_position_mutation() {

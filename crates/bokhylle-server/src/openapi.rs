@@ -297,7 +297,9 @@ fn success_responses(method: &str, path: &str) -> Vec<(u16, Value)> {
         ("post", "/api/recommendations/impressions")
         | (
             "delete",
-            "/api/profile/rejected/{id}" | "/api/recommendations/{key}/feedback/{token}",
+            "/api/profile/rejected/{id}"
+            | "/api/recommendations/{key}/feedback/{token}"
+            | "/api/notifications/{id}",
         ) => &[S::Empty(204)],
         ("put", "/api/books/sharing") => &[S::Empty(204)],
         ("post", "/api/auth/logout" | "/api/auth/logout-all") => &[S::Empty(204)],

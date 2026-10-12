@@ -94,8 +94,8 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
   const isChild = user?.profileType === 'child'
   const [suggestionNotice, setSuggestionNotice] = useState<RecommendationNotice | null>(null)
   const [hiddenNotice, setHiddenNotice] = useState<{ subject: string; title: string } | null>(null)
-  const { view, setView, pending, refreshPending, error, setError, store, visible, nextSection, retry } =
-    useHomeSnapshot({ cacheKey, fromOnboarding, isChild, canDiscover: !!user?.canDiscover })
+  const { view, setView, pending, refreshPending, error, setError, store, visible, retry } =
+    useHomeSnapshot({ cacheKey, isChild, canDiscover: !!user?.canDiscover })
 
   // New members land in the setup wizard once, which is always skippable.
   useEffect(() => {
@@ -260,6 +260,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </section>
       )}
 
+      {pending.updates && <HomeSectionSkeleton section="updates" />}
       {visible('updates') && updates && updates.discoveries.length > 0 && (
         <section className="home-shelf-section">
           <div className="home-shelf-heading">
@@ -299,6 +300,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </section>
       )}
 
+      {pending.continueReading && <HomeSectionSkeleton section="continueReading" />}
       {visible('continueReading') && continueReading.length > 0 && (
         <section className="home-shelf-section">
           <div className="home-shelf-heading">
@@ -331,6 +333,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </section>
       )}
 
+      {pending.series && <HomeSectionSkeleton section="series" />}
       {visible('series') && view.series.length > 0 && <section className="home-shelf-section">
         <div className="home-shelf-heading"><SectionMark rule={false} title="Continue a series" /></div>
         <ShelfRail label="Continue a series books">
@@ -344,10 +347,12 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </ShelfRail>
       </section>}
 
+      {pending.recent && <HomeSectionSkeleton section="recent" />}
       {visible('recent') && recent.length > 0 && (
         <BookRail title="Recently Added" books={recent} seeAllHref="/library" appearance="shelf" />
       )}
 
+      {pending.highlights && <HomeSectionSkeleton section="highlights" />}
       {visible('highlights') && highlights.length > 0 && (
         <BookRail
           title="Rediscover your library"
@@ -358,6 +363,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         />
       )}
 
+      {pending.rails && <HomeSectionSkeleton section="rails" />}
       {visible('rails') && rails.map((rail) => (
         <BookRail
           key={rail.key}
@@ -375,6 +381,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
       {hiddenSubjectNotice}
       {feedbackNotice}
 
+      {pending.shelves && <HomeSectionSkeleton section="shelves" />}
       {visible('shelves') && shelves.length > 0 && (
         <section>
           <SectionMark
@@ -419,6 +426,7 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
         </section>
       )}
 
+      {pending.authors && <HomeSectionSkeleton section="authors" />}
       {visible('authors') && authors.length > 0 && (
         <section>
           <SectionMark
@@ -458,7 +466,6 @@ function HomePage({ cacheKey, fromOnboarding, preferredLanguages }: {
           </div>
         </section>
       )}
-      {nextSection && nextSection !== 'spotlight' && <HomeSectionSkeleton section={nextSection} />}
       {loading && <p role="status" className="sr-only">{fromOnboarding ? 'Preparing your library' : 'Loading your library'}</p>}
     </div>
   )

@@ -772,13 +772,11 @@ pub async fn diagnostics(
 }
 
 pub async fn review(
-    _admin: AdminUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Option<ReviewDetail>>, AppError> {
-    let Some(_acquisition) = acquisition::get(&state.db, &id).await? else {
-        return Err(AppError::NotFound("acquisition not found".to_string()));
-    };
+    crate::services::acquisitions::require_review_access(&state.db, &user, &id).await?;
 
     let detail = crate::import_pipeline::review_candidates(&state, &id).await?;
     let detail = detail
@@ -802,11 +800,12 @@ pub enum ReviewResolve {
 }
 
 pub async fn resolve_review(
-    AdminUser(admin): AdminUser,
+    AuthUser(user): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<ReviewResolve>,
 ) -> Result<StatusJson<AcquisitionAccepted, 202>, AppError> {
+    crate::services::acquisitions::require_review_access(&state.db, &user, &id).await?;
     let action = match body {
         ReviewResolve::Choose { path } => crate::import_pipeline::ReviewAction::Choose { path },
         ReviewResolve::Retry => crate::import_pipeline::ReviewAction::Retry,
@@ -815,7 +814,7 @@ pub async fn resolve_review(
 
     crate::import_pipeline::resolve_review(&state, &id, action).await?;
 
-    let view = acquisition::view(&state.db, admin.id, &id)
+    let view = acquisition::view(&state.db, user.id, &id)
         .await?
         .ok_or_else(|| AppError::NotFound("acquisition not found".to_string()))?;
 

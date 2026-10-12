@@ -27,6 +27,11 @@ the task over a new abstraction.
 - In book detail sheets, make the available acquisition choice the primary
   button. Show other actions as visible secondary buttons, and expose toggles
   such as Like with a pressed state.
+- On phones, stack book acquisition actions at full width and give Like and
+  Not for me an equal-width row below. Keep the primary acquisition action first.
+- Notifications can be dismissed individually. Keep approval requests visible
+  until decided, update the unread badge on dismissal, and preserve keyboard
+  focus when a notification disappears.
 - Use typography, whitespace, and hairline rules for hierarchy. A surface
   should signal interaction or state, following the design principles.
 - Use the shared editorial SearchField for page searches, including Books and

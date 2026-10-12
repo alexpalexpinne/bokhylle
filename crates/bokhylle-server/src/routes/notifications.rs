@@ -1,5 +1,6 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use serde::Serialize;
 
 use crate::AppState;
@@ -57,4 +58,14 @@ pub async fn mark_read(
 ) -> Result<Json<UpdatedCount>, AppError> {
     let updated = notifications::mark_all_read(&state.db, user.id).await?;
     Ok(Json(UpdatedCount { updated }))
+}
+
+pub async fn dismiss(
+    AuthUser(user): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let child = crate::auth::profile_type(&state.db, user.id).await? == "child";
+    notifications::dismiss(&state.db, user.id, id, child).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

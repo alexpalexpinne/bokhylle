@@ -38,19 +38,24 @@ to the book when its file is replaced.
 
 Home first loads local books and saved catalogue suggestions. It does not wait
 for external catalogue searches before showing Spotlight. On an initial load,
-sections appear in their established order as their requests finish; slower
-collections and authors do not hold up the featured book or earlier shelves.
+each section has its own loading slot in the established order. Completed
+local rails appear even while updates, collections or authors are still loading.
 Loading slots use the same featured shelf and rail geometry as the content.
 
-A complete Home snapshot is retained for one minute in the browser tab, scoped
-to the authenticated profile, role, child permissions and preferred languages.
+A Home snapshot is saved as each section finishes and retained for fifteen
+minutes in the browser tab, scoped to the authenticated profile, role, child
+permissions and preferred languages.
 It survives a page reload and is cleared on sign-out, session expiry or demo
 profile switching. A returning visitor sees that snapshot immediately while
 requests prepare the next visit. The current visit's books and recommendations
-stay in place. Explicit likes, rejections, shelf changes, follows, sharing and
-interest changes invalidate the snapshot. Hiding or restoring a subject refreshes
+stay in place; a partial saved visit can fill its missing sections without
+waiting for the whole page to finish. Explicit likes, rejections, shelf changes,
+follows, sharing and interest changes invalidate the snapshot. Hiding or restoring a subject refreshes
 Spotlight, Picked for you, rediscovery and subject rails immediately; older
 in-flight responses cannot restore an excluded recommendation.
+Rapid returns reuse a complete snapshot for thirty seconds without starting
+another set of Home requests. Responses from an earlier visit cannot overwrite
+a later visit's saved snapshot.
 
 Catalogue recommendations also have a saved snapshot on the server, separate
 from local books. It refreshes after fifteen minutes, with up to two independent
@@ -142,12 +147,18 @@ and author follows each add 5, and follows augment rather than replace inferred
 author taste. Catalogue noise is removed before seed selection.
 Personal affinity selects candidates; available household
 copies determine whether there are enough books for a useful local rail.
-Local subject selection multiplies accumulated taste by subject specificity:
+Local subject rails require positive taste for that subject, rather than
+treating every category on an eligible book as an interest. Explicitly selected
+interests take priority over inferred metadata topics. Within each group,
+selection multiplies accumulated taste by subject specificity:
 1 for broad genres, 3 for ordinary topics and 5 for specific topics. Books inside
 each rail rank by complete subject/author affinity, then recency. The liked-books
 rail requires two informative shared subjects and has priority when eligible.
-Home shows up to five local recommendation rails, suppressing subject aliases
-and rails sharing at least three quarters of the smaller rail's books.
+Home shows up to five local recommendation rails without a separate
+three-category cap, suppressing subject aliases and rails sharing at least
+three quarters of the smaller rail's books.
+Subtitles distinguish selected reading interests from interests inferred from
+books the profile deliberately chose. Request-based rails keep their request reason.
 
 Followed-author discoveries apply the same language, ownership and feedback
 rules before choosing two books per author, up to twelve total. All available

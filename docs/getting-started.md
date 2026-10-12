@@ -131,6 +131,18 @@ You can download an available EPUB, PDF, or CBZ repeatedly without adding anothe
 
 Opening a pending book shows whether Bokhylle is finding a file, waiting for a version choice, queued, downloading, importing or waiting for review. Download progress comes from the download client. **View in Activity** opens the full details; the requester or an administrator can select a version or retry failed work.
 
+If a download contains several possible files or its book metadata is uncertain,
+the adult who started it can open **Activity → Review files** and choose the file
+to import. This requires that profile's acquisition permission. Administrators
+can review household downloads; other participants in a shared download wait for
+the original requester. Child downloads still require administrator review.
+
+Discover keeps the book's details visible while a download is being retried.
+Open its modal to follow progress or use **View book**. If an eligible shared
+download was started by another profile, **Get for my shelf** adds your request
+without replacing their file choice. **Send when ready** schedules delivery to
+your own reader after you join.
+
 A requester can use **Send when ready** to choose a reader before the file arrives. The page shows the scheduled address. Select that line to change the reader or cancel the scheduled send. The selected address is saved, so changing a default reader does not redirect this send. Earlier **Get & Send** requests continue to use the default reader until you choose a destination.
 
 If another version is being downloaded, an existing file remains available through **Read in Bokhylle** and **Send to my reader**.

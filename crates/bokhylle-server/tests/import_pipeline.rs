@@ -663,7 +663,7 @@ async fn zipped_downloads_are_imported() {
 }
 
 #[tokio::test]
-async fn review_endpoints_require_admin() {
+async fn unrelated_adults_cannot_read_or_resolve_review() {
     let (_fixture_dir, fixtures) = fixture_books();
     let content_dir = tempfile::tempdir().unwrap();
     std::fs::copy(&fixtures.other, content_dir.path().join("mystery.epub")).unwrap();
@@ -691,6 +691,191 @@ async fn review_endpoints_require_admin() {
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+
+    for action in [
+        json!({ "action": "retry" }),
+        json!({ "action": "ignore" }),
+        json!({ "action": "choose", "path": "/downloads/mystery.epub" }),
+    ] {
+        let (status, _) = post_json(
+            &test_app,
+            &format!("/api/acquisitions/{acquisition_id}/review/resolve"),
+            &user_cookie,
+            action,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+    let view = wait_for_status(&test_app, &cookie, &acquisition_id, &["NEEDS_REVIEW"]).await;
+    assert_eq!(view["status"], "NEEDS_REVIEW");
+}
+
+#[tokio::test]
+async fn adult_creator_can_choose_one_of_several_downloaded_files() {
+    let (_fixture_dir, fixtures) = fixture_books();
+    let content_dir = tempfile::tempdir().unwrap();
+    for name in ["first.epub", "second.epub"] {
+        std::fs::copy(&fixtures.hail_mary, content_dir.path().join(name)).unwrap();
+    }
+    let (test_app, _library_dir, _keep, admin_cookie, _downloader) =
+        import_app(content_dir.path()).await;
+    let adult = test_app
+        .state
+        .auth
+        .create_user("adult", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&test_app, "adult", "password123").await;
+    let id = start_acquisition(&test_app, &cookie).await;
+    wait_for_status(&test_app, &cookie, &id, &["QUEUED"]).await;
+    bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+    let view = wait_for_status(&test_app, &cookie, &id, &["NEEDS_REVIEW"]).await;
+    assert_eq!(view["errorCode"], "multiple_candidates");
+    let uri = format!("/api/acquisitions/{id}/review");
+    let (status, detail) = get_json(&test_app, &uri, &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(detail["candidates"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        get_json(&test_app, &uri, &admin_cookie).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_json(&test_app, &uri, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let resolve_uri = format!("{uri}/resolve");
+    let (status, _) = post_json(
+        &test_app,
+        &resolve_uri,
+        &cookie,
+        json!({ "action": "choose", "path": fixtures.other }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "only recorded candidates may be imported"
+    );
+    assert_eq!(
+        get_json(&test_app, &format!("/api/acquisitions/{id}"), &cookie)
+            .await
+            .1["status"],
+        "NEEDS_REVIEW"
+    );
+    let (status, _) = post_json(
+        &test_app,
+        &resolve_uri,
+        &cookie,
+        json!({ "action": "choose", "path": detail["candidates"][0]["path"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let view = wait_for_status(&test_app, &cookie, &id, &["READY"]).await;
+    let book_id = view["bookId"].as_i64().unwrap();
+    let files: i64 = sqlx::query_scalar("SELECT count(*) FROM book_files")
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(files, 1);
+    assert!(
+        bokhylle_server::user_books::contains(&test_app.state.db, adult.id, book_id)
+            .await
+            .unwrap()
+    );
+    assert!(content_dir.path().join("second.epub").exists());
+}
+
+#[tokio::test]
+async fn review_rechecks_creator_permissions_and_preserves_shared_request_ownership() {
+    let (_fixture_dir, fixtures) = fixture_books();
+    let content_dir = tempfile::tempdir().unwrap();
+    std::fs::copy(&fixtures.other, content_dir.path().join("mystery.epub")).unwrap();
+    let (test_app, _library_dir, _keep, admin_cookie, _downloader) =
+        import_app(content_dir.path()).await;
+    let adult = test_app
+        .state
+        .auth
+        .create_user("adult", "password123", Role::User)
+        .await
+        .unwrap();
+    let participant = test_app
+        .state
+        .auth
+        .create_user("participant", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&test_app, "adult", "password123").await;
+    let participant_cookie = common::login(&test_app, "participant", "password123").await;
+    let id = start_acquisition(&test_app, &cookie).await;
+    wait_for_status(&test_app, &cookie, &id, &["QUEUED"]).await;
+    bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+    wait_for_status(&test_app, &cookie, &id, &["NEEDS_REVIEW"]).await;
+    bokhylle_server::acquisition_requests::register(&test_app.state.db, &id, participant.id, false)
+        .await
+        .unwrap();
+    let uri = format!("/api/acquisitions/{id}/review");
+    let resolve_uri = format!("{uri}/resolve");
+    let detail = get_json(&test_app, &uri, &admin_cookie).await.1;
+    assert_eq!(
+        get_json(&test_app, &uri, &participant_cookie).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post_json(
+            &test_app,
+            &resolve_uri,
+            &participant_cookie,
+            json!({ "action": "choose", "path": detail["candidates"][0]["path"] })
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post_json(&test_app, &resolve_uri, "", json!({ "action": "ignore" }))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    for (profile, can_acquire) in [("adult", 0), ("child", 1)] {
+        sqlx::query("UPDATE users SET profile_type = ?, can_acquire = ? WHERE id = ?")
+            .bind(profile)
+            .bind(can_acquire)
+            .bind(adult.id)
+            .execute(&test_app.state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            get_json(&test_app, &uri, &cookie).await.0,
+            StatusCode::FORBIDDEN
+        );
+        for action in [
+            json!({ "action": "retry" }),
+            json!({ "action": "ignore" }),
+            json!({ "action": "choose", "path": detail["candidates"][0]["path"] }),
+        ] {
+            assert_eq!(
+                post_json(&test_app, &resolve_uri, &cookie, action).await.0,
+                StatusCode::FORBIDDEN
+            );
+        }
+    }
+    assert_eq!(
+        get_json(&test_app, &uri, &admin_cookie).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        get_json(&test_app, &format!("/api/acquisitions/{id}"), &admin_cookie)
+            .await
+            .1["status"],
+        "NEEDS_REVIEW"
+    );
 }
 
 #[tokio::test]

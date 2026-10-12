@@ -21,7 +21,7 @@ export function Layout({ navigation: historyAction }: { navigation: NavigationTy
   const { user, demo } = useAuth()
   const mainRef = useRef<HTMLElement>(null)
   const profile = JSON.stringify([user?.id, user?.role, user?.profileType, user?.canDiscover])
-  const notifications = useNotifications(user?.id)
+  const notifications = useNotifications(profile)
   const isChild = user?.profileType === 'child'
   // Requests is the child's ask flow; adults approve from the bell instead
   // and reach the full list through "View all requests".
@@ -66,11 +66,13 @@ export function Layout({ navigation: historyAction }: { navigation: NavigationTy
 
           <div className="flex items-center gap-1">
             <NotificationMenu
+              key={profile}
               items={notifications.items}
               unread={notifications.unread}
               pendingRequestItems={notifications.pendingRequestItems}
               canDecide={user?.role === 'admin' || (demo === true && !isChild)}
               markRead={notifications.markRead}
+              dismiss={notifications.dismiss}
               onDecided={(id) => {
                 notifications.removePendingRequest(id)
                 notifications.reload()

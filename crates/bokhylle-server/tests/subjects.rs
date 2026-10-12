@@ -595,13 +595,9 @@ async fn home_rails_use_own_shelf_and_requests_without_household_fallback() {
         .collect();
     // Emma's own requests qualify Colonization; unrelated household subjects
     // and the administrator's shelf do not supply her interests.
-    assert_eq!(emma_titles[0], "Colonization");
+    assert_eq!(emma_titles[0], "Because you requested Colonization");
     assert_eq!(emma_titles.len(), 1);
-    assert!(
-        !emma_titles
-            .iter()
-            .any(|title| title.starts_with("Because you"))
-    );
+    assert_eq!(emma_rails[0]["subject"], "colonization");
 }
 
 async fn put_json(

@@ -303,6 +303,13 @@ export default async function homeDesign(page, { base }) {
     { ...SPOTLIGHT[1], source: 'household', ownership: 'household' },
   ] })
   await page.setViewportSize({ width: 375, height: 844 })
+  // This starts a new fixture catalogue, rather than a return to the same
+  // saved Home. Do not let the previous scenario's snapshot mask it.
+  await page.evaluate(() => {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)
+    }
+  })
   await page.reload({ waitUntil: 'networkidle' })
   await hero.getByRole('heading', { name: 'A short story', exact: true }).waitFor()
   expect(await hero.getByText('Not in your library', { exact: true }).count() === 0, 'unowned Spotlight books have no ownership label')

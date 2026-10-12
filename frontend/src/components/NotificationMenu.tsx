@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, Check, ChevronRight } from 'lucide-react'
+import { Bell, Check, ChevronRight, X } from 'lucide-react'
 import { type Notification } from '../api/notifications'
 import { coverUrl } from '../api/library'
 import {
@@ -55,6 +55,7 @@ export function NotificationMenu({
   pendingRequestItems,
   canDecide,
   markRead,
+  dismiss,
   onDecided,
 }: {
   items: Notification[]
@@ -63,6 +64,7 @@ export function NotificationMenu({
   /// Administrators decide requests; other readers track their own.
   canDecide: boolean
   markRead: () => Promise<void>
+  dismiss: (id: number) => Promise<void>
   onDecided: (id: number) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -72,6 +74,26 @@ export function NotificationMenu({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelId = useId()
   const decision = useMutation()
+  const alerts = useMutation()
+  const focusAfterMutation = useRef<{ id: number | null } | null>(null)
+
+  function dismissAlert(id: number) {
+    const buttons = [...containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-dismiss-notification]') ?? []]
+    const index = buttons.findIndex((button) => Number(button.dataset.dismissNotification) === id)
+    const next = buttons[index + 1] ?? buttons[index - 1]
+    void alerts.run(`dismiss-${id}`, () => dismiss(id), 'Could not dismiss that notification', () => {
+      focusAfterMutation.current = { id: next ? Number(next.dataset.dismissNotification) : null }
+    })
+  }
+
+  useEffect(() => {
+    if (!focusAfterMutation.current || alerts.busyKey !== null) return
+    const { id } = focusAfterMutation.current
+    focusAfterMutation.current = null
+    const next = id === null ? null : containerRef.current?.querySelector<HTMLButtonElement>(`[data-dismiss-notification="${id}"]`)
+    const target = next ?? triggerRef.current
+    target?.focus({ preventScroll: true })
+  }, [items, alerts.busyKey])
 
   function decide(request: BookRequest, approve: boolean) {
     void decision.run(
@@ -144,14 +166,19 @@ export function NotificationMenu({
             {unread > 0 && (
               <button
                 type="button"
-                onClick={() => void markRead()}
-                className="inline-flex min-h-12 items-center gap-1 px-2 text-xs text-ink-muted transition-colors hover:text-ink sm:min-h-8"
+                disabled={alerts.busyKey !== null}
+                onClick={() => void alerts.run('read', markRead, 'Could not mark notifications read', () => {
+                  focusAfterMutation.current = { id: items[0]?.id ?? null }
+                })}
+                className="inline-flex min-h-12 items-center gap-1 px-2 text-xs text-ink-muted transition-colors hover:text-ink disabled:opacity-50 sm:min-h-8"
               >
                 <Check size={13} aria-hidden />
                 Mark all read
               </button>
             )}
           </div>
+
+          {alerts.error && <p role="alert" className="px-4 py-2 text-xs text-danger">{alerts.error}</p>}
 
           <div className="max-h-96 overflow-y-auto overscroll-contain">
             {canDecide && pendingRequestItems.length > 0 && (
@@ -218,11 +245,11 @@ export function NotificationMenu({
             ) : (
               items.map((item) => {
                 const to = notificationDestination(item, isChild, !!demo)
-                const className = `block border-b border-line/60 px-4 py-3 last:border-0 ${item.read ? '' : 'bg-surface-2/40'}`
+                const className = 'block min-w-0 px-4 py-3'
                 const content = (
                   <div className="flex items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                         <p className="text-sm font-medium text-ink">{item.title}</p>
                         <span className="shrink-0 text-xs text-ink-faint">
                           {formatWhen(item.createdAt)}
@@ -235,17 +262,29 @@ export function NotificationMenu({
                     {to && <ChevronRight size={15} className="shrink-0 text-ink-faint" aria-hidden />}
                   </div>
                 )
-                return to ? (
-                  <Link
-                    key={item.id}
-                    to={to}
-                    onClick={() => setOpen(false)}
-                    className={`${className} transition-colors hover:bg-surface-2 focus-visible:-outline-offset-2`}
-                  >
-                    {content}
-                  </Link>
-                ) : (
-                  <div key={item.id} className={className}>{content}</div>
+                return (
+                  <div key={item.id} className={`grid grid-cols-[minmax(0,1fr)_auto] border-b border-line/60 last:border-0 ${item.read ? '' : 'bg-surface-2/40'}`}>
+                    {to ? (
+                      <Link
+                        to={to}
+                        onClick={() => setOpen(false)}
+                        className={`${className} transition-colors hover:bg-surface-2 focus-visible:-outline-offset-2`}
+                      >
+                        {content}
+                      </Link>
+                    ) : <div className={className}>{content}</div>}
+                    <button
+                      type="button"
+                      data-dismiss-notification={item.id}
+                      aria-label={`Dismiss notification: ${item.title}`}
+                      title="Dismiss notification"
+                      disabled={alerts.busyKey !== null}
+                      onClick={() => dismissAlert(item.id)}
+                      className="pressable mr-2 flex h-12 w-12 self-center items-center justify-center rounded-[3px] text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50 sm:h-8 sm:w-8"
+                    >
+                      <X size={16} aria-hidden />
+                    </button>
+                  </div>
                 )
               })
             )}

@@ -208,3 +208,29 @@ pub async fn mark_all_read(pool: &SqlitePool, user_id: i64) -> Result<u64, AppEr
         .await?;
     Ok(result.rows_affected())
 }
+
+/// Dismiss only an alert visible to this profile. Requests and acquisitions
+/// keep their own state when an alert is removed.
+pub async fn dismiss(
+    pool: &SqlitePool,
+    user_id: i64,
+    id: i64,
+    child: bool,
+) -> Result<(), AppError> {
+    let result = sqlx::query(
+        "DELETE FROM notifications
+         WHERE id = ? AND user_id = ?
+           AND (? = 0 OR book_id IS NULL OR book_id IN (
+               SELECT book_id FROM user_books WHERE user_id = ? AND on_shelf = 1))",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(i64::from(child))
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Notification not found".into()));
+    }
+    Ok(())
+}

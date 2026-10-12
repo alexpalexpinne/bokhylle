@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Keep local metadata and acquisition progress visible in Discover for pending and retried books. Let adults join eligible shared downloads for their shelf and schedule their own reader send without replacing the original requester's choice.
+- Let adults with acquisition permission review and choose files from downloads they started. Preserve shared-request ownership, administrator oversight, and child restrictions; show the recorded review reason in Activity.
+- Stack book acquisition actions at full width on phones, with equally sized Like and Not for me controls below.
+- Dismiss individual notifications, update unread counts immediately, and keep pending approvals visible. Scope dismissal to the current profile and child shelf access.
+- Require taste for each Home category, prioritize selected reading interests over inferred plot topics, and allow up to five distinct local rails.
+- Show ready Home sections independently, save partial visits for fifteen minutes, and reuse recent complete visits without repeating requests. Preserve immediate feedback updates and profile isolation.
+
 ## 0.4.1 — 2026-10-05
 
 - Improve acquisition matching for release punctuation, apostrophes, accented names, subtitles, uploader groups, bracketed series labels and author-last filenames.

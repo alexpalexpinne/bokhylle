@@ -2,6 +2,7 @@
 //! own the product decisions (profile rules, existing-copy reuse, request
 //! approval) so no interface re-implements them.
 
+pub mod acquisitions;
 pub mod books;
 pub mod delivery;
 pub mod reader;
