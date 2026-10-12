@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-12
+
+- Update the frontend source-map dependency to its patched version so release dependency checks pass.
 
 - Keep local metadata and acquisition progress visible in Discover for pending and retried books. Let adults join eligible shared downloads for their shelf and schedule their own reader send without replacing the original requester's choice.
 - Let adults with acquisition permission review and choose files from downloads they started. Preserve shared-request ownership, administrator oversight, and child restrictions; show the recorded review reason in Activity.
