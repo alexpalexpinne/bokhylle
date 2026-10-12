@@ -41,6 +41,9 @@ for external catalogue searches before showing Spotlight. On an initial load,
 each section has its own loading slot in the established order. Completed
 local rails appear even while updates, collections or authors are still loading.
 Loading slots use the same featured shelf and rail geometry as the content.
+On a cold visit, the first local response burst is grouped for 250 milliseconds
+so empty loading slots disappear before books become visible. Slower sections
+still complete independently; saved visits restore without this delay.
 
 A Home snapshot is saved as each section finishes and retained for fifteen
 minutes in the browser tab, scoped to the authenticated profile, role, child

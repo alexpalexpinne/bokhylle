@@ -106,10 +106,15 @@ const KNOWN_KING_AUTHOR = {
 async function installLayoutShiftObserver(page) {
   await page.addInitScript(() => {
     window.__cls = 0
+    window.__clsSources = []
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         if (!entry.hadRecentInput) {
           window.__cls += entry.value
+          window.__clsSources.push({ value: entry.value, sources: entry.sources.map((source) => ({
+            element: source.node?.outerHTML?.slice(0, 180),
+            before: source.previousRect.toJSON(), after: source.currentRect.toJSON(),
+          })) })
         }
       }
     }).observe({ type: 'layout-shift', buffered: true })
@@ -286,6 +291,8 @@ export default async function stability(page, { base }) {
   const cachedSpotlightReady = new Promise((resolve) => { revealSpotlight = resolve })
   await mockHome(page, { spotlightDelay: 1500, cachedSpotlightReady })
   await mockDiscover(page)
+  // Do not let the login click's recent-input window hide cold-load shifts.
+  await page.waitForTimeout(600)
 
   // A cold Home uses local/cached Spotlight without waiting for its slower
   // catalogue refresh. Reserved sections keep their placement stable.
@@ -307,7 +314,7 @@ export default async function stability(page, { base }) {
   const coldShift = await page.evaluate(() => window.__cls)
   expect(
     coldShift < 0.1,
-    `cold Home should not shift when the hero arrives (CLS ${coldShift})`,
+    `cold Home should not shift when the hero arrives (CLS ${coldShift}; sources ${JSON.stringify(await page.evaluate(() => window.__clsSources))})`,
   )
 
   // Let every cold-load section settle so this visit has a complete snapshot.

@@ -59,10 +59,18 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover }: {
     const revision = homeRecommendationRevision()
     const currentRefresh = beginHomeSnapshotRefresh(cacheKey)
     let merged = retryCount > 0 ? viewRef.current : initial ?? emptyHomeSnapshot()
+    const completed = new Set<HomeSection>()
+    let initialRevealed = !!initial || retryCount > 0
+    let revealTimer: ReturnType<typeof setTimeout> | undefined
+    let initialError: string | null = null
     let refreshedSpotlight: Pick<HomeSnapshot, 'spotlight' | 'recommendations'> | undefined
     const validSession = () => generation === homeSnapshotGeneration() && revision === homeRecommendationRevision()
     const withManualChanges = (snapshot: HomeSnapshot) => manualRails.current === null
       ? snapshot : { ...snapshot, rails: manualRails.current }
+    const reportError = (message: string) => {
+      if (initialRevealed) setError(message)
+      else initialError = message
+    }
     const save = () => {
       if (validSession() && currentRefresh()) {
         saveHomeSnapshot(cacheKey, withManualChanges({ ...merged, ...refreshedSpotlight }), generation)
@@ -77,10 +85,21 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover }: {
           loadedSections: Array.from(new Set([...merged.loadedSections, section])) }
       } catch (caught) {
         if (validSession() && !cancelled && ['recent', 'spotlight', 'rails', 'continueReading', 'series'].includes(section)) {
-          setError(caught instanceof ApiError ? caught.message : 'Some shelves could not be loaded. Your available books are still shown.')
+          reportError(caught instanceof ApiError ? caught.message : 'Some shelves could not be loaded. Your available books are still shown.')
         }
       } finally {
-        if (!cancelled && validSession() && (!initial || retryCount > 0 || !initial.loadedSections.includes(section))) {
+        completed.add(section)
+        if (!cancelled && validSession() && !initialRevealed) {
+          // Batch the first local response burst. Empty slots can disappear
+          // before books become visible, without waiting for slower sections.
+          revealTimer ??= setTimeout(() => {
+            initialRevealed = true
+            if (cancelled || !validSession()) return
+            setView(withManualChanges(merged))
+            setPending((current) => ({ ...current, ...Object.fromEntries([...completed].map((key) => [key, false])) }))
+            if (initialError) setError(initialError)
+          }, 250)
+        } else if (!cancelled && validSession() && (!initial || retryCount > 0 || !initial.loadedSections.includes(section))) {
           // A partial saved visit can fill its missing sections without
           // replacing books that were restored and are already visible.
           setView((current) => withManualChanges(initial && retryCount === 0
@@ -157,10 +176,10 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover }: {
         // reshuffle. Let its first catalogue suggestions fill the empty Home.
         if (!cancelled && validSession() && !initial && !hasHomeContent(merged)) {
           merged = { ...merged, ...refreshedSpotlight }
-          setView(withManualChanges(merged))
+          if (initialRevealed) setView(withManualChanges(merged))
         }
       } catch {
-        if (!cancelled && validSession()) setError('Catalogue suggestions could not be refreshed. Your available books are still shown.')
+        if (!cancelled && validSession()) reportError('Catalogue suggestions could not be refreshed. Your available books are still shown.')
       } finally {
         if (!cancelled && validSession()) setRefreshPending(false)
       }
@@ -181,7 +200,7 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover }: {
         .flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
     })))
 
-    return () => { cancelled = true; window.removeEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback) }
+    return () => { cancelled = true; clearTimeout(revealTimer); window.removeEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback) }
   }, [cacheKey, isChild, canDiscover, initial, retryCount])
 
   const store = (next: HomeSnapshot) => {
