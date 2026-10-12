@@ -16,6 +16,13 @@ Downloads return EPUB, PDF, or CBZ data, backup downloads use an octet stream, a
 cover routes return images. The OpenAPI contract covers `/api/*`; OPDS, KOReader
 sync, and MCP retain their own protocols.
 
+`DELETE /api/notifications/{id}` permanently dismisses an alert belonging to
+the signed-in profile and returns `204`. Unknown alerts, other profiles' alerts,
+and alerts outside a child's assigned shelf return `404`. Dismissing an alert
+does not change its book request or acquisition; pending approval requests remain
+in the notification menu until approved or declined. `POST /api/notifications/read`
+marks the profile's alerts read without removing them.
+
 `GET /api/home/spotlight?cachedOnly=true` returns current eligible local books
 and matching saved catalogue recommendations without contacting an external
 provider. Omit `cachedOnly` or set it to `false` to refresh an expired catalogue
@@ -74,6 +81,14 @@ to `POST /api/acquisitions/{id}/select`. The override applies only to a new
 acquisition. Joining active work preserves its original requester, selection,
 and mode. A completed book can start another acquisition; distinct file bytes
 are added alongside existing files, whose reading positions remain intact.
+
+`GET /api/acquisitions/{id}/review` and
+`POST /api/acquisitions/{id}/review/resolve` allow administrators and the adult
+who started the download, provided that adult still has acquisition permission.
+The requester can choose a recorded file, retry identification, or ignore the
+download while keeping its files. Other participants in a shared acquisition
+cannot change the original requester's file choice. Child profiles cannot use
+these endpoints. Choosing an arbitrary unrecorded path is rejected.
 
 `GET /api/discover/releases` is a read-only preview evaluated against the
 profile's accepted languages and requested format. It also accepts
@@ -346,7 +361,7 @@ Approval requests also accept `sharing` on `POST /api/requests`. The request sav
 
 Adult owners update their own sharing with `PUT /api/books/{id}/sharing` and `{ "sharing": "private" }` or `shared`. The response is `BookSharingState`. `PUT /api/books/sharing` accepts `{ "bookIds": [1, 2], "sharing": "shared" }` and returns 204. Bulk updates accept 1–1,000 ids and commit atomically; every id must be independently owned by the caller. A shelf-only borrower receives 403, and the entire update is rolled back. Children cannot change sharing. Hidden books return 404 on detail, file, cover, and mutation routes; list counts, facets, authors, series, and collections follow visibility. Adult shelves remain private, including from administrators.
 
-Acquired ownership outlives shelf membership. Coowners retain separate ownership of the same title; changing one sharing choice never changes another. Shelf-only adult borrowers depend on current household sharing and lose app/file access when no owner shares the book. Explicit child assignments remain shelf scoped. Existing unmanaged library imports remain shared. Migration 0006 derives ownership from acquisition participants and creators; for previously managed books without acquisition history, it preserves the earliest known adult as owner. Shelf-only grants cannot keep a book shared. Administrative maintenance, import review, acquisition oversight, backups, and the library filesystem remain operator tools.
+Acquired ownership outlives shelf membership. Coowners retain separate ownership of the same title; changing one sharing choice never changes another. Shelf-only adult borrowers depend on current household sharing and lose app/file access when no owner shares the book. Explicit child assignments remain shelf scoped. Existing unmanaged library imports remain shared. Migration 0006 derives ownership from acquisition participants and creators; for previously managed books without acquisition history, it preserves the earliest known adult as owner. Shelf-only grants cannot keep a book shared. Administrative maintenance, household import review, acquisition oversight, backups, and the library filesystem remain operator tools. Adults with acquisition permission can review files from downloads they started.
 
 The frontend download preference is account specific: `acquisitionMode: "automatic"` selects the best suitable release, while `"ask"` shows one proposed version before downloading, with alternatives in a separate picker. Possible matches require deliberate review before Get. Activity uses the same candidate selection operation. The optional `askBeforeDownload` API override remains available for explicit additional-version requests. Joining active work does not change its original requester, mode, language intent or selected release.
 

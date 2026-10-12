@@ -69,7 +69,9 @@ export function ReviewDialog({ acquisitionId, onClose, onResolved }: ReviewDialo
   return (
     <Modal
       title="Review download"
-      description="We could not confidently identify this download. Import a file, retry identification, or ignore it. Nothing is deleted while under review."
+      description={detail && 'reason' in detail && detail.reason === 'multiple_candidates'
+        ? 'Several files could match this book. Choose the file you want to add to your shelf.'
+        : 'Check which downloaded file matches this book. You can import a file, retry identification, or ignore it. Nothing is deleted while under review.'}
       onClose={onClose}
       wide
       footer={
@@ -99,9 +101,9 @@ export function ReviewDialog({ acquisitionId, onClose, onResolved }: ReviewDialo
         {candidates.map((candidate) => (
           <div
             key={candidate.path}
-            className="flex items-center justify-between gap-3 rounded-card bg-surface-2 px-4 py-3"
+            className="flex flex-col items-stretch justify-between gap-3 rounded-card bg-surface-2 px-4 py-3 sm:flex-row sm:items-center"
           >
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-ink">{basename(candidate.path)}</p>
               <p className="truncate text-xs text-ink-faint">
                 {candidate.format.toUpperCase()} · {formatBytes(candidate.size)}
@@ -115,6 +117,7 @@ export function ReviewDialog({ acquisitionId, onClose, onResolved }: ReviewDialo
             <Button
               size="sm"
               variant="primary"
+              className="shrink-0"
               disabled={busy}
               onClick={() => void act('choose', candidate.path)}
             >

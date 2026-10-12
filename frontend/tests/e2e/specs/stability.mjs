@@ -106,10 +106,15 @@ const KNOWN_KING_AUTHOR = {
 async function installLayoutShiftObserver(page) {
   await page.addInitScript(() => {
     window.__cls = 0
+    window.__clsSources = []
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         if (!entry.hadRecentInput) {
           window.__cls += entry.value
+          window.__clsSources.push({ value: entry.value, sources: entry.sources.map((source) => ({
+            element: source.node?.outerHTML?.slice(0, 180),
+            before: source.previousRect.toJSON(), after: source.currentRect.toJSON(),
+          })) })
         }
       }
     }).observe({ type: 'layout-shift', buffered: true })
@@ -286,6 +291,8 @@ export default async function stability(page, { base }) {
   const cachedSpotlightReady = new Promise((resolve) => { revealSpotlight = resolve })
   await mockHome(page, { spotlightDelay: 1500, cachedSpotlightReady })
   await mockDiscover(page)
+  // Do not let the login click's recent-input window hide cold-load shifts.
+  await page.waitForTimeout(600)
 
   // A cold Home uses local/cached Spotlight without waiting for its slower
   // catalogue refresh. Reserved sections keep their placement stable.
@@ -307,9 +314,11 @@ export default async function stability(page, { base }) {
   const coldShift = await page.evaluate(() => window.__cls)
   expect(
     coldShift < 0.1,
-    `cold Home should not shift when the hero arrives (CLS ${coldShift})`,
+    `cold Home should not shift when the hero arrives (CLS ${coldShift}; sources ${JSON.stringify(await page.evaluate(() => window.__clsSources))})`,
   )
 
+  // Let every cold-load section settle so this visit has a complete snapshot.
+  await page.waitForLoadState('networkidle')
   let spotlightRequests = 0
   page.on('request', (request) => {
     if (request.url().includes('/api/home/spotlight')) {
@@ -317,25 +326,18 @@ export default async function stability(page, { base }) {
     }
   })
 
-  // Revisiting Home renders from the session cache while fresh data is prepared
-  // in the background for the next visit.
+  // A rapid return to a complete Home restores the saved visit without
+  // repeating either Spotlight request.
   await page.getByRole('link', { name: 'Library' }).first().click()
   await page.waitForURL(`${base}/library`)
   await page.getByRole('heading', { name: 'Your shelf', exact: true }).waitFor()
   await page.evaluate(() => {
     window.__cls = 0
   })
-  const refreshedSpotlight = ['true', 'false'].map((cachedOnly) =>
-    page.waitForResponse((response) => {
-      const url = new URL(response.url())
-      return url.pathname === '/api/home/spotlight' &&
-        url.searchParams.get('cachedOnly') === cachedOnly
-    }),
-  )
   await page.goBack()
   await page.waitForURL(`${base}/`)
   await page.getByText(SPOTLIGHT.title).first().waitFor({ state: 'visible', timeout: 3000 })
-  await Promise.all(refreshedSpotlight)
+  await page.waitForLoadState('networkidle')
   await page.waitForTimeout(250)
   const revisitShift = await page.evaluate(() => window.__cls)
   expect(
@@ -343,8 +345,8 @@ export default async function stability(page, { base }) {
     `a cached Home revisit should not shift (CLS ${revisitShift})`,
   )
   expect(
-    spotlightRequests === 2,
-    `a cached Home refreshes its local snapshot and catalogue in the background (got ${spotlightRequests})`,
+    spotlightRequests === 0,
+    `a rapid cached Home revisit reuses its complete snapshot (got ${spotlightRequests} requests)`,
   )
 
   // A cached Discover search restores books and authors together and keeps

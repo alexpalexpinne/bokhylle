@@ -2171,11 +2171,18 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
     };
     let mut ranked: Vec<_> = candidates
         .into_iter()
-        .filter(|(_, n, _, _)| subjects::similarity_weight(n).is_some())
+        .filter(|(_, n, _, _)| score(n) > 0)
         .collect();
+    let explicit = |normalized: &str| {
+        taste
+            .subjects
+            .iter()
+            .any(|s| s.concept == subjects::concept(normalized) && s.explicit)
+    };
     ranked.sort_by(|a, b| {
-        score(&b.1)
-            .cmp(&score(&a.1))
+        explicit(&b.1)
+            .cmp(&explicit(&a.1))
+            .then_with(|| score(&b.1).cmp(&score(&a.1)))
             .then_with(|| b.2.cmp(&a.2))
             .then_with(|| a.0.cmp(&b.0))
     });
@@ -2245,48 +2252,49 @@ pub async fn home_rails(pool: &SqlitePool, user_id: i64) -> Result<Vec<HomeRail>
     }
 
     let mut used = std::collections::HashSet::new();
-    let mut ordinary = 0;
-    for requested_pass in [false, true] {
-        for (name, normalized, _, requested) in &ranked {
-            if rails.len() >= 5 || (!requested_pass && ordinary >= 3) {
-                break;
-            }
-            let concept = subjects::concept(normalized).to_string();
-            if used.contains(&concept) || (requested_pass && *requested < 2) {
-                continue;
-            }
-            let books =
-                books_for_subject(pool, user_id, normalized, 12, &taste, &preferred_json).await?;
-            if books.len() < 3
-                || rails.iter().any(|r: &HomeRail| {
-                    let common = books
-                        .iter()
-                        .filter(|b| r.books.iter().any(|other| other.id == b.id))
-                        .count();
-                    common * 4 >= books.len().min(r.books.len()) * 3
-                })
-            {
-                continue;
-            }
-            used.insert(concept);
-            rails.push(HomeRail {
-                key: format!(
-                    "{}-{normalized}",
-                    if requested_pass { "for-you" } else { "shelf" }
-                ),
-                title: if requested_pass {
-                    format!("Because you requested {name}")
-                } else {
-                    name.clone()
-                },
-                subtitle: (!requested_pass).then(|| "Matches your interests".to_string()),
-                subject: Some(normalized.clone()),
-                books,
-            });
-            if !requested_pass {
-                ordinary += 1;
-            }
+    for (name, normalized, _, requested) in &ranked {
+        if rails.len() >= 5 {
+            break;
         }
+        let concept = subjects::concept(normalized).to_string();
+        if used.contains(&concept) {
+            continue;
+        }
+        let books =
+            books_for_subject(pool, user_id, normalized, 12, &taste, &preferred_json).await?;
+        if books.len() < 3
+            || rails.iter().any(|r: &HomeRail| {
+                let common = books
+                    .iter()
+                    .filter(|b| r.books.iter().any(|other| other.id == b.id))
+                    .count();
+                common * 4 >= books.len().min(r.books.len()) * 3
+            })
+        {
+            continue;
+        }
+        used.insert(concept);
+        rails.push(HomeRail {
+            key: format!(
+                "{}-{normalized}",
+                if *requested >= 2 { "for-you" } else { "shelf" }
+            ),
+            title: if *requested >= 2 {
+                format!("Because you requested {name}")
+            } else {
+                name.clone()
+            },
+            subtitle: (*requested < 2).then(|| {
+                if explicit(normalized) {
+                    "Chosen in your reading interests"
+                } else {
+                    "Based on books you chose"
+                }
+                .to_string()
+            }),
+            subject: Some(normalized.clone()),
+            books,
+        });
     }
     Ok(rails)
 }

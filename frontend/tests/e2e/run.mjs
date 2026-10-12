@@ -18,6 +18,7 @@ import stabilitySpec from './specs/stability.mjs'
 import homeSheetSpec from './specs/home-sheet.mjs'
 import homeDesignSpec from './specs/home-design.mjs'
 import homeRailsSpec from './specs/home-rails.mjs'
+import homeLoadingSpec from './specs/home-loading.mjs'
 import homeFeedbackSpec from './specs/home-feedback.mjs'
 import recommendationsSpec from './specs/recommendations.mjs'
 import browseRestorationSpec from './specs/browse-restoration.mjs'
@@ -32,6 +33,10 @@ import profileMarksSpec from './specs/profile-marks.mjs'
 import bookDetailSpec from './specs/book-detail.mjs'
 import bookSharingSpec from './specs/book-sharing.mjs'
 import versionChoicesSpec from './specs/version-choices.mjs'
+import discoverActionsSpec from './specs/discover-actions.mjs'
+import notificationsSpec from './specs/notifications.mjs'
+import downloadReviewSpec from './specs/download-review.mjs'
+import discoverPendingSpec from './specs/discover-pending.mjs'
 import demoSpec from './specs/demo.mjs'
 import demoEntrySpec from './specs/demo-entry.mjs'
 import discoverDeepLinkSpec from './specs/discover-deep-link.mjs'
@@ -86,6 +91,7 @@ const allSpecs = [
   { name: 'home-sheet', run: homeSheetSpec, auth: false },
   { name: 'home-design', run: homeDesignSpec, auth: false },
   { name: 'home-rails', run: homeRailsSpec, auth: false },
+  { name: 'home-loading', run: homeLoadingSpec, auth: false },
   { name: 'home-feedback', run: homeFeedbackSpec, auth: false },
   { name: 'recommendations', run: recommendationsSpec, auth: false },
   { name: 'browse-restoration', run: browseRestorationSpec, auth: false },
@@ -100,6 +106,10 @@ const allSpecs = [
   { name: 'book-detail', run: bookDetailSpec, auth: false },
   { name: 'book-sharing', run: bookSharingSpec, auth: false },
   { name: 'version-choices', run: versionChoicesSpec, auth: false },
+  { name: 'discover-actions', run: discoverActionsSpec, auth: false },
+  { name: 'notifications', run: notificationsSpec, auth: false },
+  { name: 'download-review', run: downloadReviewSpec, auth: false },
+  { name: 'discover-pending', run: discoverPendingSpec, auth: false },
   { name: 'demo', run: demoSpec, auth: false },
   { name: 'demo-entry', run: demoEntrySpec, auth: false },
   { name: 'discover-deep-link', run: discoverDeepLinkSpec, auth: false },

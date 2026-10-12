@@ -92,7 +92,7 @@ function stageInfo(acquisition: Acquisition): StageInfo {
       return {
         current: 2,
         failed: null,
-        details: [release, null, 'needs your review', null, null],
+        details: [release, null, 'waiting for file review', null, null],
       }
     case 'QUEUED':
     case 'DOWNLOADING':
@@ -465,7 +465,7 @@ export function Downloads() {
                 </p>
                 <p className="mt-1 text-xs text-ink-faint">
                   {item.kind === 'review'
-                    ? 'Several files were found — choose the right one.'
+                    ? (item.errorMessage ?? 'The downloaded files need review before this book can be added.')
                     : item.kind === 'cancel_failed'
                       ? 'Bokhylle could not remove this download from your download client.'
                       : item.kind === 'path'
@@ -684,7 +684,10 @@ function AcquisitionRow({
   onChoose: (id: string) => void
   onKeepLooking: (id: string, enabled: boolean) => void
 }) {
+  const { user } = useAuth()
   const manageable = canManage(acquisition)
+  const canReview = (isAdmin || acquisition.requestedByUserId === user?.id)
+    && user?.profileType !== 'child' && (isAdmin || user?.canAcquire !== false)
 
   return (
     <article
@@ -820,34 +823,39 @@ function AcquisitionRow({
           )}
 
           {!quiet && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {acquisition.status === 'NEEDS_REVIEW' && isAdmin && (
-                <Button size="sm" variant="primary" onClick={() => onReview(acquisition.id)}>
-                  Review files
-                </Button>
+            <>
+              {acquisition.status === 'NEEDS_REVIEW' && acquisition.errorMessage && (
+                <p className="mt-2 text-xs text-ink-muted">{acquisition.errorMessage}</p>
               )}
-              {acquisition.status === 'NEEDS_REVIEW' && !isAdmin && (
-                <p className="text-xs text-ink-muted">
-                  An administrator needs to review this download.
-                </p>
-              )}
-              {acquisition.status === 'NEEDS_SELECTION' && manageable && (
-                <Button size="sm" variant="primary" onClick={() => onChoose(acquisition.id)}>
-                  Choose a version
-                </Button>
-              )}
-              {acquisition.status === 'NEEDS_SELECTION' && !manageable && (
-                <p className="text-xs text-ink-muted">
-                  Waiting for {acquisition.requestedBy ?? 'the requester'} to choose a version.
-                </p>
-              )}
-              {isActiveStatus(acquisition.status) && manageable && (
-                <Button size="sm" variant="secondary" onClick={() => onCancel(acquisition.id)}>
-                  Cancel
-                </Button>
-              )}
-              {isAdmin && <AdminDetails acquisitionId={acquisition.id} />}
-            </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {acquisition.status === 'NEEDS_REVIEW' && canReview && (
+                  <Button size="sm" variant="primary" onClick={() => onReview(acquisition.id)}>
+                    Review files
+                  </Button>
+                )}
+                {acquisition.status === 'NEEDS_REVIEW' && !canReview && (
+                  <p className="text-xs text-ink-muted">
+                    {manageable ? 'An administrator needs to review this download.' : `Waiting for ${acquisition.requestedBy ?? 'the requester'} or an administrator to review the downloaded files.`}
+                  </p>
+                )}
+                {acquisition.status === 'NEEDS_SELECTION' && manageable && (
+                  <Button size="sm" variant="primary" onClick={() => onChoose(acquisition.id)}>
+                    Choose a version
+                  </Button>
+                )}
+                {acquisition.status === 'NEEDS_SELECTION' && !manageable && (
+                  <p className="text-xs text-ink-muted">
+                    Waiting for {acquisition.requestedBy ?? 'the requester'} to choose a version.
+                  </p>
+                )}
+                {isActiveStatus(acquisition.status) && manageable && (
+                  <Button size="sm" variant="secondary" onClick={() => onCancel(acquisition.id)}>
+                    Cancel
+                  </Button>
+                )}
+                {isAdmin && <AdminDetails acquisitionId={acquisition.id} />}
+              </div>
+            </>
           )}
 
           {quiet && acquisition.status === 'READY' && (

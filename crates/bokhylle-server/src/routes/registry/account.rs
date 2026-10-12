@@ -96,4 +96,8 @@ pub(super) fn router() -> ApiRouter<AppState> {
             "/api/notifications/read",
             aide::axum::routing::post(routes::notifications::mark_read),
         )
+        .api_route(
+            "/api/notifications/{id}",
+            aide::axum::routing::delete(routes::notifications::dismiss),
+        )
 }

@@ -389,6 +389,94 @@ async fn subject_rails_check_languages_and_liked_similarity_ignores_generic_tags
 }
 
 #[tokio::test]
+async fn subject_rails_do_not_turn_shelf_categories_into_interests() {
+    let app = common::test_app().await;
+    let (user, _) = reader(&app).await;
+    interest(&app, user, "fantasy").await;
+    for i in 0..4 {
+        let id = add(&app, &metadata(&format!("claimed-{i}"), &["Murder"]), true).await;
+        user_books::add(&app.state.db, user, id, "claimed")
+            .await
+            .unwrap();
+    }
+    assert!(
+        queries::home_rails(&app.state.db, user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a category on bulk-claimed books is not a reading interest"
+    );
+    for i in 0..3 {
+        add(
+            &app,
+            &metadata(&format!("chosen-{i}"), &["Fantasy", "Magic"]),
+            true,
+        )
+        .await;
+    }
+    let rails = queries::home_rails(&app.state.db, user).await.unwrap();
+    assert_eq!(rails.len(), 1);
+    assert_eq!(rails[0].subject.as_deref(), Some("fantasy"));
+    assert_eq!(
+        rails[0].subtitle.as_deref(),
+        Some("Chosen in your reading interests")
+    );
+}
+
+#[tokio::test]
+async fn five_distinct_selected_interests_are_not_capped_at_three() {
+    let app = common::test_app().await;
+    let (user, _) = reader(&app).await;
+    for topic in [
+        "Fantasy",
+        "Science fiction",
+        "Cooking",
+        "Travel",
+        "History",
+        "Art",
+    ] {
+        interest(&app, user, &topic.to_lowercase()).await;
+        for i in 0..3 {
+            add(&app, &metadata(&format!("{topic}-{i}"), &[topic]), true).await;
+        }
+    }
+    let rails = queries::home_rails(&app.state.db, user).await.unwrap();
+    assert_eq!(rails.len(), 5);
+    assert!(rails.iter().all(|rail| rail.books.len() == 3));
+    assert!(
+        rails
+            .iter()
+            .all(|rail| rail.subtitle.as_deref() == Some("Chosen in your reading interests"))
+    );
+}
+
+#[tokio::test]
+async fn selected_genres_take_priority_over_inferred_plot_subjects() {
+    let app = common::test_app().await;
+    let (user, _) = reader(&app).await;
+    interest(&app, user, "fantasy").await;
+    let liked = add(&app, &metadata("liked-plot", &["Murder"]), false).await;
+    user_books::set_preference(&app.state.db, user, liked, Some("liked"))
+        .await
+        .unwrap();
+    for i in 0..3 {
+        add(
+            &app,
+            &metadata(&format!("overlap-{i}"), &["Fantasy", "Murder"]),
+            true,
+        )
+        .await;
+    }
+    let rails = queries::home_rails(&app.state.db, user).await.unwrap();
+    assert_eq!(rails.len(), 1);
+    assert_eq!(
+        rails[0].subject.as_deref(),
+        Some("fantasy"),
+        "the selected genre wins when an incidental plot subject has the same books"
+    );
+}
+
+#[tokio::test]
 async fn liked_rail_has_priority_and_overlapping_subject_rails_are_suppressed() {
     let app = common::test_app().await;
     let (user, _) = reader(&app).await;
@@ -425,8 +513,8 @@ async fn liked_rail_has_priority_and_overlapping_subject_rails_are_suppressed() 
     assert_eq!(rails[0].books.len(), 4);
     assert_eq!(
         rails.len(),
-        4,
-        "liked results retain their place beside three varied subjects"
+        5,
+        "liked results retain their place beside four varied selected subjects"
     );
     assert!(
         rails

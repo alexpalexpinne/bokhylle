@@ -8,13 +8,13 @@ import {
 } from '../api/library'
 import { heroBlurb } from '../lib/blurb'
 import {
-  emptyHomeSnapshot, hasHomeContent, homeSnapshotGeneration, readHomeSnapshot, saveHomeSnapshot,
+  beginHomeSnapshotRefresh, emptyHomeSnapshot, hasHomeContent, homeSnapshotGeneration, readHomeSnapshot, saveHomeSnapshot,
   HOME_RECOMMENDATIONS_CHANGED, homeRecommendationRevision,
   type HomeSnapshot,
 } from '../lib/homeSnapshot'
 
-// Reveal initial sections in their final order. A later response can fill the
-// next reserved slot, but cannot insert a section above books already shown.
+// Sections keep their own reserved slots; a slow section must not hold up
+// local rails whose requests have already finished.
 export const HOME_SECTIONS = [
   'spotlight', 'updates', 'continueReading', 'series', 'recent', 'highlights', 'rails', 'shelves', 'authors',
 ] as const
@@ -25,19 +25,26 @@ function pendingSections(pending: boolean): Record<HomeSection, boolean> {
   return Object.fromEntries(ALL_SECTIONS.map((section) => [section, pending])) as Record<HomeSection, boolean>
 }
 
-export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding }: {
+function recentCompleteSnapshot(snapshot: HomeSnapshot | undefined): boolean {
+  return !!snapshot && Date.now() - snapshot.loadedAt < 30_000 &&
+    ALL_SECTIONS.every((section) => snapshot.loadedSections.includes(section))
+}
+
+export function useHomeSnapshot({ cacheKey, isChild, canDiscover }: {
   cacheKey: string
   isChild: boolean
   canDiscover: boolean
-  fromOnboarding: boolean
 }) {
   const [initial] = useState(() => {
-    const saved = fromOnboarding ? undefined : readHomeSnapshot(cacheKey)
+    // Onboarding mutations already invalidate saved data. Its history entry
+    // must still be able to restore a later visit after Back or reload.
+    const saved = readHomeSnapshot(cacheKey)
     return saved && hasHomeContent(saved) ? saved : undefined
   })
   const [view, setView] = useState<HomeSnapshot>(initial ?? emptyHomeSnapshot)
-  const [pending, setPending] = useState(() => pendingSections(!initial))
-  const [refreshPending, setRefreshPending] = useState(!isChild || canDiscover)
+  const [pending, setPending] = useState(() => Object.fromEntries(ALL_SECTIONS.map((section) =>
+    [section, !initial?.loadedSections.includes(section)])) as Record<HomeSection, boolean>)
+  const [refreshPending, setRefreshPending] = useState(() => (!isChild || canDiscover) && !recentCompleteSnapshot(initial))
   const [error, setError] = useState<string | null>(null)
   const [sessionGeneration] = useState(homeSnapshotGeneration)
   const [retryCount, setRetryCount] = useState(0)
@@ -50,32 +57,54 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding
     let cancelled = false
     const generation = homeSnapshotGeneration()
     const revision = homeRecommendationRevision()
+    const currentRefresh = beginHomeSnapshotRefresh(cacheKey)
     let merged = retryCount > 0 ? viewRef.current : initial ?? emptyHomeSnapshot()
-    let remaining = ALL_SECTIONS.length
-    let completedAt = 0
+    const completed = new Set<HomeSection>()
+    let initialRevealed = !!initial || retryCount > 0
+    let revealTimer: ReturnType<typeof setTimeout> | undefined
+    let initialError: string | null = null
     let refreshedSpotlight: Pick<HomeSnapshot, 'spotlight' | 'recommendations'> | undefined
     const validSession = () => generation === homeSnapshotGeneration() && revision === homeRecommendationRevision()
     const withManualChanges = (snapshot: HomeSnapshot) => manualRails.current === null
       ? snapshot : { ...snapshot, rails: manualRails.current }
+    const reportError = (message: string) => {
+      if (initialRevealed) setError(message)
+      else initialError = message
+    }
     const save = () => {
-      if (remaining === 0 && validSession()) {
-        saveHomeSnapshot(cacheKey, withManualChanges({ ...merged, ...refreshedSpotlight, loadedAt: completedAt }), generation)
+      if (validSession() && currentRefresh()) {
+        saveHomeSnapshot(cacheKey, withManualChanges({ ...merged, ...refreshedSpotlight }), generation)
       }
     }
     const load = async (section: HomeSection, request: Promise<Partial<HomeSnapshot>>) => {
+      let patch: Partial<HomeSnapshot> | undefined
       try {
-        const patch = await request
+        patch = await request
         if (!validSession()) return
-        merged = { ...merged, ...patch }
+        merged = { ...merged, ...patch, loadedAt: Date.now(),
+          loadedSections: Array.from(new Set([...merged.loadedSections, section])) }
       } catch (caught) {
         if (validSession() && !cancelled && ['recent', 'spotlight', 'rails', 'continueReading', 'series'].includes(section)) {
-          setError(caught instanceof ApiError ? caught.message : 'Some shelves could not be loaded. Your available books are still shown.')
+          reportError(caught instanceof ApiError ? caught.message : 'Some shelves could not be loaded. Your available books are still shown.')
         }
       } finally {
-        remaining -= 1
-        if (remaining === 0) completedAt = Date.now()
-        if (!cancelled && validSession() && (!initial || retryCount > 0)) {
-          setView(withManualChanges(merged))
+        completed.add(section)
+        if (!cancelled && validSession() && !initialRevealed) {
+          // Batch the first local response burst. Empty slots can disappear
+          // before books become visible, without waiting for slower sections.
+          revealTimer ??= setTimeout(() => {
+            initialRevealed = true
+            if (cancelled || !validSession()) return
+            setView(withManualChanges(merged))
+            setPending((current) => ({ ...current, ...Object.fromEntries([...completed].map((key) => [key, false])) }))
+            if (initialError) setError(initialError)
+          }, 250)
+        } else if (!cancelled && validSession() && (!initial || retryCount > 0 || !initial.loadedSections.includes(section))) {
+          // A partial saved visit can fill its missing sections without
+          // replacing books that were restored and are already visible.
+          setView((current) => withManualChanges(initial && retryCount === 0
+            ? { ...current, ...patch, loadedAt: merged.loadedAt, loadedSections: merged.loadedSections }
+            : merged))
           setPending((current) => ({ ...current, [section]: false }))
         }
         save()
@@ -128,6 +157,12 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding
     const onFeedback = () => { void feedback() }
     window.addEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback)
 
+    // Rapid Back/Forward navigation can reuse a complete recent snapshot
+    // without starting ten more queries and another catalogue refresh.
+    if (retryCount === 0 && recentCompleteSnapshot(initial)) {
+      return () => { cancelled = true; window.removeEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback) }
+    }
+
     // The first request is entirely local/cache work. Catalogue refreshes are
     // saved for the next visit and never replace visible recommendations.
     const cachedSpotlight = fetchSpotlight(true).then(spotlightPatch)
@@ -141,10 +176,10 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding
         // reshuffle. Let its first catalogue suggestions fill the empty Home.
         if (!cancelled && validSession() && !initial && !hasHomeContent(merged)) {
           merged = { ...merged, ...refreshedSpotlight }
-          setView(withManualChanges(merged))
+          if (initialRevealed) setView(withManualChanges(merged))
         }
       } catch {
-        if (!cancelled && validSession()) setError('Catalogue suggestions could not be refreshed. Your available books are still shown.')
+        if (!cancelled && validSession()) reportError('Catalogue suggestions could not be refreshed. Your available books are still shown.')
       } finally {
         if (!cancelled && validSession()) setRefreshPending(false)
       }
@@ -165,8 +200,8 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding
         .flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
     })))
 
-    return () => { cancelled = true; window.removeEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback) }
-  }, [cacheKey, isChild, canDiscover, fromOnboarding, initial, retryCount])
+    return () => { cancelled = true; clearTimeout(revealTimer); window.removeEventListener(HOME_RECOMMENDATIONS_CHANGED, onFeedback) }
+  }, [cacheKey, isChild, canDiscover, initial, retryCount])
 
   const store = (next: HomeSnapshot) => {
     // Hiding/restoring a subject is an explicit change on this visit. A slower
@@ -175,14 +210,12 @@ export function useHomeSnapshot({ cacheKey, isChild, canDiscover, fromOnboarding
     saveHomeSnapshot(cacheKey, next, sessionGeneration)
     return next
   }
-  const visible = (section: typeof HOME_SECTIONS[number]) =>
-    HOME_SECTIONS.slice(0, HOME_SECTIONS.indexOf(section) + 1).every((key) => !pending[key])
-  const nextSection = HOME_SECTIONS.find((section) => pending[section])
+  const visible = (section: typeof HOME_SECTIONS[number]) => !pending[section]
   const retry = () => {
     setError(null)
     setPending(pendingSections(!hasHomeContent(viewRef.current)))
     setRefreshPending(!isChild || canDiscover)
     setRetryCount((count) => count + 1)
   }
-  return { view, setView, pending, refreshPending, error, setError, store, visible, nextSection, retry }
+  return { view, setView, pending, refreshPending, error, setError, store, visible, retry }
 }

@@ -51,6 +51,13 @@ export default async function homeRails(page, { base }) {
     const { books, requests } = await mockSmallShelf(page, scenario)
     await page.setViewportSize({ width: scenario.width, height: 1000 })
     await page.goto(base, { waitUntil: 'networkidle' })
+    // Each scenario supplies a different catalogue for the same fictional
+    // profile. Start its visit without the preceding fixture's saved Home.
+    await page.evaluate(() => {
+      for (const key of Object.keys(sessionStorage)) {
+        if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)
+      }
+    })
     await page.reload({ waitUntil: 'networkidle' })
     const hero = page.getByRole('region', { name: 'Spotlight', exact: true })
     await hero.getByRole('heading', { name: books[0].title, exact: true }).waitFor()

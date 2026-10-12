@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { Download, Send } from 'lucide-react'
 import {
@@ -71,7 +72,7 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
   const format = user?.preferredFormat ?? 'epub'
   const versionContext = JSON.stringify(['local', bookId, format, user?.preferredLanguages, user?.preferredLanguage])
   const selectedVersionKey = versionSelection?.context === versionContext ? versionSelection.key : null
-  const manual = canAcquire && user?.acquisitionMode === 'ask' && !hasFile
+  const manual = canAcquire && user?.acquisitionMode === 'ask' && !hasFile && pending.length === 0
   const preview = manual ? <ReleasePreviewChoices key={versionContext} provider="local" providerKey={`local:${bookId}`}
     format={format} context={versionContext} selected={selectedVersionKey} disabled={!!mutation.busyKey} onChange={setVersionSelection} /> : null
 
@@ -112,6 +113,7 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {item.status === 'NEEDS_SELECTION' && canManage && <Button variant="primary" onClick={() => onChoose(item.id)}>Select a version</Button>}
           <Link to={user?.role === 'admin' && !item.requestedByMe ? '/activity?scope=household' : '/activity'} className="inline-flex min-h-11 items-center text-sm text-accent hover:text-accent-strong">View in Activity</Link>
+          {!hasFile && canAcquire && !item.requestedByMe && <Button variant="primary" disabled={!!mutation.busyKey} onClick={getBook}>{mutation.busyKey === 'get' ? 'Getting…' : 'Get for my shelf'}</Button>}
           {!hasFile && item.requestedByMe && !item.deliverOnReady && <Button variant="secondary" disabled={!!mutation.busyKey} onClick={() => setSendId(item.id)}><Send size={16} aria-hidden />Send when ready</Button>}
         </div>
       </div>
@@ -135,6 +137,6 @@ export function BookAcquisitionStatus({ bookId, hasFile, onReady, onChoose }: {
       {canAcquire && <Button variant="primary" size="lg" disabled={!!mutation.busyKey || (manual && !selectedVersionKey)} onClick={getBook}><Download size={16} aria-hidden />{mutation.busyKey === 'get' ? 'Getting…' : 'Get for my shelf'}</Button>}
     </div>}
     {mutation.error && <p role="alert" className="text-sm text-danger">{mutation.error}</p>}
-    {sendId && <SendToReaderDialog bookId={bookId} acquisitionId={sendId} scheduled={items?.find((item) => item.id === sendId)?.deliverOnReady} initialAddress={items?.find((item) => item.id === sendId)?.scheduledDeliveryAddress} onClose={() => setSendId(null)} onSent={() => setReload((value) => value + 1)} />}
+    {sendId && createPortal(<SendToReaderDialog bookId={bookId} acquisitionId={sendId} scheduled={items?.find((item) => item.id === sendId)?.deliverOnReady} initialAddress={items?.find((item) => item.id === sendId)?.scheduledDeliveryAddress} onClose={() => setSendId(null)} onSent={() => setReload((value) => value + 1)} />, document.body)}
   </div>
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -48,6 +48,7 @@ import {
 import { BookCover } from '../components/BookCover'
 import { ReleasePreviewChoices, type VersionSelection } from '../components/ReleasePreviewChoices'
 import { BookSharingSettings } from './book-detail/BookSharingSettings'
+import { BookAcquisitionStatus } from './book-detail/BookAcquisitionStatus'
 import { ReleaseChoices } from '../components/ReleaseChoices'
 import { DemoSendDialog } from '../components/DemoSendDialog'
 import { SendToReaderDialog } from '../components/SendToReaderDialog'
@@ -111,6 +112,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   const [selected, setSelected] = useState<DiscoveryResult | null>(null)
   const [detail, setDetail] = useState<DiscoveryDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const detailSequence = useRef(0)
   const [preferredFormat, setPreferredFormat] = useState<SheetFormat>('any')
   const { user, demo } = useAuth()
   const [choosingId, setChoosingId] = useState<string | null>(null)
@@ -282,6 +284,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   }
 
   function openDetail(item: DiscoveryResult) {
+    const sequence = ++detailSequence.current
     setChoosingId(null)
     setVersionSelection(null)
     setSelected(item)
@@ -300,21 +303,35 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     if (item.ownedBookId) {
       // Owned books open from local data; no Open Library round-trip.
       fetchBook(item.ownedBookId)
-        .then(setOwnedDetail)
-        .catch(() => setDetailError('Could not load this book from your library.'))
-        .finally(() => setDetailLoading(false))
+        .then((book) => {
+          if (sequence !== detailSequence.current) return
+          setOwnedDetail(book)
+          if (book.files.length > 0) {
+            patchResult(item.provider, item.providerKey, { status: 'IN_LIBRARY', ownedFileId: item.ownedFileId ?? (book.files.find((file) => file.format === 'epub') ?? book.files[0]).id })
+          }
+          if (book.files.length === 0 && !book.description && item.provider !== 'local') {
+            // A pending local record can have less metadata than its catalogue
+            // entry. Supplement it without holding up local details or status.
+            void fetchDiscoverBook(item.providerKey, item.provider)
+              .then((loaded) => { if (sequence === detailSequence.current) setDetail(loaded) })
+              .catch(() => {
+                if (sequence === detailSequence.current) setDetailError('The catalogue details could not be loaded. You can still follow this download below.')
+              })
+          }
+        })
+        .catch(() => { if (sequence === detailSequence.current) setDetailError('Could not load this book from your library.') })
+        .finally(() => { if (sequence === detailSequence.current) setDetailLoading(false) })
     } else {
       fetchDiscoverBook(item.providerKey, item.provider)
         .then((loaded) => {
+          if (sequence !== detailSequence.current) return
           setDetail(loaded)
           setSelected((current) => current?.provider === item.provider && current.providerKey === item.providerKey
             ? { ...current, ...loaded }
             : current)
         })
-        .catch(() =>
-          setDetailError('Details could not be loaded. You can still get the book.'),
-        )
-        .finally(() => setDetailLoading(false))
+        .catch(() => { if (sequence === detailSequence.current) setDetailError('Details could not be loaded. You can still get the book.') })
+        .finally(() => { if (sequence === detailSequence.current) setDetailLoading(false) })
     }
 
     if (demo) {
@@ -336,6 +353,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
 
   function closeDetail() {
     if (choiceBusy) return
+    detailSequence.current += 1
     setChoosingId(null)
     setReaderDialogOpen(false)
     setSelected(null)
@@ -534,6 +552,29 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
     detail?.liked === true ||
     externalLikedId !== null
 
+  const refreshPendingBook = useCallback(() => {
+    if (!ownedBookId) return
+    const sequence = detailSequence.current
+    void fetchBook(ownedBookId).then((book) => {
+      if (sequence !== detailSequence.current) return
+      setOwnedDetail(book)
+      if (book.files.length > 0) {
+        // A catalogue request started while this was pending must not replace
+        // the completed local state if its response arrives later.
+        detailSequence.current += 1
+        const patch = { status: 'IN_LIBRARY' as const, ownedFileId: (book.files.find((file) => file.format === 'epub') ?? book.files[0]).id }
+        setSelected((current) => current && ({ ...current, ...patch }))
+        setDetail((current) => current && ({ ...current, ...patch }))
+      }
+    }).catch(() => {
+      if (sequence === detailSequence.current) setDetailError('Could not refresh this book. Open its book page to try again.')
+    })
+  }, [ownedBookId])
+  const publisher = detail?.publisher ?? ownedDetail?.editions.find((edition) => edition.publisher)?.publisher
+  const series = ownedDetail?.series ?? detail?.series ?? selected?.series
+  const seriesNumber = ownedDetail?.seriesNumber ?? detail?.seriesNumber ?? selected?.seriesNumber
+  const isbn = detail?.isbn13 ?? ownedDetail?.editions.find((edition) => edition.isbn13)?.isbn13 ?? selected?.isbn13
+
   async function toggleLiked() {
     if (preferenceBusy) return
     setPreferenceBusy(true)
@@ -566,11 +607,11 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
   }
 
   const likeButton = ownedBookId || externalLikedId !== null || (selected && selectedStatus === 'NOT_IN_LIBRARY') ? (
-    <div className="order-last col-span-2 flex flex-wrap gap-2 sm:order-first sm:mr-auto"><Button variant="secondary" className="min-h-11 border border-ink/20" aria-pressed={liked} disabled={preferenceBusy} onClick={() => void toggleLiked()}>
+    <div className={`order-last col-span-2 grid ${user?.profileType === 'child' ? 'grid-cols-1' : 'grid-cols-2'} gap-2 sm:order-first sm:mr-auto sm:flex sm:flex-wrap`}><Button variant="secondary" className="border border-ink/20" aria-pressed={liked} disabled={preferenceBusy} onClick={() => void toggleLiked()}>
       <Heart size={15} fill={liked ? 'currentColor' : 'none'} aria-hidden />
       {liked ? 'Liked' : 'Like'}
     </Button>
-    {user?.profileType !== 'child' && <Button variant="ghost" className="min-h-11" disabled={preferenceBusy} onClick={() => {
+    {user?.profileType !== 'child' && <Button variant="ghost" disabled={preferenceBusy} onClick={() => {
       if (!selected || preferenceBusy) return
       setPreferenceBusy(true)
       void (ownedBookId ? setBookPreference(ownedBookId, 'not_for_me') : rejectExternalBook(selected.providerKey, selected.provider))
@@ -882,9 +923,11 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
         <Modal
           title={ownedDetail?.title || detail?.title || selected.title || 'Loading book…'}
           description={
-            detail
-              ? [detail.year ?? selected.year, languageCaption({ ...selected, status: detail.status, language: detail.language, languages: detail.languages }, effectiveLanguages)].filter(Boolean).join(' · ')
-              : undefined
+            [ownedDetail?.publicationYear ?? detail?.year ?? selected.year,
+              languageCaption({ ...selected, status: selectedStatus ?? selected.status,
+                language: ownedDetail?.language ?? detail?.language ?? selected.language,
+                languages: ownedDetail?.availableLanguages ?? detail?.languages ?? selected.languages }, effectiveLanguages)]
+              .filter(Boolean).join(' · ')
           }
           onClose={closeDetail}
           wide
@@ -894,7 +937,7 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
             }} />
           ) : undefined}
           footer={
-            <div role="group" aria-label="Book choices" className="grid w-full grid-cols-2 gap-2 [&>button]:h-auto [&>button]:min-h-11 [&>button]:min-w-0 [&>button]:px-3 [&>button]:py-2.5 [&>a]:h-auto [&>a]:min-h-11 [&>a]:min-w-0 [&>a]:px-3 [&>a]:py-2.5 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+            <div role="group" aria-label="Book choices" className="grid w-full grid-cols-2 gap-2 [&>button]:col-span-2 [&>button]:h-auto [&>button]:min-h-12 [&>button]:min-w-0 [&>button]:px-3 [&>button]:py-2.5 [&>a]:col-span-2 [&>a]:h-auto [&>a]:min-h-12 [&>a]:min-w-0 [&>a]:px-3 [&>a]:py-2.5 [&_svg]:shrink-0 sm:flex sm:flex-wrap sm:items-center sm:justify-end sm:[&>button]:min-h-11 sm:[&>a]:min-h-11">
             {
             choosingId ? (
               <Button variant="ghost" disabled={choiceBusy} onClick={closeDetail}>Close</Button>
@@ -981,6 +1024,11 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
               </>
             ) : demo && selectedStatus === 'DOWNLOADING' ? (
               <ButtonLink to="/activity" variant="primary" className="order-first col-span-2 sm:order-none">Follow in Activity</ButtonLink>
+            ) : selectedStatus === 'DOWNLOADING' && ownedBookId ? (
+              <>
+                <ButtonLink to={`/library/${ownedBookId}`} variant="primary">View book</ButtonLink>
+                <Button variant="ghost" onClick={closeDetail}>Close</Button>
+              </>
             ) : (
               <Button variant="ghost" onClick={closeDetail}>
                 Close
@@ -1048,18 +1096,18 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
               )}
 
               <dl className="mt-2">
-                {detail?.publisher && <DetailRow label="Publisher" value={detail.publisher} />}
-                {detail?.series && (
+                {publisher && <DetailRow label="Publisher" value={publisher} />}
+                {series && (
                   <DetailRow
                     label="Series"
-                    value={`${detail.series}${detail.seriesNumber ? ` · Book ${detail.seriesNumber}` : ''}`}
+                    value={`${series}${seriesNumber ? ` · Book ${seriesNumber}` : ''}`}
                   />
                 )}
-                {detail?.isbn13 && <DetailRow label="ISBN" value={detail.isbn13} />}
-                {detail?.status === 'IN_LIBRARY' && (
+                {isbn && <DetailRow label="ISBN" value={isbn} />}
+                {selectedStatus === 'IN_LIBRARY' && (
                   <DetailRow label="Status" value="Already in your library" />
                 )}
-                {detail?.status === 'DOWNLOADING' && (
+                {selectedStatus === 'DOWNLOADING' && (
                   <DetailRow label="Status" value="Already on its way" />
                 )}
               </dl>
@@ -1137,10 +1185,16 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
             </div>}
           </div>
 
-          {(detail?.description ?? ownedDetail?.description) && (
+          {(ownedDetail?.description ?? detail?.description) && (
             <p className="mt-5 max-h-52 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-ink-soft">
-              {descriptionText(detail?.description ?? ownedDetail?.description ?? '')}
+              {descriptionText(ownedDetail?.description ?? detail?.description ?? '')}
             </p>
+          )}
+          {!demo && selectedStatus === 'DOWNLOADING' && ownedBookId && (
+            <div className="mt-5 border-t border-line pt-5">
+              <BookAcquisitionStatus key={ownedBookId} bookId={ownedBookId} hasFile={false}
+                onReady={refreshPendingBook} onChoose={setChoosingId} />
+            </div>
           )}
           </>}
         </Modal>

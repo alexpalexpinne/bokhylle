@@ -18,11 +18,14 @@ export type HomeSnapshot = {
   rails: HomeRail[]
   householdBooks: number
   loadedAt: number
+  loadedSections: string[]
 }
 
-const PREFIX = 'bokhylle.home.v3.'
-const TTL_MS = 60_000
+const PREFIX = 'bokhylle.home.v4.'
+const TTL_MS = 15 * 60_000
 const snapshots = new Map<string, HomeSnapshot>()
+const refreshes = new Map<string, number>()
+let refreshSequence = 0
 let generation = 0
 let recommendationRevision = 0
 export const HOME_RECOMMENDATIONS_CHANGED = 'bokhylle:recommendations-changed'
@@ -49,10 +52,16 @@ export function homeSnapshotGeneration() {
   return generation
 }
 
+export function beginHomeSnapshotRefresh(key: string): () => boolean {
+  const sequence = ++refreshSequence
+  refreshes.set(key, sequence)
+  return () => refreshes.get(key) === sequence
+}
+
 export function emptyHomeSnapshot(): HomeSnapshot {
   return {
     series: [], spotlight: [], recommendations: [], updates: null, recent: [], continueReading: [],
-    highlights: [], authors: [], shelves: [], rails: [], householdBooks: 0, loadedAt: 0,
+    highlights: [], authors: [], shelves: [], rails: [], householdBooks: 0, loadedAt: 0, loadedSections: [],
   }
 }
 
@@ -71,6 +80,7 @@ function validSnapshot(value: unknown): value is HomeSnapshot {
     'authors', 'shelves', 'rails'].every((field) => Array.isArray(snapshot[field])) &&
     typeof snapshot.householdBooks === 'number' &&
     typeof snapshot.loadedAt === 'number' && Number.isFinite(snapshot.loadedAt) &&
+    Array.isArray(snapshot.loadedSections) && snapshot.loadedSections.every((section) => typeof section === 'string') &&
     (snapshot.updates === null || (typeof snapshot.updates === 'object' &&
       snapshot.updates !== null && Array.isArray((snapshot.updates as Updates).discoveries)))
 }
@@ -115,6 +125,7 @@ export function clearHomeSnapshots() {
 
 function clearStoredSnapshots() {
   snapshots.clear()
+  refreshes.clear()
   try {
     for (const key of Object.keys(sessionStorage)) {
       if (key.startsWith('bokhylle.home.')) sessionStorage.removeItem(key)

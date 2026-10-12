@@ -8690,7 +8690,7 @@
   "info": {
     "description": "Household library JSON API. Access depends on the signed-in profile and role.",
     "title": "Bokhylle HTTP API",
-    "version": "0.4.1"
+    "version": "0.5.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -19582,6 +19582,65 @@
               }
             },
             "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "API error. The HTTP status and `code` identify the failure."
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/notifications/{id}": {
+      "delete": {
+        "operationId": "delete_notifications__id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
           },
           "401": {
             "content": {
