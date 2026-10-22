@@ -25,6 +25,7 @@ import browseRestorationSpec from './specs/browse-restoration.mjs'
 import browsingErrorsSpec from './specs/browsing-errors.mjs'
 import profileAppearanceSpec from './specs/profile-appearance.mjs'
 import searchStatesSpec from './specs/search-states.mjs'
+import searchCancellationSpec from './specs/search-cancellation.mjs'
 import profileHelpSpec from './specs/profile-help.mjs'
 import chunkRecoverySpec from './specs/chunk-recovery.mjs'
 import onboardingSearchSpec from './specs/onboarding-search.mjs'
@@ -98,6 +99,7 @@ const allSpecs = [
   { name: 'browsing-errors', run: browsingErrorsSpec, auth: false },
   { name: 'profile-appearance', run: profileAppearanceSpec, auth: false },
   { name: 'search-states', run: searchStatesSpec, auth: false },
+  { name: 'search-cancellation', run: searchCancellationSpec, auth: false },
   { name: 'profile-help', run: profileHelpSpec, auth: false },
   { name: 'chunk-recovery', run: chunkRecoverySpec, auth: false },
   { name: 'onboarding-search', run: onboardingSearchSpec, auth: false },

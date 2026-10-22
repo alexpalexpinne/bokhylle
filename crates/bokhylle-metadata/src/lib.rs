@@ -87,6 +87,9 @@ pub struct MetadataResult {
     pub provider_key: String,
     pub edition_key: Option<String>,
     pub title: String,
+    /// Edition and translated titles used to verify discovery relevance.
+    #[serde(default)]
+    pub alternative_titles: Vec<String>,
     pub authors: Vec<String>,
     pub year: Option<i32>,
     /// The primary language, kept for existing consumers; `languages` is the

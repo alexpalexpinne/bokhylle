@@ -9,6 +9,9 @@ const SEARCH_FIXTURE: &str = r#"{
     {
       "key": "/works/OL20894485W",
       "title": "Project Hail Mary",
+      "editions": {"docs": [{"title": "Uppdrag Hail Mary"}]},
+      "series_name": ["Fixture Series"],
+      "series_position": ["2"],
       "author_name": ["Andy Weir"],
       "first_publish_year": 2021,
       "isbn": ["9780593135204", "0593135202", "9780593135211"],
@@ -82,6 +85,9 @@ async fn search_maps_provider_results() {
     assert_eq!(first.provider, "openlibrary");
     assert_eq!(first.provider_key, "/works/OL20894485W");
     assert_eq!(first.title, "Project Hail Mary");
+    assert_eq!(first.alternative_titles, ["Uppdrag Hail Mary"]);
+    assert_eq!(first.series.as_deref(), Some("Fixture Series"));
+    assert_eq!(first.series_number.as_deref(), Some("2"));
     assert_eq!(first.authors, vec!["Andy Weir"]);
     assert_eq!(first.year, Some(2021));
     assert_eq!(first.isbn13.as_deref(), Some("9780593135204"));

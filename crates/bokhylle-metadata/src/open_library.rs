@@ -112,9 +112,9 @@ impl OpenLibraryClient {
         query: &MetadataQuery,
     ) -> Result<SearchResponse, MetadataError> {
         let limit = query.limit.clamp(1, 50);
-        let fields = "key,title,author_name,first_publish_year,isbn,edition_key,cover_i,language,subject,\
+        let fields = "key,title,editions,editions.title,author_name,first_publish_year,isbn,edition_key,cover_i,language,subject,\
                       edition_count,ratings_count,ratings_average,want_to_read_count,\
-                      currently_reading_count,already_read_count";
+                      currently_reading_count,already_read_count,series_name,series_position";
         let mut url = format!(
             "{}/search.json?limit={limit}&fields={fields}",
             self.base_url
@@ -199,6 +199,11 @@ struct SearchResponse {
 struct SearchDoc {
     key: Option<String>,
     title: Option<String>,
+    editions: Option<SearchEditions>,
+    #[serde(default)]
+    series_name: Vec<String>,
+    #[serde(default)]
+    series_position: Vec<String>,
     #[serde(default)]
     author_name: Vec<String>,
     first_publish_year: Option<i32>,
@@ -217,6 +222,17 @@ struct SearchDoc {
     want_to_read_count: Option<i64>,
     currently_reading_count: Option<i64>,
     already_read_count: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct SearchEditions {
+    #[serde(default)]
+    docs: Vec<SearchEdition>,
+}
+
+#[derive(Deserialize)]
+struct SearchEdition {
+    title: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -697,6 +713,14 @@ fn doc_to_result(doc: SearchDoc) -> Option<MetadataResult> {
         provider_key,
         edition_key: doc.edition_key.first().cloned(),
         title,
+        alternative_titles: doc
+            .editions
+            .into_iter()
+            .flat_map(|editions| editions.docs)
+            .filter_map(|edition| edition.title)
+            .map(|title| title.trim().to_string())
+            .filter(|title| !title.is_empty())
+            .collect(),
         authors: doc
             .author_name
             .into_iter()
@@ -709,8 +733,8 @@ fn doc_to_result(doc: SearchDoc) -> Option<MetadataResult> {
         languages,
         isbn10,
         isbn13,
-        series: None,
-        series_number: None,
+        series: doc.series_name.first().cloned(),
+        series_number: doc.series_position.first().cloned(),
         description: None,
         publisher: None,
         cover_id: doc.cover_i.map(|cover| cover.to_string()),

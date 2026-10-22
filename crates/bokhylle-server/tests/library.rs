@@ -654,12 +654,15 @@ async fn older_book_recovers_embedded_cover_only_inside_the_library() {
         let mut entry = original.by_index(index).unwrap();
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes).unwrap();
-        if entry.name() == "OEBPS/cover.png" {
+        if entry.name().unwrap() == "OEBPS/cover.png" {
             bytes.resize(4096, 0);
             artwork = bytes.clone();
         }
         output
-            .start_file(entry.name(), zip::write::SimpleFileOptions::default())
+            .start_file(
+                entry.name().unwrap(),
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         output.write_all(&bytes).unwrap();
     }

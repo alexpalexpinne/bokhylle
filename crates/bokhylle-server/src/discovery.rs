@@ -7,7 +7,7 @@ pub mod ranking;
 use serde::Serialize;
 use sqlx::SqlitePool;
 
-use bokhylle_core::identity::normalize_text;
+use bokhylle_core::identity::{normalize_isbn, normalize_text};
 use bokhylle_metadata::{MetadataProvider, MetadataQuery, MetadataResult};
 
 use crate::AppState;
@@ -51,8 +51,23 @@ impl SearchKind {
         }
     }
 
+    fn for_text(self, text: &str) -> Self {
+        if self == Self::Any
+            && text.chars().all(|character| {
+                character.is_ascii_digit()
+                    || character.is_whitespace()
+                    || matches!(character, 'X' | 'x' | '-' | '–' | '—')
+            })
+            && normalize_isbn(text).is_some()
+        {
+            Self::Isbn
+        } else {
+            self
+        }
+    }
+
     fn query(self, text: &str, limit: usize) -> MetadataQuery {
-        match self {
+        match self.for_text(text) {
             Self::Any
                 if text.trim().chars().count() <= 2
                     && text.trim().chars().all(char::is_alphabetic) =>
@@ -81,7 +96,7 @@ impl SearchKind {
                 ..Default::default()
             },
             Self::Isbn => MetadataQuery {
-                isbn: Some(text.to_string()),
+                isbn: Some(normalize_isbn(text).unwrap_or_else(|| text.trim().to_string())),
                 limit,
                 ..Default::default()
             },
@@ -109,6 +124,10 @@ pub struct DiscoveryResult {
     pub provider: String,
     pub provider_key: String,
     pub title: String,
+    /// Query-matching edition titles, retained only for internal ranking.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub alternative_titles: Vec<String>,
     pub authors: Vec<String>,
     #[serde(default)]
     pub subjects: Vec<String>,
@@ -175,10 +194,25 @@ async fn provider_page(
     limit: usize,
     continuation: Option<&str>,
 ) -> Result<CachedPage, AppError> {
+    let mut page = cached_provider_page(state, provider, kind, text, limit, continuation).await?;
+    // Recheck cached candidates too; provider full-text matches may only refer
+    // to a publisher, contributor or an unrelated edition's description.
+    ranking::filter_metadata(&mut page.items, kind, text);
+    Ok(page)
+}
+
+async fn cached_provider_page(
+    state: &AppState,
+    provider: &Arc<dyn MetadataProvider>,
+    kind: SearchKind,
+    text: &str,
+    limit: usize,
+    continuation: Option<&str>,
+) -> Result<CachedPage, AppError> {
     let mut query = kind.query(text, limit);
     query.continuation = continuation.map(str::to_string);
     let cache_key = format!(
-        "search:{}:{}:{}:{}",
+        "search:v2:{}:{}:{}:{}",
         provider.name(),
         query.cache_fragment(),
         limit,
@@ -338,7 +372,7 @@ async fn ranked_first_pool(
     {
         let series_text = format!("series:\"{}\"", text.replace('"', ""));
         if let Ok(series_page) =
-            provider_page(state, provider, SearchKind::Any, &series_text, 6, None).await
+            cached_provider_page(state, provider, SearchKind::Any, &series_text, 6, None).await
         {
             let mut counts: HashMap<String, usize> = HashMap::new();
             for item in &series_page.items {
@@ -408,6 +442,7 @@ pub async fn search_page_selected(
     continuation: Option<&str>,
     selection: ProviderSelection<'_>,
 ) -> Result<SearchResponse, AppError> {
+    let kind = kind.for_text(text);
     let limit = limit.clamp(1, 50);
     tracing::info!(kind = kind.as_str(), "discovery.search.started");
 
@@ -550,6 +585,7 @@ pub async fn external_results(
     text: &str,
     limit: usize,
 ) -> Result<Vec<DiscoveryResult>, AppError> {
+    let kind = kind.for_text(text);
     let limit = limit.clamp(1, 50);
     let primary = state.registry.metadata().clone();
     let primary_page = provider_page(state, &primary, kind, text, limit, None).await;
@@ -576,6 +612,7 @@ pub async fn external_results(
             provider: result.provider,
             provider_key: result.provider_key,
             title: result.title,
+            alternative_titles: result.alternative_titles,
             authors: result.authors,
             subjects: result.subjects,
             year: result.year,
@@ -619,6 +656,7 @@ async fn local_matches(
     text: &str,
     viewer_id: i64,
 ) -> Result<Vec<DiscoveryResult>, AppError> {
+    let kind = kind.for_text(text);
     type LocalRow = (
         i64,
         String,
@@ -632,12 +670,12 @@ async fn local_matches(
     let visibility = crate::services::sharing::predicate("b.id", viewer_id);
     let rows: Vec<LocalRow> = match kind {
         SearchKind::Isbn => {
-            let isbn = text.trim();
+            let isbn = normalize_isbn(text).unwrap_or_else(|| text.trim().to_string());
             sqlx::query_as(sqlx::AssertSqlSafe(format!(
                 "SELECT b.id, b.title,
-                        COALESCE((SELECT group_concat(a.name, ', ')
+                        (SELECT json_group_array(a.name)
                                   FROM book_authors ba JOIN authors a ON a.id = ba.author_id
-                                  WHERE ba.book_id = b.id), ''),
+                                  WHERE ba.book_id = b.id),
                         b.language, b.series, b.series_number,
                         (SELECT publication_year FROM editions
                          WHERE book_id = b.id AND publication_year IS NOT NULL
@@ -647,8 +685,8 @@ async fn local_matches(
                  ORDER BY b.created_at DESC, b.id DESC
                  LIMIT 12"
             )))
-            .bind(isbn)
-            .bind(isbn)
+            .bind(&isbn)
+            .bind(&isbn)
             .fetch_all(&state.db)
             .await?
         }
@@ -665,9 +703,9 @@ async fn local_matches(
             } else {
                 sqlx::query_as(sqlx::AssertSqlSafe(format!(
                     "SELECT b.id, b.title,
-                            COALESCE((SELECT group_concat(a.name, ', ')
+                            (SELECT json_group_array(a.name)
                                       FROM book_authors ba JOIN authors a ON a.id = ba.author_id
-                                      WHERE ba.book_id = b.id), ''),
+                                      WHERE ba.book_id = b.id),
                             b.language, b.series, b.series_number,
                             (SELECT publication_year FROM editions
                              WHERE book_id = b.id AND publication_year IS NOT NULL
@@ -753,11 +791,8 @@ async fn local_matches(
             provider: provider.unwrap_or_else(|| "local".to_string()),
             provider_key: provider_key.unwrap_or_else(|| format!("local:{id}")),
             title,
-            authors: authors
-                .split(", ")
-                .filter(|part| !part.is_empty())
-                .map(str::to_string)
-                .collect(),
+            authors: serde_json::from_str(&authors)
+                .map_err(|error| AppError::Internal(sqlx::Error::Decode(Box::new(error))))?,
             year: publication_year.map(|year| year as i32),
             languages,
             language,
@@ -778,6 +813,9 @@ async fn local_matches(
         });
     }
 
+    // FTS uses prefix matches and one flattened author column; apply the same
+    // field relevance rules as online results before showing the local preview.
+    ranking::filter_books(&mut output, kind, text);
     let needle = normalize_text(&bokhylle_core::identity::core_title(text));
     output.sort_by_key(|item| {
         let title = normalize_text(&bokhylle_core::identity::core_title(&item.title));
@@ -830,6 +868,7 @@ async fn resolve_owned(
             provider: result.provider,
             provider_key: result.provider_key,
             title: result.title,
+            alternative_titles: result.alternative_titles,
             authors: result.authors,
             subjects: result.subjects,
             year: result.year,
@@ -1259,5 +1298,28 @@ mod tests {
         assert!(query.free_text.is_none());
         let longer = SearchKind::Any.query("Stephen King", 24);
         assert_eq!(longer.free_text.as_deref(), Some("Stephen King"));
+    }
+
+    #[test]
+    fn only_standalone_valid_isbns_change_an_anywhere_query_to_isbn() {
+        for text in [
+            "9780593135204",
+            "978-0-593-13520-4",
+            "0593135202",
+            "0-593-13520-2",
+            "097522980X",
+        ] {
+            let query = SearchKind::Any.query(text, 24);
+            assert_eq!(query.isbn, normalize_isbn(text), "{text}");
+            assert!(query.free_text.is_none());
+            assert!(query.title.is_none());
+        }
+        for text in ["1984", "9780593135205", "A Book 9780593135204"] {
+            assert_eq!(SearchKind::Any.for_text(text), SearchKind::Any, "{text}");
+        }
+        assert_eq!(
+            SearchKind::Title.for_text("9780593135204"),
+            SearchKind::Title
+        );
     }
 }

@@ -307,7 +307,12 @@ export function Discover({ detailOnly = false }: { detailOnly?: boolean }) {
           if (sequence !== detailSequence.current) return
           setOwnedDetail(book)
           if (book.files.length > 0) {
-            patchResult(item.provider, item.providerKey, { status: 'IN_LIBRARY', ownedFileId: item.ownedFileId ?? (book.files.find((file) => file.format === 'epub') ?? book.files[0]).id })
+            // Demo files are preloaded; their presence cannot complete a
+            // simulated Get that Discover still reports as pending.
+            patchResult(item.provider, item.providerKey, {
+              status: demo ? item.status : 'IN_LIBRARY',
+              ownedFileId: item.ownedFileId ?? (book.files.find((file) => file.format === 'epub') ?? book.files[0]).id,
+            })
           }
           if (book.files.length === 0 && !book.description && item.provider !== 'local') {
             // A pending local record can have less metadata than its catalogue

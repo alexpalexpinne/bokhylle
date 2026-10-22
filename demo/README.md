@@ -26,7 +26,9 @@ library, or downloads directory.**
   covers come from the prepared samples. Likes, follows, and hidden subjects
   are private to each visitor and can be changed without affecting anyone else.
 - Search the samples in Discover. **Get for my shelf** shows acquisition progress
-  and adds a prepared book to the shelf. No outside source is contacted.
+  and adds a prepared book to the shelf. Opening a pending book's details keeps
+  its progress visible until the simulated acquisition finishes. No outside
+  source is contacted.
 - Read a sample EPUB in Bokhylle or download it to a reading app. Your browser
   place is saved to your disposable visitor profile.
 - **Send to Demo Kindle** and **Get & Send to Kindle**
