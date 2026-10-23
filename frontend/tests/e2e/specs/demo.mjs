@@ -10,6 +10,7 @@ const BOOK = {
   status: 'IN_LIBRARY', ownedBookId: 77, ownedFileId: 10, onShelf: false,
 }
 const COVER = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="180"><rect width="120" height="180" fill="#8b5134"/></svg>'
+const DESCRIPTION = 'Details for the prepared fictional sample book.'
 
 export default async function demo(page, { base }) {
   let pending = false
@@ -45,7 +46,7 @@ export default async function demo(page, { base }) {
     if (path === '/api/books/77') return json({
       id: 77, title: BOOK.title, authors: BOOK.authors, authorRefs: [], hasCover: true,
       files: [{ id: 10, editionId: 1, format: 'epub', size: 123, filename: 'demo.epub' }],
-      onShelf: ready, preference: null, subjects: [], editions: [],
+      onShelf: ready, preference: null, subjects: [], editions: [], description: DESCRIPTION,
     })
     if (path === '/api/books/77/related') return json({ series: [], author: [], similar: [] })
     if (path === '/api/books/77/shelf-users') return json({ users: [] })
@@ -102,7 +103,19 @@ export default async function demo(page, { base }) {
   await page.goto(`${base}/discover?q=Demo&type=title`, { waitUntil: 'networkidle' })
   expect(await page.getByRole('button', { name: 'Try Get', exact: true }).count() === 0, 'pending demo Get must not be offered again')
   await page.getByRole('button', { name: 'Open details for Demo Book' }).click()
-  await page.getByRole('link', { name: 'Follow in Activity' }).waitFor()
+  // Wait for the detail response to render before checking status. The demo's
+  // prepared file already exists while its simulated acquisition is pending.
+  await sheet.getByText(DESCRIPTION, { exact: true }).waitFor()
+  expect(await sheet.getByText('Already in your library', { exact: true }).count() === 0,
+    'loading the prepared file details must not finish a pending demo Get')
+  await sheet.getByText('Already on its way', { exact: true }).waitFor()
+  await sheet.getByRole('link', { name: 'Follow in Activity' }).waitFor()
+  expect(await sheet.getByRole('button', { name: 'Get for my shelf', exact: true }).count() === 0,
+    'loading pending details must not offer a repeated demo Get')
+  await page.keyboard.press('Escape')
+  await card.getByText('On its way', { exact: true }).waitFor()
+  expect(await card.getByRole('button', { name: 'Try Get', exact: true }).count() === 0,
+    'opening pending details must preserve the search card progress state')
   await page.goto(`${base}/library/77`, { waitUntil: 'networkidle' })
   expect(await page.getByRole('button', { name: 'Getting…', exact: true }).isDisabled(), 'book page must disable repeated Get during acquisition')
   expect(getCount === 1, 'the journey must acquire the book only once')

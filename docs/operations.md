@@ -177,6 +177,13 @@ arguments report unavailable commit metadata. `SOURCE_DATE_EPOCH` can supply a
 reproducible build timestamp for Rust builds; the Dockerfile accepts an explicit
 Unix timestamp as `BOKHYLLE_BUILD_TIME`.
 
+### Updating to 0.5.1
+
+This release has no database schema migration or configuration change. It fixes
+Discover relevance and request cancellation, updates security dependencies, and
+bounds password and PIN work outside the async request workers. Existing
+accounts, shelves, downloads, reader progress, and scheduled sends are preserved.
+
 ### Updating to 0.5.0
 
 This release has no database schema migration. Adult profiles with acquisition
@@ -190,7 +197,7 @@ and acquisitions retain their state.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.5.0`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.5.1`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 

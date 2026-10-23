@@ -138,11 +138,13 @@ async fn search_reports_library_status_and_deduplicates() {
     assert_eq!(status, StatusCode::OK);
 
     let results = results.as_array().unwrap();
-    assert_eq!(results.len(), 2, "duplicate library match should collapse");
+    assert_eq!(
+        results.len(),
+        1,
+        "duplicates and unrelated works are omitted"
+    );
     assert_eq!(results[0]["title"], "Project Hail Mary");
     assert_eq!(results[0]["status"], "IN_LIBRARY");
-    assert_eq!(results[1]["title"], "Dune");
-    assert_eq!(results[1]["status"], "NOT_IN_LIBRARY");
     assert_eq!(results[0]["coverId"], "123");
 }
 
@@ -209,6 +211,69 @@ async fn search_validates_input() {
 
     let (status, _) = get_json(&test_app, "/api/discover/search?q=dune&type=bogus", &cookie).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn anywhere_isbn_search_uses_isbn_lookup_online_and_in_the_local_preview() {
+    use bokhylle_metadata::open_library::OpenLibraryClient;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search.json"))
+        .and(query_param("isbn", "9780593135204"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "docs": [{
+                "key": "/works/OLISBNW",
+                "title": "Project Hail Mary",
+                "author_name": ["Andy Weir"]
+            }]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider =
+        Arc::new(OpenLibraryClient::with_base_url(&server.uri(), &server.uri()).unwrap());
+    let app = common::test_app_with_metadata(provider).await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    for isbn in ["978-0-593-13520-4", "9780593135204"] {
+        let (status, online) = get_json(
+            &app,
+            &format!("/api/discover/search?q={isbn}&type=any"),
+            &cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(online.as_array().unwrap().len(), 1);
+        assert_eq!(online[0]["title"], "Project Hail Mary");
+    }
+
+    let book = metadata_result(
+        "/works/local-isbn",
+        "Project Hail Mary",
+        &["Andy Weir"],
+        Some("9780593135204"),
+    );
+    bokhylle_server::library::import_metadata::upsert_book_from_metadata(&app.state.db, &book)
+        .await
+        .unwrap();
+    for isbn in ["978-0-593-13520-4", "9780593135204"] {
+        let (status, local) = get_json(
+            &app,
+            &format!("/api/discover?q={isbn}&type=any&source=local"),
+            &cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(local["books"].as_array().unwrap().len(), 1);
+        assert_eq!(local["books"][0]["title"], "Project Hail Mary");
+    }
 }
 
 #[tokio::test]
@@ -1027,6 +1092,8 @@ async fn local_title_and_author_searches_are_column_scoped() {
     for (key, title, author) in [
         ("/works/OLSCOPE1W", "Needle Title", "Other Author"),
         ("/works/OLSCOPE2W", "Other Title", "Needle Author"),
+        ("/works/OLSCOPE3W", "It", "King, Stephen"),
+        ("/works/OLSCOPE4W", "Italian Cooking", "Another Writer"),
     ] {
         test_app.state.auth.count_users().await.unwrap();
         bokhylle_server::library::import_metadata::upsert_book_from_metadata(
@@ -1051,6 +1118,34 @@ async fn local_title_and_author_searches_are_column_scoped() {
             .map(|book| book["title"].as_str().unwrap().to_string())
             .collect()
     };
+
+    let (status, short_title) = get_json(
+        &test_app,
+        "/api/discover?q=it&type=any&source=local",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(book_titles(&short_title), vec!["It"]);
+
+    let (status, mixed) = get_json(
+        &test_app,
+        "/api/discover?q=it+stephen+king&type=any&source=local",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(book_titles(&mixed), vec!["It"]);
+    assert_eq!(mixed["books"][0]["authors"], json!(["King, Stephen"]));
+
+    let (status, author) = get_json(
+        &test_app,
+        "/api/discover?q=stephen+king&type=author&source=local",
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(book_titles(&author), vec!["It"]);
 
     let (_, body) = get_json(
         &test_app,
@@ -1386,6 +1481,95 @@ async fn first_page_fetches_a_deeper_candidate_pool_and_truncates() {
         70,
         "every fetched candidate appears exactly once"
     );
+}
+
+#[tokio::test]
+async fn irrelevant_results_are_filtered_from_cached_and_continuation_pages() {
+    let mut results: Vec<_> = (0..70)
+        .map(|index| {
+            metadata_result(
+                &format!("/works/noise-{index}"),
+                "Project Management",
+                &["Mary Jones"],
+                None,
+            )
+        })
+        .collect();
+    for index in [2, 30, 49, 55, 69] {
+        results[index] = metadata_result(
+            &format!("/works/relevant-{index}"),
+            "Project Hail Mary",
+            &["Andy Weir"],
+            None,
+        );
+    }
+    let provider = Arc::new(FakeMetadataProvider::new(results).with_paging());
+    let app = common::test_app_with_metadata(provider.clone()).await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    let uri = "/api/discover?q=project+hail+mary&type=any&limit=2";
+    let (status, first) = get_json(&app, uri, &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    let calls = provider.calls();
+    let (_, cached) = get_json(&app, uri, &cookie).await;
+    assert_eq!(first, cached);
+    assert_eq!(provider.calls(), calls);
+
+    let mut page = first;
+    let mut keys = std::collections::HashSet::new();
+    let mut pages = 0;
+    loop {
+        for book in page["books"].as_array().unwrap() {
+            assert_eq!(book["title"], "Project Hail Mary");
+            assert!(keys.insert(book["providerKey"].as_str().unwrap().to_string()));
+        }
+        let Some(token) = page["next"].as_str() else {
+            break;
+        };
+        let continuation = token.replace('\u{1f}', "%1F").replace(':', "%3A");
+        let (status, more) =
+            get_json(&app, &format!("{uri}&continuation={continuation}"), &cookie).await;
+        assert_eq!(status, StatusCode::OK);
+        page = more;
+        pages += 1;
+        assert!(pages < 20, "filtered cursors must advance and terminate");
+    }
+    assert_eq!(keys.len(), 5, "every relevant work remains reachable");
+}
+
+#[tokio::test]
+async fn automatic_falls_back_when_primary_returns_only_irrelevant_results() {
+    let primary = Arc::new(FakeMetadataProvider::new(vec![metadata_result(
+        "/works/noise",
+        "Project Management",
+        &["Mary Jones"],
+        None,
+    )]));
+    let fallback = Arc::new(
+        FakeMetadataProvider::new(vec![metadata_result(
+            "/works/match",
+            "Project Hail Mary",
+            &["Andy Weir"],
+            None,
+        )])
+        .named("google_books"),
+    );
+    let app = common::test_app_with_provider_matrix(primary.clone(), Some(fallback), primary).await;
+    app.state
+        .auth
+        .create_user("reader", "password123", Role::User)
+        .await
+        .unwrap();
+    let cookie = common::login(&app, "reader", "password123").await;
+    let (status, page) = get_json(&app, "/api/discover?q=project+hail+mary", &cookie).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(page["provider"], "google_books");
+    assert_eq!(page["books"].as_array().unwrap().len(), 1);
+    assert_eq!(page["books"][0]["title"], "Project Hail Mary");
 }
 
 #[tokio::test]

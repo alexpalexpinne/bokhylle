@@ -1,3 +1,4 @@
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
@@ -8,6 +9,7 @@ use axum::http::request::Parts;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
+use tokio::sync::Semaphore;
 
 use crate::AppState;
 use crate::error::AppError;
@@ -23,6 +25,43 @@ pub const REMEMBERED_ABSOLUTE_TTL: Duration = Duration::from_secs(60 * 60 * 24 *
 pub const ROLLING_WINDOW: Duration = Duration::from_secs(60 * 60 * 24 * 5);
 pub const MAX_ACCOUNT_FAILURES: i64 = 10;
 pub const MAX_IP_FAILURES: i64 = 30;
+
+// Argon2 is deliberately expensive. Keep both CPU and memory bounded on small
+// household servers, sharing the limit across login and credential changes.
+static CREDENTIAL_WORKERS: LazyLock<CredentialWorkers> =
+    LazyLock::new(|| CredentialWorkers::new(2));
+
+struct CredentialWorkers {
+    permits: Arc<Semaphore>,
+}
+
+impl CredentialWorkers {
+    fn new(limit: usize) -> Self {
+        Self {
+            permits: Arc::new(Semaphore::new(limit)),
+        }
+    }
+
+    async fn run<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+    ) -> Result<T, AppError> {
+        let permit = self
+            .permits
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| AppError::Crypto)?;
+        tokio::task::spawn_blocking(move || {
+            // Hold the permit in the worker: cancelling the HTTP request cannot
+            // release capacity while its non-abortable hashing is still running.
+            let _permit = permit;
+            work()
+        })
+        .await
+        .map_err(|_| AppError::Crypto)?
+    }
+}
 
 const PIN_BLOCKLIST: [&str; 10] = [
     "000000", "111111", "112233", "121212", "123123", "123321", "123456", "654321", "666666",
@@ -173,7 +212,7 @@ pub(crate) struct PreparedUser {
 }
 
 impl PreparedUser {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         username: &str,
         secret: &str,
         role: Role,
@@ -202,7 +241,7 @@ impl PreparedUser {
         validate_credential(credential_type, secret)?;
         Ok(Self {
             username: username.to_string(),
-            password_hash: hash_credential(credential_type, secret)?,
+            password_hash: hash_credential(credential_type, secret).await?,
             role,
             credential_type: credential_type.to_string(),
             profile_type: profile_type.to_string(),
@@ -289,7 +328,8 @@ impl Auth {
         credential_type: &str,
         profile_type: &str,
     ) -> Result<User, AppError> {
-        let prepared = PreparedUser::new(username, secret, role, credential_type, profile_type)?;
+        let prepared =
+            PreparedUser::new(username, secret, role, credential_type, profile_type).await?;
         let mut connection = self.db.acquire().await?;
         prepared.insert(&mut connection).await
     }
@@ -329,13 +369,15 @@ impl Auth {
             credential_version,
             &password_hash,
             password,
-        ) {
+        )
+        .await?
+        {
             return Ok(None);
         }
 
         // Upgrade legacy hashes to the typed, prefixed format on first login.
         if credential_version < 2
-            && let Ok(hash) = hash_credential(&credential_type, password)
+            && let Ok(hash) = hash_credential(&credential_type, password).await
         {
             sqlx::query("UPDATE users SET password_hash = ?, credential_version = 2 WHERE id = ?")
                 .bind(hash)
@@ -601,7 +643,7 @@ impl Auth {
             .await?;
         let (password_hash, credential_type) = match &credential {
             Some((credential_type, secret)) => (
-                Some(hash_credential(credential_type, secret)?),
+                Some(hash_credential(credential_type, secret).await?),
                 Some(credential_type.clone()),
             ),
             None => (None, None),
@@ -838,22 +880,28 @@ pub fn validate_credential(credential_type: &str, secret: &str) -> Result<(), Ap
     }
 }
 
-pub fn hash_credential(credential_type: &str, secret: &str) -> Result<String, AppError> {
-    hash_password(&format!("{credential_type}:{secret}"))
+pub async fn hash_credential(credential_type: &str, secret: &str) -> Result<String, AppError> {
+    let material = format!("{credential_type}:{secret}");
+    CREDENTIAL_WORKERS
+        .run(move || hash_password(&material))
+        .await
 }
 
-pub fn verify_credential(
+pub async fn verify_credential(
     credential_type: &str,
     credential_version: i64,
     stored_hash: &str,
     secret: &str,
-) -> bool {
+) -> Result<bool, AppError> {
     let material = if credential_version >= 2 {
         format!("{credential_type}:{secret}")
     } else {
         secret.to_string()
     };
-    verify_password(&material, stored_hash)
+    let stored_hash = stored_hash.to_string();
+    CREDENTIAL_WORKERS
+        .run(move || Ok(verify_password(&material, &stored_hash)))
+        .await
 }
 
 /// Raw argon2 hash (no credential prefix); used for legacy rows in tests.
@@ -868,6 +916,81 @@ fn verify_password(password: &str, stored_hash: &str) -> bool {
     Argon2::default()
         .verify_password(password.as_bytes(), stored_hash)
         .is_ok()
+}
+
+#[cfg(test)]
+mod credential_worker_tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn credential_work_keeps_the_async_runtime_responsive() {
+        let workers = CredentialWorkers::new(1);
+        let (started, ready) = oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let task = tokio::spawn(async move {
+            workers
+                .run(move || {
+                    started.send(()).unwrap();
+                    wait.recv_timeout(Duration::from_secs(10)).unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        // This continuation must run while the credential worker is blocked,
+        // even when the async runtime has only one thread.
+        tokio::time::timeout(Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        release.send(()).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelling_a_request_does_not_release_a_running_credential_worker() {
+        let workers = Arc::new(CredentialWorkers::new(1));
+        let first_workers = workers.clone();
+        let (started, ready) = oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let first = tokio::spawn(async move {
+            first_workers
+                .run(move || {
+                    started.send(()).unwrap();
+                    wait.recv_timeout(Duration::from_secs(10)).unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert_eq!(workers.permits.available_permits(), 0);
+
+        let (started, mut ready) = oneshot::channel();
+        let second = tokio::spawn(async move {
+            workers
+                .run(move || {
+                    started.send(()).unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut ready)
+                .await
+                .is_err()
+        );
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        second.await.unwrap().unwrap();
+    }
 }
 
 /// The rate-limit key. Forwarding headers are trusted only when the operator

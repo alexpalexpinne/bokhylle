@@ -108,7 +108,7 @@ pub fn pages(path: &Path) -> Result<Vec<Page>, LibraryError> {
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_string();
+        let name = entry.name()?.into_owned();
         let safe = Path::new(&name)
             .components()
             .all(|part| matches!(part, Component::Normal(_)));

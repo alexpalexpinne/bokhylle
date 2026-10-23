@@ -4,7 +4,10 @@
 //! scores only those normalized signals plus ownership. It contains no
 //! provider-specific logic and is deterministic: same candidates, same order.
 //!
-//! Tiers (added, never gates):
+//! Provider candidates must first explain the query in the requested fields.
+//! Ranking bonuses never make an unrelated provider candidate eligible.
+//!
+//! Tiers:
 //! - title: exact 1000, prefix 700, contains 450, partial 140 × token share
 //! - author query match: exact 900, partial 420 × overlap (Author searches)
 //! - author evidence: up to 8 strong matches × 20 × the dominant author's
@@ -97,8 +100,25 @@ pub fn rank_metadata(results: &mut Vec<MetadataResult>, kind: SearchKind, text: 
     if !query.usable() || results.is_empty() {
         return;
     }
+    results.retain(|result| query.relevant(&Candidate::from_metadata(result)));
     let candidates: Vec<Candidate<'_>> = results.iter().map(Candidate::from_metadata).collect();
     reorder(results, rank_order(&candidates, &query));
+}
+
+/// Check provider relevance without changing its order, which the first-pool
+/// series lookup uses to decide whether an exact work already leads.
+pub(super) fn filter_metadata(results: &mut Vec<MetadataResult>, kind: SearchKind, text: &str) {
+    let query = Query::new(kind, text);
+    if query.usable() {
+        results.retain(|result| query.relevant(&Candidate::from_metadata(result)));
+    }
+}
+
+pub(super) fn filter_books(results: &mut Vec<DiscoveryResult>, kind: SearchKind, text: &str) {
+    let query = Query::new(kind, text);
+    if query.usable() {
+        results.retain(|result| query.relevant(&Candidate::from_book(result)));
+    }
 }
 
 fn reorder<T>(items: &mut Vec<T>, order: Vec<usize>) {
@@ -122,8 +142,22 @@ enum TitleTier {
     None,
 }
 
+impl TitleTier {
+    fn score(self) -> i64 {
+        match self {
+            Self::Exact => TITLE_EXACT,
+            Self::CoreMatch => TITLE_CORE_MATCH,
+            Self::Prefix => TITLE_PREFIX,
+            Self::Contains => TITLE_CONTAINS,
+            Self::Partial(share) => (TITLE_PARTIAL as f64 * share) as i64,
+            Self::None => 0,
+        }
+    }
+}
+
 struct Candidate<'a> {
     title: &'a str,
+    alternative_titles: &'a [String],
     authors: &'a [String],
     subjects: &'a [String],
     series: Option<&'a str>,
@@ -142,6 +176,7 @@ impl<'a> Candidate<'a> {
     fn from_book(book: &'a DiscoveryResult) -> Self {
         Self {
             title: &book.title,
+            alternative_titles: &book.alternative_titles,
             authors: &book.authors,
             subjects: &book.subjects,
             series: book.series.as_deref(),
@@ -160,6 +195,7 @@ impl<'a> Candidate<'a> {
     fn from_metadata(result: &'a MetadataResult) -> Self {
         Self {
             title: &result.title,
+            alternative_titles: &result.alternative_titles,
             authors: &result.authors,
             subjects: &result.subjects,
             series: result.series.as_deref(),
@@ -187,6 +223,7 @@ struct Query<'a> {
 
 impl<'a> Query<'a> {
     fn new(kind: SearchKind, text: &'a str) -> Self {
+        let kind = kind.for_text(text);
         let core = normalize_text(&core_title(text));
         let tokens: Vec<String> = core
             .split_whitespace()
@@ -219,10 +256,13 @@ impl<'a> Query<'a> {
         if title == self.core {
             return TitleTier::CoreMatch;
         }
-        if title.starts_with(&self.core) {
+        if title
+            .strip_prefix(&self.core)
+            .is_some_and(|suffix| suffix.starts_with(' '))
+        {
             return TitleTier::Prefix;
         }
-        if title.contains(&self.core) {
+        if contains_phrase(&title, &self.core) {
             return TitleTier::Contains;
         }
         if self.tokens.is_empty() {
@@ -231,7 +271,7 @@ impl<'a> Query<'a> {
         let matched = self
             .tokens
             .iter()
-            .filter(|token| title.contains(token.as_str()))
+            .filter(|token| title.split_whitespace().any(|word| word == token.as_str()))
             .count();
         if matched == 0 {
             TitleTier::None
@@ -240,18 +280,88 @@ impl<'a> Query<'a> {
         }
     }
 
+    fn candidate_title_tier(&self, candidate: &Candidate<'_>) -> TitleTier {
+        std::iter::once(candidate.title)
+            .chain(candidate.alternative_titles.iter().map(String::as_str))
+            .map(|title| self.title_tier(title))
+            .max_by_key(|tier| tier.score())
+            .unwrap_or(TitleTier::None)
+    }
+
+    /// Require every query word in the requested fields. An Anywhere query
+    /// may span a title and one author, but may not assemble a person's name
+    /// from several different authors. ISBN queries remain provider-verified:
+    /// a work result only carries a sample of its editions' identifiers.
+    fn relevant(&self, candidate: &Candidate<'_>) -> bool {
+        if self.kind == SearchKind::Isbn {
+            return true;
+        }
+        if self.kind == SearchKind::Subject {
+            return candidate.subjects.iter().any(|subject| {
+                crate::library::subjects::concept(&normalize_text(subject))
+                    == crate::library::subjects::concept(&self.core)
+                    || matches_words(&self.core, subject)
+            });
+        }
+        if self.kind == SearchKind::Author {
+            return candidate
+                .authors
+                .iter()
+                .any(|author| matches_words(&self.core, author));
+        }
+
+        let title_matches = |title: &str| {
+            if matches_words(without_leading_article(&self.core), title) {
+                return true;
+            }
+            // "box set" and "complete collection" express the same intent.
+            let lower = title.to_lowercase();
+            if self.collection_intent
+                && (has_marker(&lower, &COLLECTION_MARKERS) || has_book_range(&lower))
+            {
+                let mut base = self.core.clone();
+                for marker in COLLECTION_MARKERS {
+                    base = base.replace(marker, " ");
+                }
+                if !base.trim().is_empty() && matches_words(&base, title) {
+                    return true;
+                }
+            }
+            self.kind == SearchKind::Any
+                && candidate
+                    .authors
+                    .iter()
+                    .any(|author| matches_words(&self.core, &format!("{title} {author}")))
+        };
+        title_matches(candidate.title)
+            || candidate
+                .alternative_titles
+                .iter()
+                .any(|title| title_matches(title))
+            || (self.kind == SearchKind::Any
+                && (candidate.series.is_some_and(|series| {
+                    matches_words(without_leading_article(&self.core), series)
+                }) || candidate
+                    .subjects
+                    .iter()
+                    .any(|subject| matches_words(&self.core, subject))))
+    }
+
     /// The query looks like an author name; used by Author searches and for
     /// `Any` queries that read as a person.
     fn author_signal(&self, candidate: &Candidate<'_>) -> Option<f64> {
         let mut best: Option<f64> = None;
+        let author_query = compact_initials(&self.core);
         for author in candidate.authors {
-            let author = normalize_text(author);
+            let author = compact_initials(&normalize_text(author));
             if author.is_empty() {
                 continue;
             }
-            let overlap = if author == self.core {
+            let overlap = if author == author_query {
                 1.0
-            } else if author.contains(&self.core) || self.core.contains(&author) {
+            } else if contains_phrase(&author, &author_query)
+                || contains_phrase(&author_query, &author)
+            {
                 0.9
             } else if self.tokens.is_empty() {
                 0.0
@@ -303,19 +413,12 @@ impl<'a> Query<'a> {
                 .unwrap_or(0);
         }
 
-        let tier = self.title_tier(candidate.title);
+        let tier = self.candidate_title_tier(candidate);
         let strong_title = matches!(
             tier,
             TitleTier::Exact | TitleTier::CoreMatch | TitleTier::Prefix | TitleTier::Contains
         );
-        let title_score = match tier {
-            TitleTier::Exact => TITLE_EXACT,
-            TitleTier::CoreMatch => TITLE_CORE_MATCH,
-            TitleTier::Prefix => TITLE_PREFIX,
-            TitleTier::Contains => TITLE_CONTAINS,
-            TitleTier::Partial(share) => (TITLE_PARTIAL as f64 * share) as i64,
-            TitleTier::None => 0,
-        };
+        let title_score = tier.score();
         let author_query = match self.author_signal(candidate) {
             Some(overlap) if overlap >= 1.0 => AUTHOR_QUERY_EXACT,
             Some(overlap) if self.kind == SearchKind::Author => {
@@ -433,6 +536,49 @@ impl<'a> Query<'a> {
     }
 }
 
+fn contains_phrase(value: &str, phrase: &str) -> bool {
+    let words: Vec<_> = value.split_whitespace().collect();
+    let phrase: Vec<_> = phrase.split_whitespace().collect();
+    !phrase.is_empty() && words.windows(phrase.len()).any(|window| window == phrase)
+}
+
+fn matches_words(query: &str, value: &str) -> bool {
+    let value = normalize_text(value);
+    matches_normalized_words(query, &value)
+        || matches_normalized_words(&compact_initials(query), &compact_initials(&value))
+}
+
+fn matches_normalized_words(query: &str, value: &str) -> bool {
+    let tokens: Vec<_> = query.split_whitespace().collect();
+    !tokens.is_empty()
+        && tokens.iter().enumerate().all(|(index, token)| {
+            value.split_whitespace().any(|word| {
+                word == *token
+                    // Keep the final word usable while typing, without making
+                    // short words such as "It" match "Italian" or "Little".
+                    || (index + 1 == tokens.len()
+                        && token.chars().count() >= 3
+                        && word.starts_with(token))
+            })
+        })
+}
+
+/// Provider names use both "J. K. Rowling" and "JK Rowling". Joining runs
+/// of single-letter initials keeps those spellings equivalent.
+fn compact_initials(value: &str) -> String {
+    let mut output = String::new();
+    let mut previous_initial = false;
+    for word in value.split_whitespace() {
+        let initial = word.chars().count() == 1 && word.chars().all(char::is_alphabetic);
+        if !output.is_empty() && !(initial && previous_initial) {
+            output.push(' ');
+        }
+        output.push_str(word);
+        previous_initial = initial;
+    }
+    output
+}
+
 struct Evidence {
     author_strong: HashMap<String, usize>,
     strong_matches: usize,
@@ -444,7 +590,7 @@ fn evidence(candidates: &[Candidate<'_>], query: &Query<'_>) -> Evidence {
     let mut series_counts: HashMap<String, usize> = HashMap::new();
     let mut strong_matches = 0usize;
     for candidate in candidates {
-        let tier = query.title_tier(candidate.title);
+        let tier = query.candidate_title_tier(candidate);
         let strong = matches!(
             tier,
             TitleTier::Exact | TitleTier::CoreMatch | TitleTier::Prefix | TitleTier::Contains
@@ -629,6 +775,151 @@ fn digits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn metadata(title: &str, authors: &[&str]) -> MetadataResult {
+        MetadataResult {
+            title: title.to_string(),
+            authors: authors.iter().map(|author| author.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn provider_candidates_must_match_the_requested_fields() {
+        let candidates = vec![
+            metadata("It", &["Stephen King"]),
+            metadata("Little Women", &["Louisa May Alcott"]),
+            metadata("Italian Cooking", &["Stephen King"]),
+            metadata("Project Hail Mary", &["Andy Weir"]),
+            metadata("Project Management", &["Mary Jones"]),
+            metadata("Patient-First Revolution", &["Brian Sanderson"]),
+            metadata("The Final Empire", &["Brandon Sanderson"]),
+            metadata("Hot Freeze", &["Douglas Sanderson", "Brian Busby"]),
+            metadata("Stephen King: A Biography", &["Another Writer"]),
+            metadata("Harry Potter", &["J. K. Rowling"]),
+            metadata("Initial A", &["A. Smith"]),
+            metadata("Initial B", &["B. Smith"]),
+        ];
+        for (kind, query, expected) in [
+            (SearchKind::Title, "it", vec!["It"]),
+            (SearchKind::Any, "it stephen king", vec!["It"]),
+            (
+                SearchKind::Any,
+                "project hail mary",
+                vec!["Project Hail Mary"],
+            ),
+            (
+                SearchKind::Title,
+                "stephen king",
+                vec!["Stephen King: A Biography"],
+            ),
+            (
+                SearchKind::Author,
+                "brian sanderson",
+                vec!["Patient-First Revolution"],
+            ),
+            (
+                SearchKind::Any,
+                "brian sanderson",
+                vec!["Patient-First Revolution"],
+            ),
+            (SearchKind::Author, "brandon sand", vec!["The Final Empire"]),
+            (SearchKind::Author, "jk rowling", vec!["Harry Potter"]),
+            (SearchKind::Author, "j rowling", vec!["Harry Potter"]),
+            (SearchKind::Author, "a smith", vec!["Initial A"]),
+            (SearchKind::Any, "no matching book", vec![]),
+        ] {
+            let mut results = candidates.clone();
+            // Engagement cannot admit an irrelevant candidate.
+            for item in &mut results {
+                item.popularity = Some(1_000_000);
+            }
+            rank_metadata(&mut results, kind, query);
+            let actual: Vec<_> = results.iter().map(|item| item.title.as_str()).collect();
+            assert_eq!(actual, expected, "{kind:?}: {query}");
+        }
+    }
+
+    #[test]
+    fn filtering_preserves_translations_series_subjects_and_collection_intent() {
+        let mut translated = metadata("嫌われる勇気", &["Ichiro Kishimi"]);
+        translated.alternative_titles = vec!["The Courage to Be Disliked".to_string()];
+        let mut series = metadata("Leviathan Wakes", &["James S. A. Corey"]);
+        series.series = Some("The Expanse".to_string());
+        let mut subject = metadata("A Brief History of Time", &["Stephen Hawking"]);
+        subject.subjects = vec!["Cosmology".to_string()];
+        let collection = metadata("Harry Potter Complete Collection", &["J. K. Rowling"]);
+        for (kind, query, candidate) in [
+            (SearchKind::Title, "the courage to be disliked", translated),
+            (SearchKind::Any, "the expanse", series),
+            (SearchKind::Subject, "cosmology", subject.clone()),
+            (SearchKind::Any, "cosmology", subject),
+            (SearchKind::Any, "harry potter box set", collection),
+        ] {
+            let mut results = vec![candidate.clone(), metadata("Unrelated Book", &[])];
+            rank_metadata(&mut results, kind, query);
+            assert_eq!(results, vec![candidate], "{kind:?}: {query}");
+        }
+    }
+
+    #[test]
+    fn isbn_search_keeps_works_with_only_a_sampled_edition_identifier() {
+        for kind in [SearchKind::Isbn, SearchKind::Any] {
+            for text in [
+                "9780593135204",
+                "978-0-593-13520-4",
+                "0593135202",
+                "0-593-13520-2",
+            ] {
+                let mut results = vec![metadata("A Work With Many Editions", &[])];
+                rank_metadata(&mut results, kind, text);
+                assert_eq!(
+                    results.len(),
+                    1,
+                    "{kind:?}: {text} must preserve ISBN matches"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn short_title_scores_do_not_match_inside_other_words() {
+        let query = Query::new(SearchKind::Any, "it");
+        assert_eq!(query.title_tier("It"), TitleTier::Exact);
+        assert_eq!(query.title_tier("It Ends with Us"), TitleTier::Prefix);
+        assert_eq!(query.title_tier("This Is It"), TitleTier::Contains);
+        assert_eq!(query.title_tier("Little Women"), TitleTier::None);
+        assert_eq!(query.title_tier("Italian Cooking"), TitleTier::None);
+    }
+
+    #[test]
+    fn translated_title_evidence_survives_ownership_resolution_ranking() {
+        let mut translated = book("嫌われる勇気", &["Ichiro Kishimi"], None, None, None, None);
+        translated.alternative_titles = vec!["The Courage to Be Disliked".to_string()];
+        let mut results = vec![
+            book(
+                "Complete Courage to Be Disliked Duology Boxed Set",
+                &["Ichiro Kishimi"],
+                None,
+                None,
+                None,
+                Some(100_000),
+            ),
+            translated,
+        ];
+        rank_books(
+            &mut results,
+            SearchKind::Title,
+            "the courage to be disliked",
+        );
+        assert_eq!(results[0].title, "嫌われる勇気");
+        assert!(
+            serde_json::to_value(&results[0])
+                .unwrap()
+                .get("alternativeTitles")
+                .is_none()
+        );
+    }
 
     fn book(
         title: &str,

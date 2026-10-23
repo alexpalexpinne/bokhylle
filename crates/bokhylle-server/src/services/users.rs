@@ -121,7 +121,8 @@ pub async fn create(
     let credential_type = input
         .credential_type
         .unwrap_or_else(|| infer_credential_type(role, &secret).to_string());
-    let prepared = PreparedUser::new(&input.username, &secret, role, &credential_type, profile)?;
+    let prepared =
+        PreparedUser::new(&input.username, &secret, role, &credential_type, profile).await?;
     let display_name = input
         .display_name
         .map(|name| name.trim().to_string())

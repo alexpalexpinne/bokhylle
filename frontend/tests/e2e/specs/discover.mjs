@@ -290,7 +290,7 @@ export default async function discover(page, { base }) {
   expect(typedValue === 'harry', `the input must keep exactly what was typed, got ${typedValue}`)
   expect(page.url().includes('q=harry'), `the URL must match the typed query, got ${page.url()}`)
 
-  // Returning to a cached query must invalidate an older provider response.
+  // Returning to a cached query must cancel the older provider request.
   let releaseSlowSearch
   const slowSearchGate = new Promise((resolve) => {
     releaseSlowSearch = resolve
@@ -334,18 +334,20 @@ export default async function discover(page, { base }) {
   await typingInput.fill('slowrace')
   await slowRequest
   await slowSearchStarted
+  const slowCancelled = page.waitForEvent('requestfailed', {
+    predicate: (request) => {
+      const url = new URL(request.url())
+      return (
+        url.pathname === '/api/discover' &&
+        url.searchParams.get('q') === 'slowrace' &&
+        url.searchParams.get('source') !== 'local'
+      )
+    },
+  })
   await typingInput.fill('mock')
   await page.getByRole('button', { name: 'Open details for Owned Mock' }).waitFor({ timeout: 8000 })
-  const slowResponse = page.waitForResponse((response) => {
-    const url = new URL(response.url())
-    return (
-      url.pathname === '/api/discover' &&
-      url.searchParams.get('q') === 'slowrace' &&
-      url.searchParams.get('source') !== 'local'
-    )
-  })
   releaseSlowSearch()
-  await slowResponse
+  await slowCancelled
   await page.waitForTimeout(100)
   expect(
     await page.getByRole('button', { name: 'Open details for Owned Mock' }).isVisible(),

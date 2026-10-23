@@ -61,8 +61,10 @@ export function fetchDiscoverOrchestration(params: {
   continuation?: string
   localOnly?: boolean
   limit?: number
+  signal?: AbortSignal
 }) {
   return apiRoute('/api/discover', '/api/discover', {
+    signal: params.signal,
     query: {
       q: params.q,
       type: params.type,

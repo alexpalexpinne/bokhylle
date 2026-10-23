@@ -100,6 +100,12 @@ export function useDiscoverSearch({
     partial: boolean
   } | null>(null)
   const requestSeq = useRef(0)
+  const previousSearchKey = useRef<string | null>(null)
+  const activeSearch = useRef<{
+    key: string
+    controller: AbortController
+    pending: boolean
+  } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const loadingMoreRef = useRef(false)
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null)
@@ -118,6 +124,13 @@ export function useDiscoverSearch({
   const languageMode = allLanguages ? 'all' : defaultLanguages.join(',')
   const searchKeyOf = (kind: SearchType, text: string) =>
     `${userId}|${kind}|${text.trim()}|${languageMode}`
+
+  function cancelSearch() {
+    ++requestSeq.current
+    activeSearch.current?.controller.abort()
+    activeSearch.current = null
+    loadingMoreRef.current = false
+  }
 
   function setInput(value: string) {
     inputTouched.current = true
@@ -154,6 +167,7 @@ export function useDiscoverSearch({
     }
 
     const key = searchKeyOf(kind, trimmed)
+    if (activeSearch.current?.key === key && activeSearch.current.pending) return
     const cached = demo ? undefined : cachedSearch(key)
     if (result?.key === key && requestedKey === key && cached) {
       return
@@ -163,9 +177,16 @@ export function useDiscoverSearch({
     setNotice(null)
     setExternalNotice(null)
 
-    // Invalidate older requests even when this search can be served from cache.
-    const generation = ++requestSeq.current
+    // Local preview, online results and pagination share one cancellation scope.
+    cancelSearch()
+    setLoadingMore(false)
+    const generation = requestSeq.current
+    const search = { key, controller: new AbortController(), pending: true }
+    activeSearch.current = search
+    const signal = search.controller.signal
+    const current = () => generation === requestSeq.current && !signal.aborted
     if (cached) {
+      search.pending = false
       setContinuation(cached.next)
       setResult({ key, items: cached.items, error: cached.error })
       setAuthorState({ key, items: cached.authors, partial: false })
@@ -177,17 +198,19 @@ export function useDiscoverSearch({
     const authorsOf = (page: DiscoverPage) => [...page.authors.local, ...page.authors.external]
     if (demo) {
       try {
-        const page = await fetchDiscoverOrchestration({ q: trimmed, type: kind, localOnly: true })
-        if (generation !== requestSeq.current) return
+        const page = await fetchDiscoverOrchestration({ q: trimmed, type: kind, localOnly: true, signal })
+        if (!current()) return
         setResult({ key, items: page.books, error: null })
         setAuthorState({ key, items: wantsAuthors ? authorsOf(page) : [], partial: false })
         setContinuation(null)
         setCompletedKey(key)
       } catch (caught) {
-        if (generation !== requestSeq.current) return
+        if (!current()) return
         setResult({ key, items: [], error: caught instanceof ApiError ? caught.message : 'Search failed' })
         setAuthorState({ key, items: [], partial: false })
         setCompletedKey(key)
+      } finally {
+        search.pending = false
       }
       return
     }
@@ -197,9 +220,9 @@ export function useDiscoverSearch({
     // Local fast path: catalogue books and authors paint without provider
     // latency; the full call replaces both when it lands. Nothing is cached
     // until the full answer settles, so a revisit cannot pin a partial view.
-    void fetchDiscoverOrchestration({ q: trimmed, type: kind, localOnly: true })
+    void fetchDiscoverOrchestration({ q: trimmed, type: kind, localOnly: true, signal })
       .then((page) => {
-        if (generation !== requestSeq.current || fullLanded) {
+        if (!current() || fullLanded) {
           return
         }
         const authors = wantsAuthors ? authorsOf(page) : []
@@ -210,10 +233,13 @@ export function useDiscoverSearch({
           setAuthorState({ key, items: authors, partial: true })
         }
       })
-      .catch((caught: unknown) => console.warn('discover.local_fast_path_failed', caught))
+      .catch((caught: unknown) => {
+        if (current()) console.warn('discover.local_fast_path_failed', caught)
+      })
 
     try {
-      const page = await fetchDiscoverOrchestration({ q: trimmed, type: kind })
+      const page = await fetchDiscoverOrchestration({ q: trimmed, type: kind, signal })
+      if (!current()) return
       let items = page.books
       let next = page.next
       const preferred = defaultLanguages
@@ -224,6 +250,7 @@ export function useDiscoverSearch({
         let pages = 0
         while (
           next &&
+          current() &&
           pages < 3 &&
           items.filter((item) =>
             item.languages?.some((language) => preferred.includes(language)) ||
@@ -235,13 +262,15 @@ export function useDiscoverSearch({
             q: trimmed,
             type: kind,
             continuation: next,
+            signal,
           })
+          if (!current()) return
           items = [...items, ...more.books]
           next = more.next
           pages += 1
         }
       }
-      if (generation !== requestSeq.current) {
+      if (!current()) {
         return
       }
       fullLanded = true
@@ -253,7 +282,7 @@ export function useDiscoverSearch({
       setAuthorState({ key, items: authors, partial: false })
       setCompletedKey(key)
     } catch (caught) {
-      if (generation !== requestSeq.current) {
+      if (!current()) {
         return
       }
       fullLanded = true
@@ -276,14 +305,20 @@ export function useDiscoverSearch({
       setResult({ key, items: [], error: message })
       setAuthorState({ key, items: [], partial: false })
       setCompletedKey(key)
+    } finally {
+      search.pending = false
     }
   }
 
   async function loadMore() {
-    if (!continuation || loadingMoreRef.current || !result || result.key !== requestedKey) {
+    if (!continuation || loadingMoreRef.current || !result || result.key !== requestedKey || result.key !== searchKeyOf(type, query.trim())) {
       return
     }
     const generation = requestSeq.current
+    // Cache restores may have no running request yet; use the same scope for
+    // Load more so changing or clearing the query also cancels pagination.
+    const controller = activeSearch.current?.controller ?? new AbortController()
+    activeSearch.current ??= { key: result.key, controller, pending: false }
     loadingMoreRef.current = true
     setLoadingMore(true)
     setLoadMoreError(null)
@@ -292,8 +327,9 @@ export function useDiscoverSearch({
         q: query.trim(),
         type,
         continuation,
+        signal: controller.signal,
       })
-      if (generation !== requestSeq.current) {
+      if (generation !== requestSeq.current || controller.signal.aborted) {
         return
       }
       const items = [...result.items, ...page.books]
@@ -306,10 +342,12 @@ export function useDiscoverSearch({
         cacheSearch(result.key, { ...cached, items, next: page.next })
       }
     } catch {
-      if (generation === requestSeq.current) setLoadMoreError('Could not load more results. Your current books are still shown.')
+      if (generation === requestSeq.current && !controller.signal.aborted) setLoadMoreError('Could not load more results. Your current books are still shown.')
     } finally {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
+      if (generation === requestSeq.current) {
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
     }
   }
 
@@ -354,19 +392,31 @@ export function useDiscoverSearch({
   // keep the previous results while a new query is in flight.
   useEffect(() => {
     const trimmed = query.trim()
+    const key = searchKeyOf(type, trimmed)
+    const changed = previousSearchKey.current !== null && previousSearchKey.current !== key
+    previousSearchKey.current = key
+    if (activeSearch.current && ((changed && activeSearch.current.key !== key) || detailOnly)) {
+      cancelSearch()
+      setLoadingMore(false)
+    }
+    if (detailOnly) return
     if (trimmed.length < 3) {
+      // A short title explicitly submitted with Enter can still run. Editing
+      // down to a short/empty query stops the previous search immediately.
+      if (!activeSearch.current) {
+        setRequestedKey(null)
+        setCompletedKey(null)
+        setResult(null)
+        setAuthorState(null)
+        setContinuation(null)
+        setLoadMoreError(null)
+        setExternalNotice(null)
+      }
       return
     }
-    const key = searchKeyOf(type, trimmed)
     const cached = cachedSearch(key)
     if (cached) {
-      ++requestSeq.current
-      setRequestedKey(key)
-      setNotice(null)
-      setContinuation(cached.next)
-      setResult({ key, items: cached.items, error: cached.error })
-      setAuthorState({ key, items: cached.authors, partial: false })
-      setCompletedKey(key)
+      void runSearch(trimmed, type)
       return
     }
     const timer = setTimeout(() => {
@@ -374,7 +424,13 @@ export function useDiscoverSearch({
     }, 250)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, type, languageMode])
+  }, [query, type, languageMode, userId, detailOnly])
+
+  useEffect(() => () => {
+    ++requestSeq.current
+    activeSearch.current?.controller.abort()
+    activeSearch.current = null
+  }, [])
 
   function updateAuthors(update: (items: AuthorHit[]) => AuthorHit[]) {
     setAuthorState((current) => {

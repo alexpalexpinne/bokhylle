@@ -646,7 +646,9 @@ pub async fn change_credential(
         return Err(AppError::NotFound("user not found".to_string()));
     };
 
-    if !crate::auth::verify_credential(&credential_type, credential_version, &hash, &body.current) {
+    if !crate::auth::verify_credential(&credential_type, credential_version, &hash, &body.current)
+        .await?
+    {
         return Err(AppError::Unauthorized);
     }
 
@@ -656,7 +658,7 @@ pub async fn change_credential(
         ));
     }
     crate::auth::validate_credential(&body.credential_type, &body.credential)?;
-    let new_hash = crate::auth::hash_credential(&body.credential_type, &body.credential)?;
+    let new_hash = crate::auth::hash_credential(&body.credential_type, &body.credential).await?;
 
     sqlx::query(
         "UPDATE users SET password_hash = ?, credential_type = ?, credential_version = 2
