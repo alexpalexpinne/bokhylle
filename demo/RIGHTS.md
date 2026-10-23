@@ -13,6 +13,19 @@ and image files are unchanged; changes concern release metadata, alternate-scrip
 metadata, the colophon, and title-page markup. The credited creators and artwork
 are unchanged. The updated exact-file SHA-256 is recorded in `books.tsv`.
 
+Rechecked *The Hound of the Baskervilles* and *Moby Dick* on 2026-10-23 after
+their upstream editions changed. The EPUBs identify revisions `39839ab` (released
+2026-10-22) and `d313179` (released 2026-10-18), respectively. Compared with the
+previously reviewed files, all image files are byte-identical, and creator
+credits, contributor roles, and rights declarations are unchanged. *The Hound
+of the Baskervilles* still credits Arthur Conan Doyle and artwork by Caspar
+David Friedrich; *Moby Dick* still credits Herman Melville and artwork by
+Albert Pinkham Ryder. No separate editor or translator credit was added.
+Text changes correct a phrase in chapter 2 of *The Hound of the Baskervilles*
+and a place name in chapter 76 of *Moby Dick*. Other changes update release
+metadata, subject punctuation, the colophon, and title-page accessibility
+markup. The updated exact-file SHA-256 values are recorded in `books.tsv`.
+
 Hosting in Finland was also reviewed on 2026-09-30 against the same 26 pinned
 EPUBs. Section 43 of the [Finnish Copyright Act](https://www.finlex.fi/en/legislation/translations/1961/eng/404)
 uses the end of the 70th year after the author's death, including the last

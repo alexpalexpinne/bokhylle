@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1 — 2026-10-22
+## 0.5.1 — 2026-10-23
 
 - Filter unrelated Discover results before ranking, including cached and continuation pages. Match titles, authors, initials, series, subjects, and translated edition titles without letting short words match inside unrelated words.
 - Recognize valid ISBNs in Anywhere searches, normalize their separators, and preserve ordinary numeric titles such as *1984*.
@@ -8,6 +8,7 @@
 - Run password and PIN hashing and verification outside async request workers, with a shared limit of two concurrent credential operations.
 - Update Vite, ZIP, and TLS dependencies to resolve reported security advisories.
 - Keep pending demo acquisitions in progress after opening their details, even though their sample files are already prepared.
+- Refresh two demo EPUB pins after reviewing upstream text corrections and confirming unchanged artwork and creator credits.
 
 No database migration or configuration change is required.
 
