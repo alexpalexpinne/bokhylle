@@ -197,7 +197,7 @@ and acquisitions retain their state.
 ### Published image
 
 Once a release image is public, set `BOKHYLLE_IMAGE` in `.env` to its version tag
-or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.5.1`. That tag is
+or digest, such as `ghcr.io/alexpalexpinne/bokhylle:v0.5.2`. That tag is
 an example; use a tag actually listed on the package. Back up config and library,
 then pull and start through the image overlay:
 
