@@ -883,10 +883,11 @@ async fn insert_event(
 
 pub async fn set_speed(pool: &SqlitePool, id: &str, speed: Option<i64>) -> Result<(), AppError> {
     sqlx::query(
-        "UPDATE acquisitions SET download_speed = ?, updated_at = unixepoch() WHERE id = ?",
+        "UPDATE acquisitions SET download_speed = ?, updated_at = unixepoch() WHERE id = ? AND download_speed IS NOT ?",
     )
     .bind(speed)
     .bind(id)
+    .bind(speed)
     .execute(pool)
     .await?;
     Ok(())
@@ -1281,11 +1282,15 @@ pub async fn latest_event_detail(
 }
 
 pub async fn set_progress(pool: &SqlitePool, id: &str, progress: f64) -> Result<(), AppError> {
-    sqlx::query("UPDATE acquisitions SET progress = ?, updated_at = unixepoch() WHERE id = ?")
-        .bind(progress.clamp(0.0, 100.0))
-        .bind(id)
-        .execute(pool)
-        .await?;
+    let progress = progress.clamp(0.0, 100.0);
+    sqlx::query(
+        "UPDATE acquisitions SET progress = ?, updated_at = unixepoch() WHERE id = ? AND progress IS NOT ?",
+    )
+    .bind(progress)
+    .bind(id)
+    .bind(progress)
+    .execute(pool)
+    .await?;
 
     Ok(())
 }
