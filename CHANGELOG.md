@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 — 2026-11-22
+
+- Skip no-op SQLite `UPDATE acquisitions` writes in the acquisition tracker when `progress`, `download_speed`, and `content_path` have not changed, eliminating continuous background disk writes for stalled downloads.
+
+No database migration or configuration change is required.
+
 ## 0.5.1 — 2026-10-23
 
 - Filter unrelated Discover results before ranking, including cached and continuation pages. Match titles, authors, initials, series, subjects, and translated edition titles without letting short words match inside unrelated words.

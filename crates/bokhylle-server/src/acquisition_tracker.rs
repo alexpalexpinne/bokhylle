@@ -131,7 +131,7 @@ pub async fn tick(state: &AppState) -> Result<TickReport, AppError> {
             )
         {
             sqlx::query(
-                "UPDATE acquisitions SET content_path = COALESCE(content_path, ?) WHERE id = ?",
+                "UPDATE acquisitions SET content_path = ? WHERE id = ? AND content_path IS NULL",
             )
             .bind(content_path)
             .bind(&id)

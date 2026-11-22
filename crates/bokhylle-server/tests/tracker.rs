@@ -310,3 +310,38 @@ async fn cancelled_downloads_with_pending_cleanup_are_reconciled() {
         .unwrap();
     assert_eq!(pending, 0, "the cleanup is recorded as done");
 }
+
+#[tokio::test]
+async fn tick_skips_noop_writes_when_progress_and_speed_are_unchanged() {
+    let downloader = Arc::new(FakeDownloadProvider::default());
+    let (test_app, _library_dir, _cookie, acquisition_id) =
+        queued_acquisition(downloader.clone()).await;
+
+    downloader.set_progress(0.0);
+    bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+
+    // Backdate updated_at so any unnecessary UPDATE would overwrite it with unixepoch().
+    sqlx::query("UPDATE acquisitions SET updated_at = 1000 WHERE id = ?")
+        .bind(&acquisition_id)
+        .execute(&test_app.state.db)
+        .await
+        .unwrap();
+
+    let report = bokhylle_server::acquisition_tracker::tick(&test_app.state)
+        .await
+        .unwrap();
+    assert_eq!(report.checked, 1);
+    assert_eq!(report.downloading, 1);
+
+    let updated_at: i64 = sqlx::query_scalar("SELECT updated_at FROM acquisitions WHERE id = ?")
+        .bind(&acquisition_id)
+        .fetch_one(&test_app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        updated_at, 1000,
+        "unchanged tracker tick must not rewrite acquisitions row"
+    );
+}
