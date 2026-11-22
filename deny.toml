@@ -19,4 +19,12 @@ allow = [
 ]
 
 [advisories]
-ignore = []
+ignore = [
+    # Transitive unmaintained warning (lopdf, rmcp, schemars); no security impact.
+    # Tracked in: https://github.com/alexpalexpinne/bokhylle/issues/15
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained warning from transitive crates (lopdf, rmcp, schemars); tracked for upstream migration" },
+    # Time-limited exception (review by 2027-02-01): sqlx-sqlite 0.9.x pins libsqlite3-sys 0.37.0.
+    # Exposure audit: Bokhylle only opens its own non-root /config/bokhylle.db and internal VACUUM INTO snapshots; never opens untrusted .db/-wal pairs.
+    # Tracked in: https://github.com/alexpalexpinne/bokhylle/issues/15
+    { id = "RUSTSEC-2026-0459", reason = "sqlx-sqlite 0.9.x pins libsqlite3-sys 0.37.0; runtime never opens untrusted DB/WAL files; remove once sqlx upgrades to >=0.39.0" },
+]
